@@ -1,0 +1,11 @@
+No tests have been run yet.
+
+First test will be the GitHub Actions debug APK build.
+See .agent/TEST_STATUS.md for the complete test matrix.
+
+Next test to trigger:
+1. Push all files to GitHub (node scripts/push-to-github.js)
+2. GitHub Actions will run .github/workflows/android.yml
+3. Download app-debug.apk artifact from Actions tab
+4. Install on device: adb install app-debug.apk
+5. Launch and verify login screen appears (NOT placeholder)
