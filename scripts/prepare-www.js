@@ -1,135 +1,303 @@
 #!/usr/bin/env node
 /**
  * prepare-www.js
- * Copies public/ assets from isotope-code into www/ and injects the Android bridge.
+ *
+ * Builds www/ for the Capacitor Android APK.
+ *
+ * Source layout in isotope-code:
+ *   <root>/index.html        ← entry point (at REPO root, NOT in public/)
+ *   <root>/public/           ← all static assets (assets/, fonts/, icons/, sounds/, sync/, etc.)
+ *
+ * Target layout in www/:
+ *   www/index.html           ← from repo root
+ *   www/assets/              ← built JS/CSS bundles (from public/assets/)
+ *   www/fonts/               ← fonts (from public/fonts/)
+ *   www/icons/               ← icons (from public/icons/)
+ *   www/sounds/              ← audio files (from public/sounds/)
+ *   www/sync/                ← backup-normalizer.js, local-data-adapter.js
+ *   www/android-bridge.js    ← injected by this script (first script in <head>)
+ *   www/auth-bridge.js       ← from public/
+ *   www/boot-recovery.js     ← from public/
+ *   ... etc.
+ *
+ * Env vars:
+ *   REPO_DIR     = path to cloned isotope-code repo root   (contains index.html + public/)
+ *   SOURCE_DIR   = path to isotope-code/public/            (default: REPO_DIR/public)
+ *   WWW_DIR      = path to output www/ directory           (default: ../www)
+ *   BRIDGE_FILE  = path to android-bridge.js               (default: ../android-bridge.js)
  */
+
+'use strict';
 
 const fs   = require('fs');
 const path = require('path');
 
-const SOURCE_DIR  = process.env.SOURCE_DIR  || path.resolve(__dirname, '../isotope-code/public');
+const REPO_DIR    = process.env.REPO_DIR    || path.resolve(__dirname, '../isotope-code');
+const SOURCE_DIR  = process.env.SOURCE_DIR  || path.join(REPO_DIR, 'public');
 const WWW_DIR     = process.env.WWW_DIR     || path.resolve(__dirname, '../www');
 const BRIDGE_FILE = process.env.BRIDGE_FILE || path.resolve(__dirname, '../android-bridge.js');
 
-if (!fs.existsSync(SOURCE_DIR)) {
-  console.error(`ERROR: Source dir not found: ${SOURCE_DIR}`);
-  console.error('Set SOURCE_DIR env var or place isotope-code/ next to this repo.');
+console.log('=== prepare-www.js ===');
+console.log('REPO_DIR   :', REPO_DIR);
+console.log('SOURCE_DIR :', SOURCE_DIR);
+console.log('WWW_DIR    :', WWW_DIR);
+console.log('BRIDGE_FILE:', BRIDGE_FILE);
+console.log('');
+
+// ── Validate inputs ───────────────────────────────────────────────────────────
+
+const rootIndexPath = path.join(REPO_DIR, 'index.html');
+
+if (!fs.existsSync(REPO_DIR)) {
+  console.error('ERROR: REPO_DIR not found:', REPO_DIR);
+  console.error('  → Set REPO_DIR to the root of the cloned isotope-code repo.');
   process.exit(1);
 }
 
-// ── 1. Clean www/ ────────────────────────────────────────────────────────────
-console.log('Cleaning www/ ...');
+if (!fs.existsSync(rootIndexPath)) {
+  console.error('ERROR: index.html not found at repo root:', rootIndexPath);
+  console.error('  → isotope-code has index.html at the REPO ROOT, not inside public/.');
+  console.error('  → Ensure REPO_DIR points to the repo root (not public/).');
+  process.exit(1);
+}
+
+if (!fs.existsSync(SOURCE_DIR)) {
+  console.error('ERROR: SOURCE_DIR (public/) not found:', SOURCE_DIR);
+  process.exit(1);
+}
+
+if (!fs.existsSync(BRIDGE_FILE)) {
+  console.error('ERROR: android-bridge.js not found:', BRIDGE_FILE);
+  process.exit(1);
+}
+
+// ── 1. Clean www/ ─────────────────────────────────────────────────────────────
+
+console.log('Step 1: Cleaning www/ ...');
 if (fs.existsSync(WWW_DIR)) {
   fs.rmSync(WWW_DIR, { recursive: true, force: true });
 }
 fs.mkdirSync(WWW_DIR, { recursive: true });
+console.log('  ✓ www/ cleaned and recreated');
 
-// ── 2. Copy public/ → www/ ───────────────────────────────────────────────────
-console.log(`Copying ${SOURCE_DIR} → ${WWW_DIR} ...`);
+// ── 2. Copy public/ contents → www/ ──────────────────────────────────────────
+//    (assets/, fonts/, icons/, sounds/, sync/, auth-bridge.js, sw.js, etc.)
+
+console.log('\nStep 2: Copying public/ contents → www/ ...');
 copyDirSync(SOURCE_DIR, WWW_DIR);
-console.log('Copy complete.');
+const publicFiles = countFiles(WWW_DIR);
+console.log(`  ✓ Copied ${publicFiles} files from public/`);
 
-// ── 3. Inject Android bridge into index.html ─────────────────────────────────
-const indexPath = path.join(WWW_DIR, 'index.html');
-if (!fs.existsSync(indexPath)) {
-  console.error('ERROR: index.html not found in www/');
+// ── 3. Copy root index.html → www/index.html ─────────────────────────────────
+//    NOTE: index.html lives at the REPO ROOT in isotope-code, not in public/.
+//    This is the Vite entry point that references /assets/*.js and /assets/*.css.
+
+console.log('\nStep 3: Copying root index.html → www/index.html ...');
+const indexDest = path.join(WWW_DIR, 'index.html');
+
+// Sanity: if public/ somehow had an index.html already, warn
+if (fs.existsSync(indexDest)) {
+  console.warn('  WARN: index.html already existed from public/ — overwriting with repo root version');
+}
+fs.copyFileSync(rootIndexPath, indexDest);
+console.log('  ✓ index.html copied from repo root');
+
+// ── 4. Copy android-bridge.js → www/android-bridge.js ────────────────────────
+
+console.log('\nStep 4: Copying android-bridge.js into www/ ...');
+const bridgeDest = path.join(WWW_DIR, 'android-bridge.js');
+fs.copyFileSync(BRIDGE_FILE, bridgeDest);
+console.log('  ✓ android-bridge.js copied to www/');
+
+// ── 5. Patch index.html ───────────────────────────────────────────────────────
+//    a) Inject android-bridge.js as VERY FIRST script (before auth-bridge.js)
+//    b) Disable pwa-local.js (SW registration — Capacitor serves locally)
+//    c) Disable update-checker.js (polls GitHub — irrelevant in APK)
+//    d) Fix viewport for Android safe-areas
+
+console.log('\nStep 5: Patching index.html ...');
+let html = fs.readFileSync(indexDest, 'utf8');
+
+// 5a. Inject android-bridge.js as first child of <head>
+const bridgeScriptTag = '<script src="/android-bridge.js"></script>';
+if (!html.includes('android-bridge.js')) {
+  html = html.replace(/<head>/i, '<head>\n    ' + bridgeScriptTag);
+  console.log('  ✓ android-bridge.js injected as first script in <head>');
+} else {
+  console.log('  ○ android-bridge.js already present in index.html');
+}
+
+// 5b. Disable pwa-local.js (SW registration causes stale-asset loops in Capacitor)
+if (html.includes('/pwa-local.js')) {
+  html = html.replace(
+    /<script[^>]+src="\/pwa-local\.js"[^>]*><\/script>/,
+    '<!-- pwa-local.js disabled in Android APK (Capacitor serves assets locally) -->'
+  );
+  console.log('  ✓ pwa-local.js disabled');
+} else {
+  console.log('  ○ pwa-local.js not found in index.html (already removed)');
+}
+
+// 5c. Disable update-checker.js (GitHub polling not relevant in APK)
+if (html.includes('/update-checker.js')) {
+  html = html.replace(
+    /<script[^>]+src="\/update-checker\.js"[^>]*><\/script>/,
+    '<!-- update-checker.js disabled in Android APK -->'
+  );
+  console.log('  ✓ update-checker.js disabled');
+} else {
+  console.log('  ○ update-checker.js not found in index.html (already removed)');
+}
+
+// 5d. Fix viewport for Android (add viewport-fit=cover for notch/safe-area support)
+if (html.includes('initial-scale=1.0"') && !html.includes('viewport-fit=cover')) {
+  html = html.replace(
+    'initial-scale=1.0"',
+    'initial-scale=1.0, viewport-fit=cover"'
+  );
+  console.log('  ✓ viewport-fit=cover added');
+}
+
+fs.writeFileSync(indexDest, html, 'utf8');
+console.log('  ✓ index.html patched');
+
+// ── 6. Replace sw.js with a no-op ────────────────────────────────────────────
+//    Capacitor serves all assets from its local file server.
+//    A real SW would intercept requests and serve stale cached versions,
+//    causing confusion. Replace it with a no-op SW.
+
+console.log('\nStep 6: Replacing sw.js with Capacitor no-op ...');
+const swPath = path.join(WWW_DIR, 'sw.js');
+if (fs.existsSync(swPath)) {
+  fs.writeFileSync(swPath, [
+    '/* IsotopeAI sw.js — disabled in Capacitor/Android APK.',
+    ' * Capacitor bundles all assets locally; no SW caching needed.',
+    ' * This no-op prevents 404s from existing SW registrations.',
+    ' */',
+    "self.addEventListener('install', e => e.waitUntil(self.skipWaiting()));",
+    "self.addEventListener('activate', e => e.waitUntil(clients.claim()));",
+    "self.addEventListener('fetch', () => {});",
+  ].join('\n'), 'utf8');
+  console.log('  ✓ sw.js replaced with no-op');
+} else {
+  console.log('  ○ sw.js not present (skipped)');
+}
+
+// Also remove workbox file if present (not needed in APK)
+const workboxFiles = fs.readdirSync(WWW_DIR).filter(f => f.startsWith('workbox-'));
+workboxFiles.forEach(f => {
+  fs.writeFileSync(path.join(WWW_DIR, f), '/* workbox disabled in Android APK */', 'utf8');
+});
+if (workboxFiles.length) console.log(`  ✓ Neutered ${workboxFiles.length} workbox file(s)`);
+
+// ── 7. Verify critical files are present ─────────────────────────────────────
+
+console.log('\nStep 7: Verifying critical files ...');
+const critical = [
+  'index.html',
+  'android-bridge.js',
+  'auth-bridge.js',
+  'assets',
+];
+let allOk = true;
+for (const f of critical) {
+  const p = path.join(WWW_DIR, f);
+  if (fs.existsSync(p)) {
+    console.log(`  ✓ www/${f}`);
+  } else {
+    console.error(`  ✗ MISSING: www/${f}`);
+    allOk = false;
+  }
+}
+if (!allOk) {
+  console.error('\nERROR: Critical files missing from www/. Aborting.');
   process.exit(1);
 }
 
-// Copy bridge file
-const bridgeDest = path.join(WWW_DIR, 'android-bridge.js');
-fs.copyFileSync(BRIDGE_FILE, bridgeDest);
-console.log('Bridge copied to www/android-bridge.js');
-
-// Inject bridge script as the FIRST script in <head>
-let html = fs.readFileSync(indexPath, 'utf8');
-
-// Add android-bridge BEFORE auth-bridge.js (must be first)
-const bridgeTag = '<script src="/android-bridge.js"></script>\n    ';
-if (!html.includes('android-bridge.js')) {
-  html = html.replace('<head>', '<head>\n    ' + bridgeTag.trimEnd());
+// Verify index.html has android-bridge injection
+const finalHtml = fs.readFileSync(indexDest, 'utf8');
+if (!finalHtml.includes('android-bridge.js')) {
+  console.error('  ✗ android-bridge.js NOT found in index.html after patching!');
+  process.exit(1);
 }
+console.log('  ✓ android-bridge.js confirmed in index.html');
 
-// Disable service worker in Android context (sw.js causes issues in Capacitor)
-// The bridge already intercepts fetch, so SW is redundant and can cause stale-asset loops.
-// We comment out pwa-local.js registration and keep the SW file but skip registration.
-html = html.replace(
-  /(<script src="\/pwa-local\.js"[^>]*>.*?<\/script>)/,
-  '<!-- pwa-local.js disabled in Android APK (bridge handles server state) -->'
-);
-
-// Replace update-checker (polls GitHub — not needed in APK)
-html = html.replace(
-  /(<script src="\/update-checker\.js"[^>]*>.*?<\/script>)/,
-  '<!-- update-checker.js disabled in Android APK -->'
-);
-
-// Fix viewport for Android
-html = html.replace(
-  'content="width=device-width, initial-scale=1.0"',
-  'content="width=device-width, initial-scale=1.0, viewport-fit=cover"'
-);
-
-fs.writeFileSync(indexPath, html, 'utf8');
-console.log('index.html patched with Android bridge injection.');
-
-// ── 4. Patch sw.js to be a no-op in Capacitor context ────────────────────────
-const swPath = path.join(WWW_DIR, 'sw.js');
-if (fs.existsSync(swPath)) {
-  const swNoop = `/* IsotopeAI service worker — disabled in Capacitor/Android context.
- * All assets are bundled locally; SW cache not needed.
- * Keeping this file to prevent 404s from any registered SW.
- */
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', () => clients.claim());
-`;
-  fs.writeFileSync(swPath, swNoop, 'utf8');
-  console.log('sw.js replaced with no-op (Capacitor bundles assets locally).');
+// Verify assets/ has actual JS bundles
+const assetsDir = path.join(WWW_DIR, 'assets');
+const jsBundles = fs.existsSync(assetsDir)
+  ? fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'))
+  : [];
+if (jsBundles.length === 0) {
+  console.error('  ✗ No .js bundles found in www/assets/ !');
+  process.exit(1);
 }
+console.log(`  ✓ www/assets/ has ${jsBundles.length} JS bundles`);
 
-// ── 5. Report sizes ──────────────────────────────────────────────────────────
+// ── 8. Report sizes ───────────────────────────────────────────────────────────
+
+console.log('\nStep 8: Size report ...');
 const totalMB = getDirSizeMB(WWW_DIR);
-console.log(`\nwww/ total size: ${totalMB.toFixed(1)} MB`);
+console.log(`  Total www/ size: ${totalMB.toFixed(1)} MB`);
 
-// Check for large sound files
+// Warn about large files
 const soundsDir = path.join(WWW_DIR, 'sounds');
 if (fs.existsSync(soundsDir)) {
-  const soundFiles = fs.readdirSync(soundsDir);
-  soundFiles.forEach(f => {
-    const fPath = path.join(soundsDir, f);
-    const mb = fs.statSync(fPath).size / 1024 / 1024;
-    console.log(`  sounds/${f}: ${mb.toFixed(1)} MB`);
+  fs.readdirSync(soundsDir).forEach(f => {
+    const mb = fs.statSync(path.join(soundsDir, f)).size / (1024 * 1024);
+    if (mb > 1) console.log(`    sounds/${f}: ${mb.toFixed(1)} MB`);
   });
 }
 
-console.log('\nwww/ prepared successfully!');
+const bgVideo = path.join(WWW_DIR, 'bg.mp4');
+if (fs.existsSync(bgVideo)) {
+  const mb = fs.statSync(bgVideo).size / (1024 * 1024);
+  console.log(`    bg.mp4: ${mb.toFixed(1)} MB (focus background video — included)`);
+}
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+console.log('\n✅ www/ prepared successfully!\n');
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function copyDirSync(src, dest) {
   if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
   const entries = fs.readdirSync(src, { withFileTypes: true });
   for (const entry of entries) {
-    const srcPath  = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDirSync(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
+    copyDirSync(path.join(src, entry.name), path.join(dest, entry.name));
   }
 }
 
-function getDirSizeMB(dir) {
-  let total = 0;
-  const items = fs.readdirSync(dir, { withFileTypes: true });
-  for (const item of items) {
-    const p = path.join(dir, item.name);
-    if (item.isDirectory()) {
-      total += getDirSizeMB(p) * 1024 * 1024;
-    } else {
-      total += fs.statSync(p).size;
-    }
+// Override copyDirSync to handle files too
+function copyDirSync(src, dest) {
+  const stat = fs.statSync(src);
+  if (stat.isFile()) {
+    fs.copyFileSync(src, dest);
+    return;
   }
-  return total / 1024 / 1024;
+  if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    copyDirSync(path.join(src, entry.name), path.join(dest, entry.name));
+  }
+}
+
+function countFiles(dir) {
+  let total = 0;
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) total += countFiles(path.join(dir, entry.name));
+      else total++;
+    }
+  } catch (e) {}
+  return total;
+}
+
+function getDirSizeMB(dir) {
+  let bytes = 0;
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) bytes += getDirSizeMB(p) * 1024 * 1024;
+      else bytes += fs.statSync(p).size;
+    }
+  } catch (e) {}
+  return bytes / (1024 * 1024);
 }
