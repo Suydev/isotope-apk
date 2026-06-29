@@ -212,11 +212,12 @@
       .then(function (data) {
         var profile = Array.isArray(data[0]) && data[0].length > 0 ? data[0][0] : null;
         var onboardingRow = Array.isArray(data[1]) && data[1].length > 0 ? data[1][0] : null;
-        // If we have a profile row the user has been through setup at minimum;
-        // trust user_onboarding.completed when available.
-        var onboarding_completed = onboardingRow
-          ? onboardingRow.completed === true
-          : profile !== null;
+        // Treat as onboarded if:
+        //   (a) user_onboarding row exists with completed=true, OR
+        //   (b) user_onboarding row exists at all (they're an existing user), OR
+        //   (c) user_profiles row exists (they've synced data)
+        // Only return false for genuinely brand-new accounts with no data at all.
+        var onboarding_completed = (onboardingRow !== null) || (profile !== null);
         return jsonResponse({
           ok: true,
           session: session,
