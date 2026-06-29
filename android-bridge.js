@@ -435,6 +435,35 @@
     return Promise.resolve(jsonResponse({ ok: true, imported: true, android: true }));
   }
 
+  // POST /__auth/onboarding-complete — mark onboarding done for the current user
+  function handleOnboardingComplete(body) {
+    var session = getSession();
+    if (!session) return Promise.resolve(jsonResponse({ ok: false, error: 'no_session' }, 401));
+    var userId = session.user && session.user.id;
+    if (!userId) return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id' }, 401));
+
+    // Upsert user_onboarding row with completed=true
+    return supaFetch('/rest/v1/user_onboarding?user_id=eq.' + userId, {
+      method: 'PATCH',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ completed: true, updated_at: new Date().toISOString() })
+    }).then(function (r) {
+      // If no row to patch (new user), insert one
+      if (r.status === 404 || r.status === 200) {
+        return supaFetch('/rest/v1/user_onboarding', {
+          method: 'POST',
+          headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+          body: JSON.stringify({ user_id: userId, completed: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        }).then(function () {
+          return jsonResponse({ ok: true, android: true });
+        });
+      }
+      return jsonResponse({ ok: true, android: true });
+    }).catch(function (e) {
+      return errorResponse(e.message);
+    });
+  }
+
   // POST /__auth/snapshot
   function handleSnapshot(body) {
     var session = getSession();
@@ -535,9 +564,10 @@
         }
         if (pathname === '/__auth/backup/latest') return handleGetLatestBackup();
         if (pathname === '/__auth/backup/best')   return handleGetBestBackup();
-        if (pathname === '/__auth/import')         return handleImport(body);
-        if (pathname === '/__auth/snapshot')       return handleSnapshot(body);
+        if (pathname === '/__auth/import')              return handleImport(body);
+        if (pathname === '/__auth/snapshot')            return handleSnapshot(body);
         if (pathname === '/__auth/restore-best-backup') return handleRestoreBestBackup(body);
+        if (pathname === '/__auth/onboarding-complete') return handleOnboardingComplete(body);
 
         // Unknown auth route — return 404
         return Promise.resolve(jsonResponse({ ok: false, error: 'Unknown auth route: ' + pathname }, 404));
@@ -603,6 +633,151 @@
     ].join('\n');
     document.head.appendChild(style);
   });
+
+  // ── Web Notification API polyfill ─────────────────────────────────────────
+  // Android WebView does NOT implement window.Notification.
+  // The app's useNotificationStore calls Notification.requestPermission() and
+  // new Notification(title, {body}) for focus session check-ins.
+  // We polyfill window.Notification using Capacitor's LocalNotifications plugin
+  // so these calls work natively (real Android system notifications).
+  (function setupNotificationPolyfill() {
+    // Only run if window.Notification is absent (standard in Android WebView)
+    if (typeof window.Notification !== 'undefined') {
+      console.log('[IsotopeAI] Web Notification API already present — skipping polyfill');
+      return;
+    }
+
+    var _permission = 'default';
+    var _notifIdCounter = 1000;
+
+    function getLocalNotifications() {
+      try {
+        return window.Capacitor &&
+               window.Capacitor.Plugins &&
+               window.Capacitor.Plugins.LocalNotifications || null;
+      } catch (e) { return null; }
+    }
+
+    // Constructor: new Notification(title, options)
+    function IsotopeNotification(title, opts) {
+      var body    = (opts && opts.body)  || '';
+      var tag     = (opts && opts.tag)   || '';
+      var id      = _notifIdCounter++;
+      this.title  = title;
+      this.body   = body;
+      this.tag    = tag;
+      this.onclick = null;
+      this.onclose = null;
+      this.close = function () {};
+
+      if (_permission !== 'granted') return;
+      var ln = getLocalNotifications();
+      if (!ln) return;
+
+      // Schedule immediately (500 ms delay so Capacitor has time to process)
+      ln.schedule({
+        notifications: [{
+          id: id,
+          title: title,
+          body: body,
+          schedule: { at: new Date(Date.now() + 500) },
+          channelId: 'isotope-focus',
+          smallIcon: 'ic_launcher',
+          iconColor: '#6366f1',
+          extra: { tag: tag }
+        }]
+      }).catch(function (e) {
+        console.warn('[IsotopeAI] LocalNotification.schedule failed:', e && e.message);
+      });
+    }
+
+    IsotopeNotification.permission = _permission;
+
+    IsotopeNotification.requestPermission = function () {
+      var ln = getLocalNotifications();
+      if (!ln) {
+        IsotopeNotification.permission = 'denied';
+        _permission = 'denied';
+        return Promise.resolve('denied');
+      }
+      return ln.requestPermissions().then(function (result) {
+        var granted = result && result.display === 'granted';
+        _permission = granted ? 'granted' : 'denied';
+        IsotopeNotification.permission = _permission;
+        console.log('[IsotopeAI] Notification permission:', _permission);
+        return _permission;
+      }).catch(function (e) {
+        console.warn('[IsotopeAI] requestPermissions error:', e && e.message);
+        _permission = 'denied';
+        IsotopeNotification.permission = 'denied';
+        return 'denied';
+      });
+    };
+
+    window.Notification = IsotopeNotification;
+    console.log('[IsotopeAI] Web Notification API polyfill installed');
+
+    // ── Create notification channel and check permissions once Capacitor ready ──
+    // Capacitor's LocalNotifications requires a channel on Android 8+ (API 26+)
+    document.addEventListener('deviceready', function () {
+      setupCapacitorNotifications();
+    });
+
+    // Capacitor fires 'DOMContentLoaded' is too early; use a short poll instead
+    var _capReadyPoll = 0;
+    function pollCapacitorReady() {
+      _capReadyPoll++;
+      var ln = getLocalNotifications();
+      if (ln) {
+        setupCapacitorNotifications();
+        return;
+      }
+      if (_capReadyPoll < 20) { // Try for up to 2 seconds
+        setTimeout(pollCapacitorReady, 100);
+      }
+    }
+    setTimeout(pollCapacitorReady, 300);
+
+    function setupCapacitorNotifications() {
+      var ln = getLocalNotifications();
+      if (!ln || !ln.createChannel) return;
+
+      // Create the notification channel used by all IsotopeAI alerts
+      ln.createChannel({
+        id: 'isotope-focus',
+        name: 'Focus Sessions',
+        description: 'Focus session check-ins and study reminders',
+        importance: 4,           // IMPORTANCE_HIGH — shows heads-up
+        visibility: 1,           // VISIBILITY_PUBLIC
+        sound: 'default',
+        vibration: true,
+        lights: true,
+        lightColor: '#6366F1'
+      }).then(function () {
+        console.log('[IsotopeAI] Notification channel created: isotope-focus');
+      }).catch(function (e) {
+        console.warn('[IsotopeAI] createChannel error:', e && e.message);
+      });
+
+      // Check current permission state and sync to polyfill
+      if (ln.checkPermissions) {
+        ln.checkPermissions().then(function (result) {
+          if (result && result.display === 'granted') {
+            _permission = 'granted';
+            IsotopeNotification.permission = 'granted';
+            console.log('[IsotopeAI] Notification permission already granted');
+          } else if (result && result.display === 'prompt') {
+            // Don't auto-request — the app will call requestPermission() when needed
+            _permission = 'default';
+            IsotopeNotification.permission = 'default';
+          } else {
+            _permission = 'denied';
+            IsotopeNotification.permission = 'denied';
+          }
+        }).catch(function () {});
+      }
+    }
+  })();
 
   console.log('[IsotopeAI] Android bridge initialized — version ' + APP_VERSION);
 })();
