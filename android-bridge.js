@@ -41,6 +41,16 @@
   // Signal to pwa-local.js that server is "online" (no node server needed)
   window.__ISO_ANDROID_NATIVE__ = true;
 
+  // ── Inject __IK__ global (mirrors server-side injection) ───────────────────
+  // The AI store reads window.__IK__.supa / .anon / .gemini / .groq
+  // Without this, all AI features are broken on Android.
+  window.__IK__ = {
+    supa:   SUPA_URL,
+    anon:   SUPA_ANON_KEY,
+    gemini: '',
+    groq:   ''
+  };
+
   // ── Helper: read session from localStorage ──────────────────────────────────
   function getSession() {
     try {
@@ -155,6 +165,27 @@
       });
     }).catch(function (e) {
       return errorResponse(e.message || 'Network error during login');
+    });
+  }
+
+  // POST /__auth/check — check if email is already taken (used in signup form)
+  function handleCheck(body) {
+    var email = body.email || body.username || '';
+    if (!email) return Promise.resolve(jsonResponse({ available: false, error: 'no_email' }));
+    return fetch(SUPA_URL + '/auth/v1/signup', {
+      method: 'POST',
+      headers: { 'apikey': SUPA_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, password: '__probe_check_' + Date.now() }),
+      credentials: 'omit'
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        // "User already registered" → email taken
+        var taken = !!(d.code === 'user_already_exists' || (d.msg && d.msg.includes('already')) || (d.error && d.error.includes('already')));
+        return jsonResponse({ available: !taken });
+      });
+    }).catch(function () {
+      // Network error — assume available to not block signup
+      return jsonResponse({ available: true });
     });
   }
 
@@ -483,6 +514,110 @@
     });
   }
 
+  // ── Edge function interceptors (mirrors server-side /__supa/functions/v1/* logic) ─
+  // The server normally intercepts these before they hit Supabase edge functions.
+  // On Android we must handle them in the bridge.
+
+  // POST /__supa/functions/v1/finish-session — calls finish_session_sync RPC
+  function handleFinishSession(body) {
+    var session = getSession();
+    if (!session) return Promise.resolve(jsonResponse({ ok: false, error: 'no_session' }, 401));
+    // Call finish_session_sync RPC with the user's JWT (required — RPC uses auth.uid())
+    return fetch(SUPA_URL + '/rest/v1/rpc/finish_session_sync', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPA_ANON_KEY,
+        'Authorization': 'Bearer ' + session.access_token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body || {}),
+      credentials: 'omit'
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        return jsonResponse({ ok: r.ok, data: d });
+      });
+    }).catch(function (e) {
+      return errorResponse(e.message);
+    });
+  }
+
+  // GET /__supa/functions/v1/get-leaderboard — live leaderboard from DB
+  function handleGetLeaderboard(searchParams) {
+    var session = getSession();
+    var token = session ? session.access_token : SUPA_ANON_KEY;
+    var limit = searchParams.get ? (searchParams.get('limit') || '50') : '50';
+    return fetch(SUPA_URL + '/rest/v1/rpc/get_leaderboard?limit=' + limit, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPA_ANON_KEY,
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ p_limit: parseInt(limit, 10) || 50 }),
+      credentials: 'omit'
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        return jsonResponse({ ok: true, data: Array.isArray(d) ? d : [], android: true });
+      });
+    }).catch(function () {
+      return jsonResponse({ ok: true, data: [], android: true });
+    });
+  }
+
+  // GET /__supa/functions/v1/get-daily-leaderboard
+  function handleGetDailyLeaderboard(searchParams) {
+    var session = getSession();
+    var token = session ? session.access_token : SUPA_ANON_KEY;
+    return fetch(SUPA_URL + '/rest/v1/rpc/get_daily_leaderboard', {
+      method: 'POST',
+      headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+      credentials: 'omit'
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        return jsonResponse({ ok: true, data: Array.isArray(d) ? d : [], android: true });
+      });
+    }).catch(function () {
+      return jsonResponse({ ok: true, data: [], android: true });
+    });
+  }
+
+  // POST /__supa/functions/v1/get-group-leaderboard
+  function handleGetGroupLeaderboard(body) {
+    var session = getSession();
+    var token = session ? session.access_token : SUPA_ANON_KEY;
+    return fetch(SUPA_URL + '/rest/v1/rpc/get_group_leaderboard', {
+      method: 'POST',
+      headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+      credentials: 'omit'
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        return jsonResponse({ ok: true, data: Array.isArray(d) ? d : [], android: true });
+      });
+    }).catch(function () {
+      return jsonResponse({ ok: true, data: [], android: true });
+    });
+  }
+
+  // POST /__supa/functions/v1/get-group-analytics
+  function handleGetGroupAnalytics(body) {
+    var session = getSession();
+    var token = session ? session.access_token : SUPA_ANON_KEY;
+    return fetch(SUPA_URL + '/rest/v1/rpc/get_group_analytics_from_snapshots', {
+      method: 'POST',
+      headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+      credentials: 'omit'
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        return jsonResponse({ ok: true, data: d, android: true });
+      });
+    }).catch(function () {
+      return jsonResponse({ ok: true, data: null, android: true });
+    });
+  }
+
   // POST /__auth/restore-best-backup
   function handleRestoreBestBackup(body) {
     return handleGetBestBackup().then(function (resp) {
@@ -554,6 +689,7 @@
       return bodyPromise.then(function (body) {
         if (pathname === '/__auth/login') return handleLogin(body);
         if (pathname === '/__auth/signup') return handleSignup(body);
+        if (pathname === '/__auth/check')  return handleCheck(body);
         if (pathname === '/__auth/logout') return handleLogout();
         if (pathname === '/__auth/bootstrap') return handleBootstrap();
         if (pathname === '/__auth/profile') {
@@ -574,6 +710,56 @@
       });
     }
 
+    // ── Edge function interceptors (__supa/functions/v1/*) ───────────────────
+    // These mirror what the server-side proxy intercepts before hitting Supabase.
+    if (pathname.startsWith('/__supa/functions/v1/')) {
+      var fnName = pathname.replace('/__supa/functions/v1/', '').split('?')[0];
+      var bodyPromiseEF;
+      if (init && init.body) {
+        bodyPromiseEF = Promise.resolve().then(function () {
+          try { var b = init.body; return typeof b === 'string' ? JSON.parse(b) : b; }
+          catch (e) { return {}; }
+        });
+      } else {
+        bodyPromiseEF = Promise.resolve({});
+      }
+      var searchParamsEF;
+      try { searchParamsEF = new URL(url).searchParams; } catch (e) { searchParamsEF = { get: function() { return null; } }; }
+
+      return bodyPromiseEF.then(function (efBody) {
+        // Payments — always disabled in self-hosted mode
+        if (fnName === 'create_checkout' || fnName === 'create-checkout') {
+          return jsonResponse({ url: null, disabled: true, android: true });
+        }
+        if (fnName === 'create_customer_portal_session' || fnName === 'create-customer-portal-session') {
+          return jsonResponse({ url: null, disabled: true, android: true });
+        }
+        // Membership redemption — always grant ranker in self-hosted mode
+        if (fnName === 'redeem_membership_code' || fnName === 'redeem-membership-code') {
+          return jsonResponse({ success: true, redeemed: true, plan_type: 'ranker', android: true });
+        }
+        // Focus session sync — calls finish_session_sync RPC with user JWT
+        if (fnName === 'finish-session' || fnName === 'finish_session') {
+          return handleFinishSession(efBody);
+        }
+        // Leaderboards
+        if (fnName === 'get-leaderboard' || fnName === 'get_leaderboard') {
+          return handleGetLeaderboard(searchParamsEF);
+        }
+        if (fnName === 'get-daily-leaderboard' || fnName === 'get_daily_leaderboard') {
+          return handleGetDailyLeaderboard(searchParamsEF);
+        }
+        if (fnName === 'get-group-leaderboard' || fnName === 'get_group_leaderboard') {
+          return handleGetGroupLeaderboard(efBody);
+        }
+        if (fnName === 'get-group-analytics' || fnName === 'get_group_analytics') {
+          return handleGetGroupAnalytics(efBody);
+        }
+        // Unknown edge function — fall through to proxy
+        return handleSupaProxy(url, init || {}, init && init.body);
+      });
+    }
+
     // ── Supabase proxy (__supa/*) ─────────────────────────────────────────────
     if (pathname.startsWith('/__supa/')) {
       return handleSupaProxy(url, init || {}, init && init.body);
@@ -590,6 +776,23 @@
 
     // ── All other requests pass through ──────────────────────────────────────
     return _originalFetch.apply(this, arguments);
+  };
+
+  // ── Expose auth globals required by auth-bridge.js ───────────────────────
+  // auth-bridge.js defines window.__isoLogin and window.__isoUp as entry points.
+  // On Android these must call our bridge handlers directly.
+  window.__isoLogin = function (email, password) {
+    return handleLogin({ email: email, password: password }).then(function (r) {
+      return r.json();
+    });
+  };
+  window.__isoUp = function (email, password) {
+    return handleSignup({ email: email, password: password }).then(function (r) {
+      return r.json();
+    });
+  };
+  window.__isoGetValidJwt = function () {
+    return getAccessToken();
   };
 
   // ── Patch update-checker: suppress GitHub update checks on Android ──────────
