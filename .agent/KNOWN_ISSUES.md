@@ -4,7 +4,7 @@
 
 ## ISSUE-001 — Bootstrap response missing restore_recommended field
 **Severity:** HIGH
-**Status:** OPEN
+**Status:** FIXED (2026-06-29)
 
 **Symptom:**
 AppAccessGate expects `/__auth/bootstrap` to return:

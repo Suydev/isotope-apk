@@ -179,22 +179,70 @@
   function handleBootstrap() {
     var session = getSession();
     if (!session || !session.access_token) {
-      return Promise.resolve(jsonResponse({ ok: false, reason: 'no_session', session: null, profile: null }));
+      return Promise.resolve(jsonResponse({
+        ok: false, reason: 'no_session', session: null, profile: null,
+        user_id: null, onboarding_completed: false,
+        restore_recommended: false, best_backup: null,
+        backup_candidates: [], backup_warning: null
+      }));
     }
     var userId = session.user && session.user.id;
     if (!userId) {
-      return Promise.resolve(jsonResponse({ ok: true, session: session, profile: null }));
+      return Promise.resolve(jsonResponse({
+        ok: true, session: session, profile: null, user_id: null,
+        onboarding_completed: false, restore_recommended: false,
+        best_backup: null, backup_candidates: [], backup_warning: null
+      }));
     }
-    return supaFetch('/rest/v1/user_profiles?select=*&user_id=eq.' + userId + '&limit=1', {
-      method: 'GET'
-    }).then(function (r) {
-      return r.json().then(function (rows) {
-        var profile = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
-        return jsonResponse({ ok: true, session: session, profile: profile });
+
+    // Fetch profile AND onboarding status in parallel
+    var profilePromise = supaFetch(
+      '/rest/v1/user_profiles?select=*&user_id=eq.' + userId + '&limit=1',
+      { method: 'GET' }
+    );
+    var onboardingPromise = supaFetch(
+      '/rest/v1/user_onboarding?select=*&user_id=eq.' + userId + '&limit=1',
+      { method: 'GET' }
+    );
+
+    return Promise.all([profilePromise, onboardingPromise])
+      .then(function (results) {
+        return Promise.all([results[0].json(), results[1].json()]);
+      })
+      .then(function (data) {
+        var profile = Array.isArray(data[0]) && data[0].length > 0 ? data[0][0] : null;
+        var onboardingRow = Array.isArray(data[1]) && data[1].length > 0 ? data[1][0] : null;
+        // If we have a profile row the user has been through setup at minimum;
+        // trust user_onboarding.completed when available.
+        var onboarding_completed = onboardingRow
+          ? onboardingRow.completed === true
+          : profile !== null;
+        return jsonResponse({
+          ok: true,
+          session: session,
+          profile: profile,
+          user_id: userId,
+          onboarding_completed: onboarding_completed,
+          restore_recommended: false,
+          best_backup: null,
+          backup_candidates: [],
+          backup_warning: null
+        });
+      })
+      .catch(function () {
+        // Network failure during DB fetch — assume onboarded so we don't loop
+        return jsonResponse({
+          ok: true,
+          session: session,
+          profile: null,
+          user_id: userId,
+          onboarding_completed: true,
+          restore_recommended: false,
+          best_backup: null,
+          backup_candidates: [],
+          backup_warning: null
+        });
       });
-    }).catch(function () {
-      return jsonResponse({ ok: true, session: session, profile: null });
-    });
   }
 
   // GET /__auth/profile

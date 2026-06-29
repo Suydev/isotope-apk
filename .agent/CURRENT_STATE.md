@@ -1,8 +1,8 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-06-28T00:00:00Z
+**Updated:** 2026-06-29T11:00:00Z
 **Branch:** main (isotope-apk repo)
-**Current phase:** ANDROID-005 — First APK build via GitHub Actions
+**Current phase:** ANDROID-006 — Login loop fix: onboarding_completed + webContents debug
 
 ---
 
