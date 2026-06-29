@@ -21,8 +21,8 @@ Tests are only marked PASS when actually executed. Android device and GitHub bui
 | www/ asset preparation | PASS | 2026-06-29 | local branch | `npm run prepare-www`: 154 JS bundles, 56.9 MB |
 | Android bundle/native patch application | PASS | 2026-06-29 | local branch | `npm run apply-patches` after sync: 0 skipped, 0 required failures |
 | Capacitor sync | PASS | 2026-06-29 | local branch | `npx cap sync android` |
-| GitHub Actions debug APK build | UNTESTED | — | — | Must run after branch push |
-| Gradle debug APK build | UNTESTED | — | — | GitHub Actions |
+| GitHub Actions debug APK build | PASS | 2026-06-29 | `d33d38cf976528fe827f69dee21c6d3061ef0c85` | Run `28374915430`: https://github.com/Suydev/isotope-apk/actions/runs/28374915430 |
+| Gradle debug APK build | PASS | 2026-06-29 | `d33d38cf976528fe827f69dee21c6d3061ef0c85` | Artifact `IsotopeAI-debug-28`, id `7953037831`, 44,653,663-byte zip |
 | Gradle release AAB build | UNTESTED | — | — | GitHub Actions workflow_dispatch release |
 | Android lint | UNTESTED | — | — | Not run |
 | Gradle unit tests | UNTESTED | — | — | Not run |
@@ -53,7 +53,6 @@ duration_ms 3416.425615
 
 ## Next Test to Run
 
-1. Push `codex/android-production-repair`.
-2. Confirm GitHub Actions starts for the branch.
-3. Download `IsotopeAI-debug-*` artifact.
-4. Install APK and capture Logcat/WebView console for login, bootstrap routing, dashboard, onboarding, restore, offline mode, timer, notifications, import/export, and responsive layout matrix.
+1. Download `IsotopeAI-debug-28` from https://github.com/Suydev/isotope-apk/actions/runs/28374915430.
+2. Install APK on emulator or physical Android device.
+3. Capture Logcat/WebView console for login, bootstrap routing, dashboard, onboarding, restore, offline mode, timer, notifications, import/export, and responsive layout matrix.

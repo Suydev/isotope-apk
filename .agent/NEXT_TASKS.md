@@ -6,7 +6,7 @@
 
 ### TASK ANDROID-005
 **Priority:** P0
-**Status:** ACTIVE
+**Status:** DONE
 **Objective:** Push `codex/android-production-repair` and trigger a GitHub Actions debug APK build.
 
 **Acceptance condition:**
@@ -36,12 +36,13 @@ git push -u origin codex/android-production-repair
 **Notes:**
 - `gh` is not installed in this environment. If GitHub Actions monitoring is needed from the shell, install/authenticate `gh` or inspect the Actions tab in the browser.
 - The workflow now builds this repair branch and pins `isotope-code` to `fd39fad1384333ad774f19f35b754659a34dae60`.
+- Completed by run https://github.com/Suydev/isotope-apk/actions/runs/28374915430. Artifact: `IsotopeAI-debug-28`.
 
 ---
 
 ### TASK ANDROID-006
 **Priority:** P0
-**Status:** TODO
+**Status:** ACTIVE
 **Objective:** Install the GitHub-built debug APK and verify auth routing on Android.
 
 **Acceptance:**
@@ -50,6 +51,15 @@ git push -u origin codex/android-production-repair
 - New account logs in and routes to `/onboarding` when `user_onboarding.completed=false`.
 - Bootstrap network failure shows loading/retry behavior instead of assuming dashboard or onboarding.
 - WebView console and Logcat evidence are captured with tokens redacted.
+
+**Exact next commands:**
+```bash
+# Download IsotopeAI-debug-28 from:
+# https://github.com/Suydev/isotope-apk/actions/runs/28374915430
+adb install -r app-debug.apk
+adb logcat -c
+adb logcat
+```
 
 ---
 

@@ -148,3 +148,19 @@ git add .gitignore android-bridge.js package.json package-lock.json scripts/prep
 git commit -m "fix: repair Android auth bootstrap contract"
 git push -u origin codex/android-production-repair
 ```
+
+**Push/build result:**
+- Commit pushed: `d33d38cf976528fe827f69dee21c6d3061ef0c85`
+- Branch: `codex/android-production-repair`
+- GitHub Actions debug APK build: PASS
+- Run: https://github.com/Suydev/isotope-apk/actions/runs/28374915430
+- Artifact: `IsotopeAI-debug-28` (artifact id `7953037831`)
+- Draft PR: https://github.com/Suydev/isotope-apk/pull/1
+
+**Next exact action after build:**
+```bash
+# Download IsotopeAI-debug-28 from the successful Actions run, then:
+adb install -r app-debug.apk
+adb logcat -c
+adb logcat
+```
