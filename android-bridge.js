@@ -344,6 +344,42 @@
       }).catch(function (e) { return errorResponse(e.message); });
   }
 
+  // POST /__auth/logout
+  function handleLogout() {
+    var session = getSession();
+    var token = session && session.access_token;
+
+    // Clear all local auth storage regardless of network outcome
+    function clearLocal() {
+      try {
+        var ref = 'vteqquoqvksshmfhuepu';
+        localStorage.removeItem('isotope-auth-token');
+        localStorage.removeItem('sb-' + ref + '-auth-token');
+        localStorage.removeItem('isotope-last-jwt');
+        localStorage.removeItem('isotope-last-rt');
+        localStorage.removeItem('isotope-last-session-raw');
+      } catch (e) {}
+    }
+
+    if (!token) {
+      clearLocal();
+      return Promise.resolve(jsonResponse({ ok: true, android: true }));
+    }
+
+    // Revoke session on Supabase, then clear local
+    return fetch(SUPA_URL + '/auth/v1/logout', {
+      method: 'POST',
+      headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      credentials: 'omit'
+    }).then(function () {
+      clearLocal();
+      return jsonResponse({ ok: true, android: true });
+    }).catch(function () {
+      clearLocal();
+      return jsonResponse({ ok: true, android: true }); // logout succeeds locally even if network fails
+    });
+  }
+
   // POST /__auth/import
   function handleImport(body) {
     // Import is handled client-side — just acknowledge
@@ -440,6 +476,7 @@
       return bodyPromise.then(function (body) {
         if (pathname === '/__auth/login') return handleLogin(body);
         if (pathname === '/__auth/signup') return handleSignup(body);
+        if (pathname === '/__auth/logout') return handleLogout();
         if (pathname === '/__auth/bootstrap') return handleBootstrap();
         if (pathname === '/__auth/profile') {
           return method === 'POST' ? handlePostProfile(body) : handleGetProfile();
