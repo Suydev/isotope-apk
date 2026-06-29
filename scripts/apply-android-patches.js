@@ -61,8 +61,19 @@ function patchFile(filePath, patches, label) {
 function findAsset(pattern) {
   if (!fs.existsSync(ASSETS_DIR)) return null;
   const files = fs.readdirSync(ASSETS_DIR);
-  const match = files.find(f => f.includes(pattern));
-  return match ? path.join(ASSETS_DIR, match) : null;
+  const matches = files.filter(f => f.includes(pattern) && f.endsWith('.js'));
+  if (matches.length === 0) return null;
+  // Prefer the largest file — avoids picking empty re-export chunks (0KB stubs)
+  matches.sort((a, b) => {
+    const sizeA = fs.statSync(path.join(ASSETS_DIR, a)).size;
+    const sizeB = fs.statSync(path.join(ASSETS_DIR, b)).size;
+    return sizeB - sizeA;
+  });
+  const chosen = matches[0];
+  if (matches.length > 1) {
+    console.log(`  (found ${matches.length} candidates for "${pattern}", chose largest: ${chosen})`);
+  }
+  return path.join(ASSETS_DIR, chosen);
 }
 
 // ── 1. App main bundle ────────────────────────────────────────────────────────
