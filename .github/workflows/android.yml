@@ -16,7 +16,7 @@ on:
 
 env:
   JAVA_VERSION: '17'
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
 
 jobs:
   build-debug-apk:
@@ -32,20 +32,19 @@ jobs:
           path: isotope-apk
 
       # ── Checkout source assets from isotope-code ──────────────────────────
+      # isotope-code is a public repo — no token needed
       - name: Checkout isotope-code (source assets)
         uses: actions/checkout@v4
         with:
           repository: Suydev/isotope-code
-          token: ${{ github.token }}
           path: isotope-code
 
       # ── Node.js setup ─────────────────────────────────────────────────────
+      # No npm cache — package-lock.json is not committed to this repo
       - name: Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: isotope-apk/package-lock.json
 
       # ── Java setup ────────────────────────────────────────────────────────
       - name: Setup JDK ${{ env.JAVA_VERSION }}
@@ -61,18 +60,41 @@ jobs:
           accept-android-sdk-licenses: true
 
       - name: Install Android SDK Build Tools & Platform
-        run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       # ── Install npm dependencies ──────────────────────────────────────────
       - name: Install npm dependencies
         working-directory: isotope-apk
         run: npm install
 
+      # ── Verify source structure before copying ────────────────────────────
+      - name: Verify isotope-code source structure
+        run: |
+          echo "=== isotope-code root ==="
+          ls -la ${{ github.workspace }}/isotope-code/
+          echo ""
+          echo "=== isotope-code/public/ ==="
+          ls -la ${{ github.workspace }}/isotope-code/public/
+          echo ""
+          echo "=== isotope-code/public/assets/ (JS count) ==="
+          ls ${{ github.workspace }}/isotope-code/public/assets/*.js | wc -l
+          echo ""
+          echo "Key bundles:"
+          ls -lh ${{ github.workspace }}/isotope-code/public/assets/App-*.js 2>/dev/null || echo "No App-*.js found"
+          ls -lh ${{ github.workspace }}/isotope-code/public/assets/index-BPYJFSVW.js 2>/dev/null || echo "index-BPYJFSVW.js not found (may have new hash)"
+
       # ── Prepare www/ directory ────────────────────────────────────────────
+      # REPO_DIR = isotope-code root (index.html lives HERE, not in public/)
+      # SOURCE_DIR = isotope-code/public/ (all static assets)
+      # prepare-www.js copies:
+      #   1. public/* → www/
+      #   2. root index.html → www/index.html  (overwrites if public/ had one)
+      #   3. android-bridge.js → www/ (first script injected into <head>)
+      #   4. Disables sw.js, pwa-local.js, update-checker.js
       - name: Prepare www/ (copy assets + inject bridge)
         working-directory: isotope-apk
         env:
+          REPO_DIR: ${{ github.workspace }}/isotope-code
           SOURCE_DIR: ${{ github.workspace }}/isotope-code/public
           WWW_DIR: ${{ github.workspace }}/isotope-apk/www
           BRIDGE_FILE: ${{ github.workspace }}/isotope-apk/android-bridge.js
@@ -82,11 +104,14 @@ jobs:
       - name: Report www/ size
         working-directory: isotope-apk
         run: |
-          echo "=== www/ contents (top-level) ==="
+          echo "=== www/ top-level ==="
           ls -lh www/
           echo ""
           echo "=== Total size ==="
           du -sh www/
+          echo ""
+          echo "=== index.html bridge injection check ==="
+          head -10 www/index.html
           echo ""
           echo "=== Largest files ==="
           find www/ -type f -printf '%s %p\n' | sort -rn | head -20 | awk '{printf "%.1f MB  %s\n", $1/1024/1024, $2}'
@@ -95,12 +120,16 @@ jobs:
       - name: Add Capacitor Android platform
         working-directory: isotope-apk
         run: |
-          npx cap add android 2>&1 || echo "Android platform may already exist"
-          echo "Capacitor android platform added"
+          npx cap add android 2>&1 || echo "Android platform already exists or was added"
+          echo "Capacitor platform step complete"
 
       # ── Apply Android patches ─────────────────────────────────────────────
+      # Patches JS bundles in www/assets/ and AndroidManifest.xml after cap add
       - name: Apply Android manifest and gradle patches
         working-directory: isotope-apk
+        env:
+          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
+          ANDROID_DIR: ${{ github.workspace }}/isotope-apk/android
         run: node scripts/apply-android-patches.js
 
       # ── Sync Capacitor ────────────────────────────────────────────────────
@@ -151,7 +180,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # Optional: release build job (only on workflow_dispatch with release input)
+  # Optional: release build (only on workflow_dispatch with release input)
   build-release-aab:
     name: Build Release AAB
     runs-on: ubuntu-latest
@@ -169,15 +198,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Suydev/isotope-code
-          token: ${{ github.token }}
           path: isotope-code
 
-      - name: Setup Node.js
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Setup JDK
+      - name: Setup JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -198,6 +226,7 @@ jobs:
       - name: Prepare www/
         working-directory: isotope-apk
         env:
+          REPO_DIR: ${{ github.workspace }}/isotope-code
           SOURCE_DIR: ${{ github.workspace }}/isotope-code/public
           WWW_DIR: ${{ github.workspace }}/isotope-apk/www
           BRIDGE_FILE: ${{ github.workspace }}/isotope-apk/android-bridge.js
@@ -205,6 +234,9 @@ jobs:
 
       - name: Add & sync Capacitor Android
         working-directory: isotope-apk
+        env:
+          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
+          ANDROID_DIR: ${{ github.workspace }}/isotope-apk/android
         run: |
           npx cap add android 2>&1 || true
           node scripts/apply-android-patches.js
