@@ -27,6 +27,7 @@ const SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 
 let patchCount = 0;
 let skipCount  = 0;
+let failureCount = 0;
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 
@@ -41,12 +42,21 @@ function patchFile(filePath, patches, label) {
   let changed = false;
 
   for (const [from, to, required] of patches) {
-    if (content.includes(from)) {
+    const matchCount = content.split(from).length - 1;
+    if (required && matchCount !== 1) {
+      if (matchCount === 0 && content.includes(to)) {
+        continue;
+      }
+      console.error(`  ERROR: Required patch target for ${label} appeared ${matchCount} times; expected exactly 1: "${from.slice(0, 120)}..."`);
+      failureCount++;
+      continue;
+    }
+    if (matchCount > 0) {
       content = content.split(from).join(to);
       changed = true;
       patchCount++;
     } else if (required) {
-      console.warn(`  WARNING: Required patch target not found in ${label}: "${from.slice(0, 80)}..."`);
+      console.error(`  ERROR: Required patch target not found in ${label}: "${from.slice(0, 80)}..."`);
     }
   }
 
@@ -74,6 +84,36 @@ function findAsset(pattern) {
     console.log(`  (found ${matches.length} candidates for "${pattern}", chose largest: ${chosen})`);
   }
   return path.join(ASSETS_DIR, chosen);
+}
+
+function normalizeManifestPermissions(manifest, desiredPermissionLines) {
+  const desiredByName = new Map();
+  for (const line of desiredPermissionLines) {
+    const name = line.match(/android:name="([^"]+)"/)?.[1];
+    if (name) desiredByName.set(name, line.trim());
+  }
+
+  const existingLines = manifest.match(/^\s*<uses-permission\b[^>]*\/>\s*$/gm) || [];
+  const existingByName = new Map();
+  for (const line of existingLines) {
+    const name = line.match(/android:name="([^"]+)"/)?.[1];
+    if (name && !desiredByName.has(name) && !existingByName.has(name)) {
+      existingByName.set(name, line.trim());
+    }
+  }
+
+  manifest = manifest
+    .replace(/^\s*<uses-permission\b[^>]*\/>\s*$/gm, '')
+    .replace(/^\s*<!-- Permissions -->\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n');
+
+  const orderedLines = [
+    ...desiredByName.values(),
+    ...existingByName.values(),
+  ].map(line => '    ' + line.replace(/^\s+/, ''));
+
+  if (!manifest.includes('<application')) return manifest;
+  return manifest.replace(/(\n\s*)<application/, '\n' + orderedLines.join('\n') + '\n    <application');
 }
 
 // ── 1. App main bundle ────────────────────────────────────────────────────────
@@ -169,7 +209,69 @@ patchFile(accessGateBundle, [
   ],
 ], 'AppAccessGate bundle');
 
-// ── 4. useInvites — fix RPC parameter name ───────────────────────────────────
+// ── 4. Auth bundle — login must route from bootstrap decision only ───────────
+
+console.log('\n=== Patching Auth bundle ===');
+const authBundle = findAsset('Auth-') || path.join(ASSETS_DIR, 'Auth-Cw0VAaCZ.js');
+
+patchFile(authBundle, [
+  [
+    [
+      'p = async h => {',
+      '            h.preventDefault(), u(null), (await j(s, t)).success && setTimeout(() => {',
+      '                b("/dashboard", {',
+      '                    replace: !0',
+      '                })',
+      '            }, 100)',
+      '        }, N = async () => {'
+    ].join('\n'),
+    [
+      'p = async h => {',
+      '            h.preventDefault(), u(null), m.setState({',
+      '                isLoading: !0,',
+      '                error: null',
+      '            });',
+      '            try {',
+      '                if (typeof window.__isoLogin != "function") throw new Error("Android auth bridge is not ready");',
+      '                var __r = await window.__isoLogin(s, t);',
+      '                if (!__r || !__r.ok) {',
+      '                    m.setState({',
+      '                        error: __r && (__r.err || __r.error) || "Login failed",',
+      '                        isLoading: !1',
+      '                    });',
+      '                    return',
+      '                }',
+      '                var __completed = __r.bootstrap && __r.bootstrap.onboarding && typeof __r.bootstrap.onboarding.completed == "boolean" ? __r.bootstrap.onboarding.completed : typeof __r.onboarding_completed == "boolean" ? __r.onboarding_completed : void 0;',
+      '                if (typeof __completed != "boolean") {',
+      '                    m.setState({',
+      '                        error: "Could not verify cloud onboarding state. Check your connection and try again.",',
+      '                        isLoading: !1',
+      '                    });',
+      '                    return',
+      '                }',
+      '                try {',
+      '                    var __state = m.getState && m.getState();',
+      '                    __state && typeof __state.initializeAuth == "function" && await __state.initializeAuth()',
+      '                } catch (__ignored) {}',
+      '                m.setState({',
+      '                    isLoading: !1,',
+      '                    error: null',
+      '                }), b(__completed ? "/dashboard" : "/onboarding", {',
+      '                    replace: !0',
+      '                })',
+      '            } catch (__e) {',
+      '                m.setState({',
+      '                    error: __e && __e.message ? __e.message : "Login failed",',
+      '                    isLoading: !1',
+      '                })',
+      '            }',
+      '        }, N = async () => {'
+    ].join('\n'),
+    true
+  ],
+], 'Auth bundle');
+
+// ── 5. useInvites — fix RPC parameter name ───────────────────────────────────
 
 console.log('\n=== Patching useInvites bundle ===');
 const invitesBundle = findAsset('useInvites-') || path.join(ASSETS_DIR, 'useInvites-D9RLFwf8.js');
@@ -180,7 +282,7 @@ patchFile(invitesBundle, [
   ['token_input:', 'p_code:', false],
 ], 'useInvites bundle');
 
-// ── 5. Focus bundle — PIP polyfill (optional, for video PiP) ─────────────────
+// ── 6. Focus bundle — PIP polyfill (optional, for video PiP) ─────────────────
 
 console.log('\n=== Patching Focus bundle ===');
 const focusBundle = findAsset('Focus-') || path.join(ASSETS_DIR, 'Focus-BmgY-9vP.js');
@@ -194,7 +296,7 @@ patchFile(focusBundle, [
   ],
 ], 'Focus bundle');
 
-// ── 6. AndroidManifest.xml — add required permissions ───────────────────────
+// ── 7. AndroidManifest.xml — add required permissions ───────────────────────
 
 console.log('\n=== Patching AndroidManifest.xml ===');
 const manifestPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'AndroidManifest.xml');
@@ -215,13 +317,16 @@ if (fs.existsSync(manifestPath)) {
     '    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />',
   ];
 
+  const beforePermissionNames = new Set((manifest.match(/<uses-permission\b[^>]*android:name="([^"]+)"/g) || [])
+    .map(line => line.match(/android:name="([^"]+)"/)?.[1])
+    .filter(Boolean));
+  manifest = normalizeManifestPermissions(manifest, permissionsToAdd);
+  const afterPermissionNames = new Set((manifest.match(/<uses-permission\b[^>]*android:name="([^"]+)"/g) || [])
+    .map(line => line.match(/android:name="([^"]+)"/)?.[1])
+    .filter(Boolean));
   let added = 0;
-  for (const perm of permissionsToAdd) {
-    const permName = perm.match(/android:name="([^"]+)"/)?.[1];
-    if (permName && !manifest.includes(permName)) {
-      manifest = manifest.replace('<application', perm + '\n    <application');
-      added++;
-    }
+  for (const name of afterPermissionNames) {
+    if (!beforePermissionNames.has(name)) added++;
   }
 
   // Ensure cleartext traffic is disabled (HTTPS only)
@@ -270,30 +375,37 @@ if (fs.existsSync(manifestPath)) {
   skipCount++;
 }
 
-// ── 7. build.gradle — set correct minSdk and targetSdk ───────────────────────
+// ── 8. Gradle — set correct SDK versions ─────────────────────────────────────
 
-console.log('\n=== Patching build.gradle ===');
+console.log('\n=== Patching Gradle SDK versions ===');
 const buildGradlePath = path.join(ANDROID_DIR, 'app', 'build.gradle');
+const variablesGradlePath = path.join(ANDROID_DIR, 'variables.gradle');
 
 if (fs.existsSync(buildGradlePath)) {
   let gradle = fs.readFileSync(buildGradlePath, 'utf8');
 
   // Ensure minSdk is 24 (Android 7.0+)
   if (!gradle.includes('minSdkVersion 24') && !gradle.includes('minSdk 24')) {
-    gradle = gradle
+    const next = gradle
       .replace(/minSdkVersion\s+\d+/, 'minSdkVersion 24')
       .replace(/minSdk\s+=?\s*\d+/, 'minSdk = 24');
-    console.log('  ✓ Set minSdkVersion 24');
-    patchCount++;
+    if (next !== gradle) {
+      gradle = next;
+      console.log('  ✓ Set app/build.gradle minSdkVersion 24');
+      patchCount++;
+    }
   }
 
   // Ensure targetSdk is 35
   if (!gradle.includes('targetSdkVersion 35') && !gradle.includes('targetSdk 35')) {
-    gradle = gradle
+    const next = gradle
       .replace(/targetSdkVersion\s+\d+/, 'targetSdkVersion 35')
       .replace(/targetSdk\s+=?\s*\d+/, 'targetSdk = 35');
-    console.log('  ✓ Set targetSdkVersion 35');
-    patchCount++;
+    if (next !== gradle) {
+      gradle = next;
+      console.log('  ✓ Set app/build.gradle targetSdkVersion 35');
+      patchCount++;
+    }
   }
 
   fs.writeFileSync(buildGradlePath, gradle, 'utf8');
@@ -302,10 +414,40 @@ if (fs.existsSync(buildGradlePath)) {
   skipCount++;
 }
 
+if (fs.existsSync(variablesGradlePath)) {
+  let variables = fs.readFileSync(variablesGradlePath, 'utf8');
+  const before = variables;
+  variables = variables
+    .replace(/minSdkVersion\s*=\s*\d+/, 'minSdkVersion = 24')
+    .replace(/compileSdkVersion\s*=\s*\d+/, 'compileSdkVersion = 35')
+    .replace(/targetSdkVersion\s*=\s*\d+/, 'targetSdkVersion = 35');
+  if (variables !== before) {
+    fs.writeFileSync(variablesGradlePath, variables, 'utf8');
+    console.log('  ✓ Set variables.gradle minSdk=24 compileSdk=35 targetSdk=35');
+    patchCount++;
+  } else if (
+    variables.includes('minSdkVersion = 24') &&
+    variables.includes('compileSdkVersion = 35') &&
+    variables.includes('targetSdkVersion = 35')
+  ) {
+    console.log('  ○ variables.gradle SDK versions already correct');
+  } else {
+    console.error('  ERROR: Could not patch variables.gradle SDK versions');
+    failureCount++;
+  }
+} else if (fs.existsSync(ANDROID_DIR)) {
+  console.error('  ERROR: variables.gradle not found in Android project');
+  failureCount++;
+}
+
 // ── Report ────────────────────────────────────────────────────────────────────
 
 console.log(`\n╔════════════════════════════════════════╗`);
 console.log(`║  Android Patches Applied: ${String(patchCount).padEnd(13)}║`);
 console.log(`║  Skipped (not found):     ${String(skipCount).padEnd(13)}║`);
 console.log(`╚════════════════════════════════════════╝`);
+if (failureCount > 0) {
+  console.error(`\nAndroid patches failed: ${failureCount} required patch target(s) were missing or ambiguous.\n`);
+  process.exit(1);
+}
 console.log('\nAndroid patches complete!\n');

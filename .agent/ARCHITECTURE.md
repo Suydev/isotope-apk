@@ -1,6 +1,6 @@
 # IsotopeAI Android — Architecture
 
-Last updated: 2026-06-28
+Last updated: 2026-06-29
 
 ---
 
@@ -74,6 +74,7 @@ Last updated: 2026-06-28
 |-------------------|---------------|--------------------|--------|
 | `/__auth/login` | auth-bridge.js `login()` | android-bridge.js `handleLogin()` → Supabase `/auth/v1/token` | ✅ DONE |
 | `/__auth/signup` | auth-bridge.js `signUp()` | android-bridge.js `handleSignup()` → Supabase `/auth/v1/signup` | ✅ DONE |
+| `/__auth/check` | Auth signup pre-check | Neutral non-destructive response; never calls signup | ✅ DONE |
 | `/__auth/bootstrap` | restore-and-launch.js | android-bridge.js `handleBootstrap()` → Supabase REST | ✅ DONE |
 | `/__auth/profile` GET | auth-bridge.js, SettingsLayout | android-bridge.js `handleGetProfile()` → Supabase REST | ✅ DONE |
 | `/__auth/profile` POST | `__isoPostProfile()` | android-bridge.js `handlePostProfile()` → Supabase PATCH | ✅ DONE |
@@ -202,6 +203,54 @@ www/
 8. pwa-local.js (defer) — polls /api/version → intercepted by bridge → always "online"
 9. update-checker.js (defer) — suppressed by window.__ISO_SUPPRESS_UPDATE_CHECK__
 ```
+
+## Bootstrap Response Contract
+
+Android `/__auth/bootstrap` must match the server contract consumed by `restore-and-launch.js`:
+
+```js
+{
+  ok: true,
+  user_id,
+  session,
+  user,
+  profile,              // normalized object for UI compatibility
+  profile_data,         // raw user_profiles.profile_data object
+  profile_updated_at,
+  onboarding: {
+    state: "completed" | "incomplete" | "legacy_migrated",
+    completed: boolean,
+    completed_at: string | null,
+    data: object
+  },
+  onboarding_completed,
+  settings,
+  tours,
+  stats_summary,
+  daily_user_stats: [],
+  study_sessions_log: [],
+  cloud_snapshot,
+  best_backup,
+  backup_candidates: [],
+  restore_recommended,
+  backup_warning,
+  fetched_at
+}
+```
+
+Network failure must not be converted into `onboarding_completed:false`. Unknown onboarding state stays unknown so the UI can retry instead of destroying or overwriting local state.
+
+## Build Provenance
+
+| Item | Value |
+|---|---|
+| Android branch | `codex/android-production-repair` |
+| isotope-code source SHA | `fd39fad1384333ad774f19f35b754659a34dae60` |
+| Capacitor core/android/cli | `6.2.1` |
+| Android minSdk / compileSdk / targetSdk | `24 / 35 / 35` |
+| Gradle wrapper | committed in `android/gradle/wrapper/` |
+
+CI must run `npx cap sync android` against the committed native project. It must not run `npx cap add android` on every build.
 
 ---
 

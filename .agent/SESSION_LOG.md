@@ -78,3 +78,73 @@
 node scripts/push-to-github.js
 # Then check: https://github.com/Suydev/isotope-apk/actions
 ```
+
+---
+
+## Session 2026-06-29 (Android Production Repair)
+
+**Agent/account:** Codex
+**Branch:** codex/android-production-repair
+**Starting state:** Existing APK still user-reported broken; all previous “fixed” claims treated as unverified.
+**Ending state:** Ready to commit and push repair branch for GitHub Actions build.
+
+**Objective:**
+- Remove destructive `/__auth/check` signup behavior.
+- Repair bootstrap/onboarding response contract and login routing.
+- Commit stable Android project and update CI to build from the repair branch.
+- Add regression tests for the highest-risk auth/bootstrap/patch issues.
+
+**Completed:**
+- Read required `.agent/` files, key repository files, recent commits, and the sibling `isotope-code` source/audit files.
+- Updated `android-bridge.js`:
+  - `/__auth/check` is neutral and non-destructive.
+  - `/__auth/bootstrap` returns canonical server-compatible shape.
+  - Onboarding completion uses verified PostgREST upsert with `on_conflict=user_id`.
+  - Onboarding state no longer uses “row exists = onboarded”.
+  - Network failure does not default unknown onboarding to false.
+  - Selected RPC failures now propagate as `ok:false` instead of false success.
+- Updated `scripts/prepare-www.js`:
+  - Defaults to sibling `../isotope-code`.
+  - Patches `restore-and-launch.js` for legacy `onboarding_completed` compatibility without defaulting unknown state to false.
+- Updated `scripts/apply-android-patches.js`:
+  - Required Auth patch routes login exactly once from bootstrap decision.
+  - Required targets fail on missing/ambiguous matches.
+  - Native manifest permissions and SDK versions are normalized.
+- Generated and retained the native `android/` project.
+- Updated GitHub Actions:
+  - Runs on `codex/android-production-repair`.
+  - Pins `isotope-code` to `fd39fad1384333ad774f19f35b754659a34dae60`.
+  - Uses `npm ci`, runs `npm test`, syncs the committed Android project, and does not run `npx cap add android`.
+- Added regression tests under `test/`.
+
+**Commands run:**
+- `node --check scripts/apply-android-patches.js`
+- `node --check scripts/prepare-www.js`
+- `npm install --package-lock-only`
+- `npm test`
+- `npm run prepare-www`
+- `npm run apply-patches`
+- `npx cap sync android`
+- `npm run apply-patches`
+
+**Tests passed:**
+- 9 Node regression tests.
+- `prepare-www` copied the real UI: 154 JS bundles, 56.9 MB.
+- Android patch pass after sync: 0 skipped, 0 required failures.
+
+**Not verified:**
+- GitHub Actions APK build.
+- Emulator or physical-device install.
+- Packaged login/dashboard/onboarding flow.
+- Backup restore, offline mode, native notifications, timer process-death recovery, import/export, and responsive Android matrix.
+
+**Tooling limitation:**
+- `gh` is not installed, so Actions inspection and PR creation through GitHub CLI are unavailable here.
+
+**Next exact action:**
+```bash
+npm run agent:handoff
+git add .gitignore android-bridge.js package.json package-lock.json scripts/prepare-www.js scripts/apply-android-patches.js .github/workflows/android.yml test android .agent
+git commit -m "fix: repair Android auth bootstrap contract"
+git push -u origin codex/android-production-repair
+```

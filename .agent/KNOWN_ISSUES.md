@@ -2,143 +2,98 @@
 
 ---
 
-## ISSUE-001 — Bootstrap response missing restore_recommended field
+## ISSUE-001 — Destructive email availability check
+**Severity:** CRITICAL
+**Status:** FIXED IN CODE + UNIT TESTED (2026-06-29)
+
+`android-bridge.js` previously handled `/__auth/check` by calling Supabase `/auth/v1/signup` with a generated dummy password. That is not a safe availability check and could create users, send confirmation mail, and consume auth rate limits.
+
+**Current fix:** `/__auth/check` returns a neutral response and performs zero signup requests.
+
+**Evidence:** `npm test` includes `/__auth/check is neutral and performs no signup request`.
+
+---
+
+## ISSUE-002 — Bootstrap contract mismatch
+**Severity:** CRITICAL
+**Status:** FIXED IN CODE + UNIT TESTED (2026-06-29)
+
+Android bootstrap previously returned `onboarding_completed` without the canonical `onboarding` object, and returned the full `user_profiles` row as `profile` instead of exposing raw `profile_data`. `restore-and-launch.js` reads `snapshot.onboarding.completed`, `profile_data`, `cloud_snapshot`, `study_sessions_log`, and `stats_summary`, so boot routing could treat completed users as not onboarded.
+
+**Current fix:** `/__auth/bootstrap` now returns the server-compatible shape, including `onboarding`, `onboarding_completed`, `profile`, `profile_data`, `profile_updated_at`, `settings`, `tours`, `stats_summary`, `daily_user_stats`, `study_sessions_log`, `cloud_snapshot`, `best_backup`, `backup_candidates`, `restore_recommended`, `backup_warning`, and `fetched_at`.
+
+**Evidence:** `npm test` covers canonical completed onboarding, legacy `onboarding_completed`, seeded incomplete onboarding, legacy migration, nested `profile_data`, and network failure.
+
+---
+
+## ISSUE-003 — Auth navigation race after login
+**Severity:** CRITICAL
+**Status:** FIXED IN PATCH SCRIPT + UNIT TESTED (2026-06-29)
+
+The compiled Auth bundle navigated to `/dashboard` whenever `signIn().success` was true. Since `auth-bridge.js` is loaded after `android-bridge.js` and becomes the active login implementation, login could race against restore/bootstrap routing and skip onboarding.
+
+**Current fix:** `scripts/apply-android-patches.js` patches the Auth bundle login handler to call `window.__isoLogin`, wait for bootstrap, and route exactly once based on `bootstrap.onboarding.completed`.
+
+**Evidence:** `npm test` includes `apply-android-patches makes Auth login route exactly once from bootstrap`.
+
+---
+
+## ISSUE-004 — Minified bundle patch compatibility
 **Severity:** HIGH
-**Status:** FIXED (2026-06-29)
+**Status:** PARTIALLY VERIFIED
 
-**Symptom:**
-AppAccessGate expects `/__auth/bootstrap` to return:
-```json
-{
-  "ok": true,
-  "best_backup": { ... },
-  "backup_candidates": [],
-  "restore_recommended": true,
-  "backup_warning": null
-}
-```
-Current android-bridge.js `handleBootstrap()` only returns `{ ok, session, profile }` — missing `best_backup`, `backup_candidates`, `restore_recommended`, `backup_warning`.
+Required patch targets now fail the build if absent or ambiguous. The current source commit was tested locally with `npm run prepare-www`, `npm run apply-patches`, `npx cap sync android`, and a second `npm run apply-patches`.
 
-**Impact:** New-device restore flow may not trigger automatically. User may not see the "Restore from cloud" prompt.
-
-**Reproduction:**
-1. Fresh install (no local data)
-2. Log in
-3. Observe: data from previous sessions not restored automatically
-
-**Suspected cause:** handleBootstrap() in android-bridge.js was simplified vs full server.mjs implementation.
-
-**Fix needed:**
-In `android-bridge.js` `handleBootstrap()`:
-1. After getting profile, also call `handleGetBestBackup()`
-2. Include its result as `best_backup` in the response
-3. Set `restore_recommended: true` if best backup is "rich"
-
-**Attempts:** None yet (issue identified during subagent analysis)
+**Remaining risk:** This is still a high-risk compatibility layer. More patch-contract coverage is needed for asset existence, hash reporting, JavaScript parsing of patched chunks, and index.html reference validation.
 
 ---
 
-## ISSUE-002 — WAV sound files = 43.8MB of APK size
+## ISSUE-005 — GitHub Actions access to isotope-code
+**Severity:** HIGH
+**Status:** UNKNOWN UNTIL PUSHED
+
+The workflow checks out `Suydev/isotope-code` at pinned commit `fd39fad1384333ad774f19f35b754659a34dae60`. If that repository is private and the default GitHub token lacks access, the build will fail during checkout.
+
+**Fix options if it fails:**
+- Make `Suydev/isotope-code` accessible to the workflow.
+- Add a cross-repo read token as a GitHub secret and configure checkout to use it.
+
+---
+
+## ISSUE-006 — Native notifications are not implemented
+**Severity:** HIGH
+**Status:** OPEN
+
+The Web Notification polyfill is not sufficient for process-death reliability. A real Android notification implementation must schedule from an absolute timer completion timestamp, survive WebView process death where Android permits, restore after restart/reboot, and route notification taps to `/focus`.
+
+---
+
+## ISSUE-007 — Timer process-death behavior is unverified
+**Severity:** HIGH
+**Status:** OPEN
+
+The timer still needs packaged APK tests for backgrounding, rotation, force-stop/relaunch, process recreation, clock changes, pause/resume, exactly-once completion, no duplicate Supabase session, and no duplicate notification.
+
+---
+
+## ISSUE-008 — Backup safety requires Android evidence
+**Severity:** HIGH
+**Status:** OPEN
+
+`BLOCKED_EMPTY_OVERWRITE` must be preserved and verified in the packaged APK. Empty fresh install must never overwrite richer cloud data.
+
+---
+
+## ISSUE-009 — WAV sound files are large
 **Severity:** MEDIUM
 **Status:** OPEN
 
-**Symptom:**
-Three ambient sound files: rain.wav (14.8MB), wind.wav (17.1MB), crickets.wav (11.9MB).
-Total: 43.8MB. Makes APK too large for Play Store guidelines (warn at 100MB).
-
-**Reproduction:**
-```bash
-node scripts/prepare-www.js
-du -sh www/sounds/
-```
-
-**Fix:**
-```bash
-# In CI (GitHub Actions):
-apt-get install -y ffmpeg
-ffmpeg -i rain.wav -c:a libvorbis -q:a 4 rain.ogg
-# etc.
-```
-
-**Blocked by:** ffmpeg not in current CI environment
-**Next attempt:** Add ffmpeg step to android.yml, update prepare-www.js
+`www/sounds/` currently contributes about 41.8 MB after packaging: rain, wind, and crickets WAV files. Convert to OGG/AAC in a later size-reduction task only after core repair is stable.
 
 ---
 
-## ISSUE-003 — apply-android-patches.js patch strings unverified
+## ISSUE-010 — GitHub CLI unavailable locally
 **Severity:** MEDIUM
 **Status:** OPEN
 
-**Symptom:**
-Patch strings in `scripts/apply-android-patches.js` were written based on subagent analysis of minified bundle content. They have NOT been tested against the actual files (require a CI build to verify).
-
-**Reproduction:**
-After first CI build, check for "WARNING: Required patch target not found" in build logs.
-
-**Suspected cause:** Minification is not deterministic — patch strings may differ from actual bundle content.
-
-**Fix:** Run CI build, check patch warnings in output, adjust strings as needed.
-
----
-
-## ISSUE-004 — GitHub Actions: isotope-code repo access
-**Severity:** HIGH (BLOCKING for CI)
-**Status:** UNKNOWN
-
-**Symptom:**
-The `.github/workflows/android.yml` workflow checkouts `Suydev/isotope-code` using `github.token`. If isotope-code is private, this will fail.
-
-**Reproduction:**
-Push to GitHub, check Actions run logs for:
-`Error: Repository Suydev/isotope-code: Checkout failed`
-
-**Fix options:**
-1. Make isotope-code public (simplest)
-2. Add PAT with repo access as GitHub Secret `CROSS_REPO_PAT`
-3. Update workflow: `token: ${{ secrets.CROSS_REPO_PAT }}`
-
----
-
-## ISSUE-005 — sessionSync pending queue uses sessionStorage (not persisted through process death)
-**Severity:** MEDIUM
-**Status:** PARTIALLY MITIGATED
-
-**Symptom:**
-The sessionSync bundle may use `sessionStorage` for the pending session queue (`isotope:pending_session_sync`). When Android kills the WebView process, sessionStorage is cleared, losing unsynced session records.
-
-**apply-android-patches.js** includes patches to change `sessionStorage` → `localStorage` for this key, but the patch strings are unverified.
-
-**Reproduction:**
-1. Complete a focus session
-2. Force-close the app before sync
-3. Restart app
-4. Check if session appeared in analytics (it shouldn't if lost)
-
-**Fix:** Verify patch strings in Issue-003 fix. If sessionSync uses a different key/pattern, update apply-android-patches.js.
-
----
-
-## ISSUE-006 — Supabase Realtime (community features) not tested
-**Severity:** LOW
-**Status:** OPEN (by design)
-
-**Symptom:**
-Community features (group chat, presence, leaderboard) use Supabase Realtime WebSocket connections. These should work in Capacitor WebView but have not been tested.
-
-**Reproduction:**
-1. Open /community route in app
-2. Check if WebSocket connects
-3. Check Logcat for WebSocket errors
-
-**Expected behavior:** Community features show "offline" state when WebSocket unavailable, work when connected. AppAccessGate blocks `/community` route entirely when offline.
-
----
-
-## ISSUE-007 — __ISO_SUPPRESS_UPDATE_CHECK__ may not stop update-checker.js
-**Severity:** LOW
-**Status:** OPEN
-
-**Symptom:**
-update-checker.js polls GitHub API for updates. android-bridge.js sets `window.__ISO_SUPPRESS_UPDATE_CHECK__ = true` and prepare-www.js comments out the script tag. However, if update-checker.js runs before the bridge somehow, it may try to reach GitHub API.
-
-**Fix in prepare-www.js:** Script tag is commented out — this should be sufficient.
+`gh` is not installed in this environment. Baseline artifact download, `gh run list`, workflow log inspection, and PR creation cannot be done through the GitHub CLI here.

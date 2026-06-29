@@ -32,7 +32,7 @@
 const fs   = require('fs');
 const path = require('path');
 
-const REPO_DIR    = process.env.REPO_DIR    || path.resolve(__dirname, '../isotope-code');
+const REPO_DIR    = process.env.REPO_DIR    || path.resolve(__dirname, '../../isotope-code');
 const SOURCE_DIR  = process.env.SOURCE_DIR  || path.join(REPO_DIR, 'public');
 const WWW_DIR     = process.env.WWW_DIR     || path.resolve(__dirname, '../www');
 const BRIDGE_FILE = process.env.BRIDGE_FILE || path.resolve(__dirname, '../android-bridge.js');
@@ -160,6 +160,74 @@ if (html.includes('initial-scale=1.0"') && !html.includes('viewport-fit=cover'))
 
 fs.writeFileSync(indexDest, html, 'utf8');
 console.log('  ✓ index.html patched');
+
+// ── 5e. Patch authored runtime bootstrap logic ──────────────────────────────
+// Keep this in prepare-www because restore-and-launch.js is authored runtime JS
+// copied from isotope-code/public/, not a minified hashed chunk.
+console.log('\nStep 5e: Patching restore-and-launch.js bootstrap contract ...');
+const restoreLaunchPath = path.join(WWW_DIR, 'restore-and-launch.js');
+if (fs.existsSync(restoreLaunchPath)) {
+  let restoreJs = fs.readFileSync(restoreLaunchPath, 'utf8');
+  restoreJs = replaceExactlyOnce(
+    restoreJs,
+    '  const profile = snapshot.profile_data || snapshot.profile || {};\n',
+    [
+      '  const completed =',
+      "    typeof snapshot?.onboarding?.completed === 'boolean'",
+      '      ? snapshot.onboarding.completed',
+      "      : (typeof snapshot.onboarding_completed === 'boolean' ? snapshot.onboarding_completed : undefined);",
+      '  const canonicalOnboarding = typeof completed === \'boolean\'',
+      '    ? {',
+      '        ...(isObject(snapshot.onboarding) ? snapshot.onboarding : {}),',
+      "        state: completed ? 'completed' : 'incomplete',",
+      '        completed,',
+      '        completed_at: snapshot.onboarding?.completed_at || snapshot.onboarding_completed_at || null,',
+      '        data: isObject(snapshot.onboarding?.data) ? snapshot.onboarding.data : {},',
+      '      }',
+      '    : snapshot.onboarding;',
+      '  const profile = snapshot.profile_data || snapshot.profile || {};',
+      ''
+    ].join('\n'),
+    'restore-and-launch legacy onboarding fallback'
+  );
+  restoreJs = replaceExactlyOnce(
+    restoreJs,
+    '    onboarding: snapshot.onboarding,\n',
+    '    onboarding: canonicalOnboarding,\n',
+    'restore-and-launch canonical onboarding write'
+  );
+  restoreJs = replaceExactlyOnce(
+    restoreJs,
+    [
+      '  const onboarded = cloudSnapshot',
+      '    ? cloudSnapshot.onboarding.completed === true',
+      '    : snapshot.onboarding && snapshot.onboarding.completed === true;',
+      '  if (onboarded) writeLocalOnboardingComplete();',
+      '  else localStorage.removeItem(ZUSTAND_ONBOARDING_KEY);',
+      ''
+    ].join('\n'),
+    [
+      '  const onboarded = cloudSnapshot',
+      '    ? cloudSnapshot.onboarding.completed === true',
+      '    : (typeof completed === \'boolean\' ? completed : undefined);',
+      '  if (onboarded === true) writeLocalOnboardingComplete();',
+      '  else if (onboarded === false) localStorage.removeItem(ZUSTAND_ONBOARDING_KEY);',
+      ''
+    ].join('\n'),
+    'restore-and-launch unknown onboarding preservation'
+  );
+  restoreJs = replaceExactlyOnce(
+    restoreJs,
+    '    if (dbResult !== null) {\n',
+    "    if (dbResult !== null && typeof dbResult.isOnboarded === 'boolean') {\n",
+    'restore-and-launch boot decision boolean guard'
+  );
+  fs.writeFileSync(restoreLaunchPath, restoreJs, 'utf8');
+  console.log('  ✓ restore-and-launch.js patched for canonical/legacy bootstrap responses');
+} else {
+  console.error('  ✗ restore-and-launch.js missing from www/');
+  process.exit(1);
+}
 
 // ── 6. Replace sw.js with a no-op ────────────────────────────────────────────
 //    Capacitor serves all assets from its local file server.
@@ -300,4 +368,18 @@ function getDirSizeMB(dir) {
     }
   } catch (e) {}
   return bytes / (1024 * 1024);
+}
+
+function countOccurrences(text, needle) {
+  if (!needle) return 0;
+  return text.split(needle).length - 1;
+}
+
+function replaceExactlyOnce(text, from, to, label) {
+  const count = countOccurrences(text, from);
+  if (count !== 1) {
+    console.error(`ERROR: Patch target for ${label} appeared ${count} times; expected exactly 1.`);
+    process.exit(1);
+  }
+  return text.replace(from, to);
 }

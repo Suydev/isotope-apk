@@ -4,190 +4,98 @@
 
 ## Task Queue
 
----
-
-### TASK ANDROID-001
-**Priority:** P0
-**Status:** DONE
-**Objective:** Set up Capacitor project structure with package.json, capacitor.config.json, GitHub Actions CI.
-**Acceptance:** Files exist in repo. CI workflow is valid YAML.
-**Completed:** 2026-06-28
-
----
-
-### TASK ANDROID-002
-**Priority:** P0
-**Status:** DONE
-**Objective:** Build android-bridge.js — fetch interceptor for all /__auth/* and /__supa/* routes.
-**Acceptance:** Bridge handles login, signup, bootstrap, profile GET/POST, backup upload/download, snapshot, restore-best-backup, import.
-**Completed:** 2026-06-28
-**Notes:** Response shapes verified against server.mjs and auth-bridge.js subagent analysis.
-
----
-
-### TASK ANDROID-003
-**Priority:** P0
-**Status:** DONE
-**Objective:** Build scripts/prepare-www.js — copies isotope-code/public/ to www/, injects bridge, patches sw.js.
-**Acceptance:** www/ is ready for cap sync after running this script.
-**Completed:** 2026-06-28
-
----
-
-### TASK ANDROID-004
-**Priority:** P0
-**Status:** DONE
-**Objective:** Build scripts/apply-android-patches.js — patches App bundle with Supabase constants and server-side patches.
-**Acceptance:** Script patches all 5 bundles (App, sessionSync, AppAccessGate, useInvites, Focus).
-**Completed:** 2026-06-28
-
----
-
 ### TASK ANDROID-005
 **Priority:** P0
 **Status:** ACTIVE
-**Objective:** Trigger first successful debug APK build via GitHub Actions.
-**Relevant files:**
-- `.github/workflows/android.yml`
-- `android-bridge.js`
-- `scripts/prepare-www.js`
-- `scripts/apply-android-patches.js`
-- `capacitor.config.json`
-- `package.json`
-
-**Dependencies:** ANDROID-001 through ANDROID-004 (all done)
+**Objective:** Push `codex/android-production-repair` and trigger a GitHub Actions debug APK build.
 
 **Acceptance condition:**
-- `npm run agent:handoff` completes cleanly
-- All files pushed to GitHub main branch
-- GitHub Actions build starts (visible in Actions tab)
-- Build succeeds: `app-debug.apk` artifact uploaded
-- APK can be installed on Android device/emulator
+- `npm run agent:handoff` has been run.
+- Repair branch is committed and pushed to `origin/codex/android-production-repair`.
+- GitHub Actions starts for the pushed branch.
+- Debug APK build succeeds and uploads `app-debug.apk`.
+- Test evidence is recorded in `.agent/TEST_STATUS.md`.
 
-**Required tests:**
-- Download APK from GitHub Actions artifact
-- `adb install app-debug.apk`
-- Launch app — should see IsotopeAI login screen (NOT placeholder)
-- Log in with real Supabase credentials
-- Verify data loads (dashboard visible, no white screen)
+**Commands already run locally:**
+- `node --check scripts/apply-android-patches.js`
+- `node --check scripts/prepare-www.js`
+- `npm test`
+- `npm run prepare-www`
+- `npm run apply-patches`
+- `npx cap sync android`
+- `npm run apply-patches`
 
-**Exact next command:**
+**Exact next commands:**
 ```bash
-# 1. Run handoff to finalize state files
 npm run agent:handoff
-
-# 2. Check that all files are committed and pushed
-git --no-optional-locks status
-git log --oneline -3
-
-# 3. Verify GitHub Actions started
-# Check: https://github.com/Suydev/isotope-apk/actions
+git add .gitignore android-bridge.js package.json package-lock.json scripts/prepare-www.js scripts/apply-android-patches.js .github/workflows/android.yml test android .agent
+git commit -m "fix: repair Android auth bootstrap contract"
+git push -u origin codex/android-production-repair
 ```
 
-**Current blocker:** Files need to be pushed to GitHub via API (git push requires PAT).
+**Notes:**
+- `gh` is not installed in this environment. If GitHub Actions monitoring is needed from the shell, install/authenticate `gh` or inspect the Actions tab in the browser.
+- The workflow now builds this repair branch and pins `isotope-code` to `fd39fad1384333ad774f19f35b754659a34dae60`.
 
 ---
 
 ### TASK ANDROID-006
-**Priority:** P1
+**Priority:** P0
 **Status:** TODO
-**Objective:** Verify login → dashboard → data flow in physical/emulated Android device.
-**Relevant files:**
-- `android-bridge.js` (login handler, bootstrap handler)
-- `www/auth-bridge.js` (client-side auth)
-- `www/restore-and-launch.js` (boot routing)
-
-**Dependencies:** ANDROID-005 (APK built)
+**Objective:** Install the GitHub-built debug APK and verify auth routing on Android.
 
 **Acceptance:**
-- Log in with real Supabase credentials
-- Dashboard shows correct data from IndexedDB
-- New device: restore-best-backup flow triggers and restores cloud data
-- Timer starts and persists through app backgrounding
-- Settings export/import works
-
-**Required tests:**
-- Fresh install + login + dashboard data visible
-- Background app for 5min, return — timer still correct
-- Export JSON from Settings, verify file saved
-- Import JSON, verify data merged
+- APK contains the real IsotopeAI UI, not placeholder React UI.
+- Existing account logs in and routes to `/dashboard` only when bootstrap says onboarding is complete.
+- New account logs in and routes to `/onboarding` when `user_onboarding.completed=false`.
+- Bootstrap network failure shows loading/retry behavior instead of assuming dashboard or onboarding.
+- WebView console and Logcat evidence are captured with tokens redacted.
 
 ---
 
 ### TASK ANDROID-007
-**Priority:** P1
+**Priority:** P0
 **Status:** TODO
-**Objective:** Convert WAV sound files to OGG to reduce APK size by ~36MB.
-**Relevant files:**
-- `scripts/prepare-www.js` (add ffmpeg conversion step)
-- `www/sounds/` (rain.wav, wind.wav, crickets.wav)
-
-**Dependencies:** ANDROID-005
+**Objective:** Verify backup safety and restore behavior in the packaged APK.
 
 **Acceptance:**
-- sound files in www/sounds/ are .ogg format, each <3MB
-- APK total size reduced by at least 30MB
-- Ambient sounds still play in app
-
-**Notes:**
-- Requires ffmpeg in CI environment
-- Add to GitHub Actions: `apt-get install -y ffmpeg`
-- Conversion: `ffmpeg -i rain.wav -c:a libvorbis -q:a 4 rain.ogg`
+- Empty fresh install does not overwrite rich cloud backup.
+- Rich local data plus empty cloud is handled without data loss.
+- Both-changed and corrupt-cloud cases produce safe warnings.
+- `BLOCKED_EMPTY_OVERWRITE` evidence is recorded.
 
 ---
 
 ### TASK ANDROID-008
-**Priority:** P1
+**Priority:** P0
 **Status:** TODO
-**Objective:** Implement native @capacitor/local-notifications for focus timer completion.
-**Relevant files:**
-- `android/app/src/main/java/in/isotopeai/app/` (Kotlin activity)
-- `www/assets/useFocusStore-CX_Nyp1h.js` (timer store)
-- `android-bridge.js` (add notification scheduling helper)
-
-**Dependencies:** ANDROID-005
+**Objective:** Implement real native focus timer notifications and process-death recovery.
 
 **Acceptance:**
-- App sends notification when Pomodoro timer completes
-- Notification appears when app is backgrounded
-- Tapping notification returns to app on Focus screen
-- Notification permission requested on first launch
-
-**Required tests:**
-- Start 25min timer, minimize app, wait for completion
-- Verify notification appears in Android notification shade
-- Tap notification, verify app opens to Focus screen
+- Timer schedules native notification from an absolute completion timestamp.
+- Pause/resume/reset/duration changes cancel or reschedule notification.
+- Notification survives WebView process death where Android permits.
+- Notification tap opens `/focus`.
+- Android 13+ notification permission denial is handled cleanly.
 
 ---
 
 ### TASK ANDROID-009
-**Priority:** P2
+**Priority:** P1
 **Status:** TODO
-**Objective:** Implement @capacitor/filesystem for native JSON export/import.
-**Relevant files:**
-- `www/assets/SettingsLayout-B4OgCkQ5.js` (export/import UI)
-- `android-bridge.js` (add filesystem helper window functions)
-
-**Dependencies:** ANDROID-006
+**Objective:** Verify local-only mode in the packaged APK.
 
 **Acceptance:**
-- "Export backup" button saves JSON to Android Downloads folder
-- "Import backup" button shows native file picker
-- Exported file survives app uninstall/reinstall
+- Dashboard, tasks, subjects, syllabus, focus timer, sessions, analytics, habits, exams/tests, preferences, and local import/export work while logged out or offline.
+- Expired-token offline startup does not destroy local state.
 
 ---
 
 ### TASK ANDROID-010
-**Priority:** P2
+**Priority:** P1
 **Status:** TODO
-**Objective:** Implement background timer via Android WorkManager for process-death resilience.
-**Relevant files:**
-- `android/app/src/main/java/in/isotopeai/app/` (new WorkManager classes)
-- Capacitor custom plugin needed
+**Objective:** Run responsive and orientation verification on Android.
 
-**Dependencies:** ANDROID-008
-
-**Notes:**
-- When Android kills the WebView process, the JS timer stops
-- WorkManager can fire notifications even after process death
-- Requires: native Kotlin plugin + Capacitor bridge method
+**Acceptance:**
+- 360x800, 800x360, 412x915, 600x960, 800x1280, and 1280x800 layouts are checked.
+- Navigation, forms, modals, keyboard insets, safe areas, charts, focus timer, settings, onboarding, and community have no clipping or horizontal overflow.

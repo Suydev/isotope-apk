@@ -60,6 +60,9 @@
              || localStorage.getItem('isotope-last-session-raw');
       if (!raw) return null;
       var s = JSON.parse(raw);
+      if (s && s.session && s.session.access_token) s = s.session;
+      if (s && s.currentSession && s.currentSession.access_token) s = s.currentSession;
+      if (s && s.state && s.state.session && s.state.session.access_token) s = s.state.session;
       // Check expiry
       var exp = s.expires_at || 0;
       if (exp && exp < Math.floor(Date.now() / 1000) - 60) {
@@ -96,6 +99,316 @@
 
   function errorResponse(msg, status) {
     return jsonResponse({ ok: false, error: msg }, status || 500);
+  }
+
+  function safeJsonParse(text, fallback) {
+    try { return typeof text === 'string' ? JSON.parse(text) : (text || fallback); }
+    catch (e) { return fallback; }
+  }
+
+  function isObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function compactObject(obj) {
+    var out = {};
+    Object.keys(obj || {}).forEach(function (key) {
+      if (obj[key] !== undefined) out[key] = obj[key];
+    });
+    return out;
+  }
+
+  function fetchJson(url, opts) {
+    return fetch(url, opts).then(function (r) {
+      return r.text().then(function (text) {
+        return { ok: r.ok, status: r.status, body: safeJsonParse(text, text ? { raw: text } : null) };
+      });
+    });
+  }
+
+  function supaJson(path, opts) {
+    return supaFetch(path, opts).then(function (r) {
+      return r.text().then(function (text) {
+        return { ok: r.ok, status: r.status, body: safeJsonParse(text, text ? { raw: text } : null) };
+      });
+    });
+  }
+
+  function firstRow(res) {
+    return res && Array.isArray(res.body) && res.body.length ? res.body[0] : null;
+  }
+
+  function publicAvatarUrlFromPath(avatarPath) {
+    var pathValue = String(avatarPath || '').trim();
+    if (!pathValue) return null;
+    if (/^https?:\/\//i.test(pathValue)) return pathValue;
+    return SUPA_URL + '/storage/v1/object/public/avatars/' + pathValue.split('/').map(encodeURIComponent).join('/');
+  }
+
+  function onboardingFromProfileData(profileData) {
+    if (!isObject(profileData)) return null;
+    if (typeof profileData.isOnboarded === 'boolean') {
+      return {
+        state: profileData.isOnboarded ? 'completed' : 'incomplete',
+        completed: profileData.isOnboarded,
+        completed_at: profileData.onboardingCompletedAt || profileData.onboarding_completed_at || null,
+        data: isObject(profileData.onboarding) ? profileData.onboarding : {}
+      };
+    }
+    if (typeof profileData.onboarding_completed === 'boolean') {
+      return {
+        state: profileData.onboarding_completed ? 'completed' : 'incomplete',
+        completed: profileData.onboarding_completed,
+        completed_at: profileData.onboarding_completed_at || profileData.onboardingCompletedAt || null,
+        data: isObject(profileData.onboarding) ? profileData.onboarding : {}
+      };
+    }
+    return null;
+  }
+
+  function hasMeaningfulLegacyData(profileData, statsSummary, sessionsLog) {
+    if (Array.isArray(sessionsLog) && sessionsLog.length > 0) return true;
+    if (statsSummary && (
+      Number(statsSummary.total_sessions || 0) > 0 ||
+      Number(statsSummary.session_count || 0) > 0 ||
+      Number(statsSummary.total_study_seconds || 0) > 0 ||
+      Number(statsSummary.total_hours || 0) > 0
+    )) return true;
+    if (!isObject(profileData)) return false;
+    var ignored = {
+      settings: true, tours: true, isOnboarded: true, onboarding_completed: true,
+      onboardingCompletedAt: true, onboarding_completed_at: true
+    };
+    return Object.keys(profileData).some(function (key) {
+      return !ignored[key] && profileData[key] !== null && profileData[key] !== '' && profileData[key] !== false;
+    });
+  }
+
+  function normalizeOnboarding(onboardingRow, profileData, legacyCompleted) {
+    if (onboardingRow && typeof onboardingRow.completed === 'boolean') {
+      return {
+        state: onboardingRow.completed ? 'completed' : 'incomplete',
+        completed: onboardingRow.completed,
+        completed_at: onboardingRow.completed_at || null,
+        data: isObject(onboardingRow.data) ? onboardingRow.data : (isObject(profileData && profileData.onboarding) ? profileData.onboarding : {})
+      };
+    }
+    var fromProfile = onboardingFromProfileData(profileData);
+    if (fromProfile) return fromProfile;
+    if (legacyCompleted === true) {
+      return { state: 'completed', completed: true, completed_at: new Date().toISOString(), data: {} };
+    }
+    return { state: 'incomplete', completed: false, completed_at: null, data: {} };
+  }
+
+  function getBackupData(raw) {
+    raw = safeJsonParse(raw, raw);
+    var source = raw && typeof raw === 'object' ? raw : {};
+    var localBackup = isObject(source.local_backup) ? source.local_backup : {};
+    var data = isObject(source.data) ? source.data
+      : (isObject(source.backup_data) ? source.backup_data
+        : (isObject(source.local_collections) ? source.local_collections
+          : (isObject(localBackup.data) ? localBackup.data : {})));
+    return {
+      profile: isObject(data.profile) ? data.profile : (isObject(source.profile_data) ? source.profile_data : null),
+      timerState: isObject(data.timerState) ? data.timerState : (isObject(data.timer_state) ? data.timer_state : null),
+      tasks: Array.isArray(data.tasks) ? data.tasks : [],
+      sessions: Array.isArray(data.sessions) ? data.sessions : [],
+      subjects: Array.isArray(data.subjects) ? data.subjects : [],
+      habits: Array.isArray(data.habits) ? data.habits : [],
+      dailyLogs: Array.isArray(data.dailyLogs) ? data.dailyLogs : [],
+      tests: Array.isArray(data.tests) ? data.tests : [],
+      exams: Array.isArray(data.exams) ? data.exams : [],
+      mockTests: Array.isArray(data.mockTests) ? data.mockTests : []
+    };
+  }
+
+  function getCollectionCounts(raw) {
+    var data = getBackupData(raw);
+    return {
+      profile: data.profile ? 1 : 0,
+      timerState: data.timerState ? 1 : 0,
+      tasks: data.tasks.length,
+      sessions: data.sessions.length,
+      subjects: data.subjects.length,
+      habits: data.habits.length,
+      dailyLogs: data.dailyLogs.length,
+      tests: data.tests.length,
+      exams: data.exams.length,
+      mockTests: data.mockTests.length
+    };
+  }
+
+  function isCountsRich(counts, sizeBytes) {
+    return ['tasks', 'sessions', 'subjects', 'habits', 'tests', 'exams', 'mockTests'].some(function (key) {
+      return Number(counts[key] || 0) > 0;
+    }) || (Number(sizeBytes || 0) > 100 * 1024 && ['tasks', 'sessions', 'subjects', 'habits', 'dailyLogs', 'tests', 'exams', 'mockTests'].some(function (key) {
+      return Number(counts[key] || 0) > 0;
+    }));
+  }
+
+  function isCountsEmpty(counts) {
+    return ['tasks', 'sessions', 'subjects', 'habits', 'dailyLogs', 'tests', 'exams', 'mockTests'].every(function (key) {
+      return Number(counts[key] || 0) === 0;
+    }) && Number(counts.timerState || 0) === 0;
+  }
+
+  function backupScore(counts, sizeBytes) {
+    return (isCountsRich(counts, sizeBytes) ? 100000 : 0)
+      + Number(counts.tasks || 0) * 10
+      + Number(counts.sessions || 0) * 8
+      + Number(counts.subjects || 0) * 10
+      + Number(counts.exams || 0) * 8
+      + Number(counts.tests || 0) * 8
+      + Number(counts.mockTests || 0) * 8
+      + Number(counts.habits || 0) * 5
+      + Number(counts.dailyLogs || 0) * 2
+      + Number(counts.profile || 0)
+      + Number(counts.timerState || 0)
+      + Math.min(5000, Math.floor(Number(sizeBytes || 0) / 1024));
+  }
+
+  function backupExportedAt(raw, meta) {
+    raw = safeJsonParse(raw, raw);
+    return (raw && (raw.exported_at || raw.exportedAt || (raw.local_backup && raw.local_backup.exportedAt) || raw.downloaded_at))
+      || (meta && (meta.updated_at || meta.created_at))
+      || null;
+  }
+
+  function backupKindFromPath(path) {
+    if (path.indexOf('/backups/history/') !== -1) return 'backup_history';
+    if (/\/backups\/latest\.json$/.test(path)) return 'backup_latest';
+    if (path.indexOf('/cloud-snapshot/history/') !== -1) return 'cloud_snapshot_history';
+    if (/\/cloud-snapshot\/latest\.json$/.test(path)) return 'cloud_snapshot_latest';
+    if (path.indexOf('/imports/') !== -1) return /\/latest\.json$/.test(path) ? 'import_latest' : 'import_archive';
+    if (path.indexOf('/exports/') !== -1) return /\/latest\.json$/.test(path) ? 'export_latest' : 'export_archive';
+    return 'unknown';
+  }
+
+  function buildBackupCandidate(userId, path, text, meta) {
+    var counts = getCollectionCounts(text);
+    var size = text ? text.length : Number(meta && (meta.size_bytes || meta.size || 0)) || 0;
+    var rich = isCountsRich(counts, size);
+    var empty = isCountsEmpty(counts);
+    return {
+      bucket: 'user-content',
+      path: path,
+      exists: !!text,
+      valid: !!text,
+      kind: backupKindFromPath(path),
+      size_bytes: size,
+      exported_at: backupExportedAt(text, meta),
+      updated_at: meta && (meta.updated_at || meta.created_at) || null,
+      collection_counts: counts,
+      rich_score: backupScore(counts, size),
+      rich: rich,
+      empty: empty,
+      reason: rich ? 'rich backup' : (empty ? 'profile-only or empty backup' : 'valid sparse backup')
+    };
+  }
+
+  function storageDownloadText(userId, objectPath) {
+    var session = getSession();
+    if (!session || !session.access_token) return Promise.resolve(null);
+    return fetch(SUPA_URL + '/storage/v1/object/user-content/' + objectPath, {
+      headers: { 'Authorization': 'Bearer ' + session.access_token, 'apikey': SUPA_ANON_KEY },
+      credentials: 'omit'
+    }).then(function (r) {
+      if (!r.ok) return null;
+      return r.text();
+    }).catch(function () { return null; });
+  }
+
+  function storageList(prefix) {
+    var session = getSession();
+    if (!session || !session.access_token) return Promise.resolve([]);
+    return fetch(SUPA_URL + '/storage/v1/object/list/user-content', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + session.access_token,
+        'apikey': SUPA_ANON_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ prefix: prefix || '', limit: 20, offset: 0, sortBy: { column: 'name', order: 'asc' } }),
+      credentials: 'omit'
+    }).then(function (r) {
+      if (!r.ok) return [];
+      return r.json().catch(function () { return []; });
+    }).catch(function () { return []; });
+  }
+
+  function compareBackupCandidate(a, b) {
+    if (a.rich !== b.rich) return a.rich ? -1 : 1;
+    var at = new Date(a.exported_at || a.updated_at || 0).getTime() || 0;
+    var bt = new Date(b.exported_at || b.updated_at || 0).getTime() || 0;
+    if (bt !== at) return bt - at;
+    return Number(b.rich_score || 0) - Number(a.rich_score || 0);
+  }
+
+  function publicBackupCandidate(candidate) {
+    return candidate ? Object.assign({}, candidate) : null;
+  }
+
+  function findBestCloudBackup(userId) {
+    var basePaths = [
+      userId + '/backups/latest.json',
+      userId + '/cloud-snapshot/latest.json',
+      userId + '/imports/latest.json',
+      userId + '/exports/latest.json'
+    ];
+    var historyPrefixes = [
+      userId + '/backups/history/',
+      userId + '/imports/',
+      userId + '/exports/',
+      userId + '/cloud-snapshot/history/'
+    ];
+    return Promise.all(historyPrefixes.map(storageList)).then(function (lists) {
+      var seen = {};
+      var metas = basePaths.map(function (path) { return { path: path }; });
+      lists.forEach(function (files, idx) {
+        var prefix = historyPrefixes[idx];
+        (Array.isArray(files) ? files : []).slice(0, 20).forEach(function (file) {
+          if (!file || !file.name || file.name === 'history') return;
+          var path = prefix + file.name;
+          metas.push({ path: path, updated_at: file.updated_at || file.created_at || null, size_bytes: file.metadata && file.metadata.size || file.size || null });
+        });
+      });
+      metas = metas.filter(function (meta) {
+        if (!meta.path || seen[meta.path] || !/\.json$/.test(meta.path)) return false;
+        seen[meta.path] = true;
+        return true;
+      });
+      return Promise.all(metas.map(function (meta) {
+        return storageDownloadText(userId, meta.path).then(function (text) {
+          return text ? buildBackupCandidate(userId, meta.path, text, meta) : null;
+        });
+      }));
+    }).then(function (candidates) {
+      var valid = candidates.filter(Boolean).sort(compareBackupCandidate);
+      var selected = valid[0] || null;
+      var emptyLatest = valid.find(function (candidate) {
+        return candidate.empty && (/\/backups\/latest\.json$/.test(candidate.path) || /\/exports\/latest\.json$/.test(candidate.path) || /\/cloud-snapshot\/latest\.json$/.test(candidate.path));
+      });
+      var richLegacy = valid.find(function (candidate) {
+        return candidate.rich && (candidate.path.indexOf('/imports/') !== -1 || candidate.path.indexOf('/exports/') !== -1 || candidate.path.indexOf('/cloud-snapshot/') !== -1);
+      });
+      return {
+        ok: true,
+        selected: publicBackupCandidate(selected),
+        candidates: valid.map(publicBackupCandidate),
+        local_recommendation: selected && selected.rich ? 'restore_or_merge_before_upload' : (selected ? 'cloud_empty_upload_allowed_if_local_rich' : 'upload_local_if_rich'),
+        warning_if_empty_latest: emptyLatest && richLegacy && richLegacy.path !== emptyLatest.path
+          ? 'A latest backup is empty/profile-only while a richer backup exists. Do not upload empty local data.'
+          : null
+      };
+    });
+  }
+
+  function downloadCloudSnapshot(userId) {
+    return storageDownloadText(userId, userId + '/cloud-snapshot/latest.json').then(function (text) {
+      var parsed = safeJsonParse(text, null);
+      return parsed && parsed.user_id === userId ? parsed : null;
+    });
   }
 
   // ── Endpoint handlers ───────────────────────────────────────────────────────
@@ -168,25 +481,16 @@
     });
   }
 
-  // POST /__auth/check — check if email is already taken (used in signup form)
+  // POST /__auth/check — neutral preflight only. Never probe signup.
   function handleCheck(body) {
     var email = body.email || body.username || '';
-    if (!email) return Promise.resolve(jsonResponse({ available: false, error: 'no_email' }));
-    return fetch(SUPA_URL + '/auth/v1/signup', {
-      method: 'POST',
-      headers: { 'apikey': SUPA_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email, password: '__probe_check_' + Date.now() }),
-      credentials: 'omit'
-    }).then(function (r) {
-      return r.json().then(function (d) {
-        // "User already registered" → email taken
-        var taken = !!(d.code === 'user_already_exists' || (d.msg && d.msg.includes('already')) || (d.error && d.error.includes('already')));
-        return jsonResponse({ available: !taken });
-      });
-    }).catch(function () {
-      // Network error — assume available to not block signup
-      return jsonResponse({ available: true });
-    });
+    return Promise.resolve(jsonResponse({
+      ok: true,
+      available: true,
+      neutral: true,
+      checked: false,
+      email: email || null
+    }));
   }
 
   // POST /__auth/signup
@@ -211,69 +515,135 @@
     var session = getSession();
     if (!session || !session.access_token) {
       return Promise.resolve(jsonResponse({
-        ok: false, reason: 'no_session', session: null, profile: null,
-        user_id: null, onboarding_completed: false,
-        restore_recommended: false, best_backup: null,
+        ok: false, reason: 'no_session', session: null, user: null, profile: null,
+        user_id: null, onboarding: { state: 'unknown' }, onboarding_completed: undefined,
+        restore_recommended: false, best_backup: null, cloud_snapshot: null,
         backup_candidates: [], backup_warning: null
-      }));
+      }, 401));
     }
     var userId = session.user && session.user.id;
     if (!userId) {
-      return Promise.resolve(jsonResponse({
-        ok: true, session: session, profile: null, user_id: null,
-        onboarding_completed: false, restore_recommended: false,
-        best_backup: null, backup_candidates: [], backup_warning: null
-      }));
+      return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id', session: session, user_id: null }, 401));
     }
 
-    // Fetch profile AND onboarding status in parallel
-    var profilePromise = supaFetch(
-      '/rest/v1/user_profiles?select=*&user_id=eq.' + userId + '&limit=1',
-      { method: 'GET' }
-    );
-    var onboardingPromise = supaFetch(
-      '/rest/v1/user_onboarding?select=*&user_id=eq.' + userId + '&limit=1',
-      { method: 'GET' }
-    );
+    var since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    var fromDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    var profilePromise = supaJson('/rest/v1/user_profiles?select=profile_data,updated_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' });
+    var userPromise = supaJson('/rest/v1/users?select=username,name,avatar_url,coins,gems,plan_type,email&id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' });
+    var onboardingPromise = supaJson('/rest/v1/user_onboarding?select=completed,completed_at,data&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' });
+    var settingsPromise = supaJson('/rest/v1/user_settings?select=settings,updated_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' }).catch(function (e) { return { ok: false, status: 0, body: { error: e.message } }; });
+    var statsPromise = supaJson('/rest/v1/user_stats_summary?select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' }).catch(function (e) { return { ok: false, status: 0, body: { error: e.message } }; });
+    var dailyPromise = supaJson('/rest/v1/daily_user_stats?select=date,seconds_studied&user_id=eq.' + encodeURIComponent(userId) + '&date=gte.' + encodeURIComponent(fromDate) + '&order=date.desc&limit=120', { method: 'GET' }).catch(function (e) { return { ok: false, status: 0, body: { error: e.message } }; });
+    var sessionsPromise = supaJson('/rest/v1/study_sessions_log?select=id,duration_minutes,ended_at,created_at&user_id=eq.' + encodeURIComponent(userId) + '&ended_at=gte.' + encodeURIComponent(since) + '&order=ended_at.desc&limit=250', { method: 'GET' }).catch(function (e) { return { ok: false, status: 0, body: { error: e.message } }; });
 
-    return Promise.all([profilePromise, onboardingPromise])
-      .then(function (results) {
-        return Promise.all([results[0].json(), results[1].json()]);
+    return Promise.all([
+      profilePromise, userPromise, onboardingPromise,
+      settingsPromise, statsPromise, dailyPromise, sessionsPromise,
+      downloadCloudSnapshot(userId).catch(function () { return null; }),
+      findBestCloudBackup(userId).catch(function (e) {
+        return { ok: false, selected: null, candidates: [], error: e.message || 'Best backup scan failed' };
       })
-      .then(function (data) {
-        var profile = Array.isArray(data[0]) && data[0].length > 0 ? data[0][0] : null;
-        var onboardingRow = Array.isArray(data[1]) && data[1].length > 0 ? data[1][0] : null;
-        // Treat as onboarded if:
-        //   (a) user_onboarding row exists with completed=true, OR
-        //   (b) user_onboarding row exists at all (they're an existing user), OR
-        //   (c) user_profiles row exists (they've synced data)
-        // Only return false for genuinely brand-new accounts with no data at all.
-        var onboarding_completed = (onboardingRow !== null) || (profile !== null);
+    ]).then(function (results) {
+        var profileRes = results[0];
+        var userRes = results[1];
+        var onboardingRes = results[2];
+        if (!profileRes.ok || !userRes.ok || !onboardingRes.ok) {
+          return jsonResponse({
+            ok: false,
+            error: 'bootstrap_db_unavailable',
+            user_id: userId,
+            session: session,
+            onboarding: { state: 'unknown' },
+            onboarding_completed: undefined
+          }, 503);
+        }
+        var profileRow = firstRow(profileRes);
+        var userRow = firstRow(userRes) || (session.user || {});
+        var onboardingRow = firstRow(onboardingRes);
+        var settingsRow = firstRow(results[3]);
+        var statsSummary = firstRow(results[4]);
+        var dailyRows = Array.isArray(results[5].body) ? results[5].body : [];
+        var sessionRows = Array.isArray(results[6].body) ? results[6].body : [];
+        var cloudSnapshot = results[7] || null;
+        var bestBackup = results[8] || { selected: null, candidates: [] };
+        var profileData = isObject(profileRow && profileRow.profile_data) ? profileRow.profile_data : {};
+        var legacyMeaningful = !onboardingRow && hasMeaningfulLegacyData(profileData, statsSummary, sessionRows);
+        var onboarding = normalizeOnboarding(onboardingRow, profileData, legacyMeaningful);
+        if (!onboardingRow && legacyMeaningful) {
+          supaJson('/rest/v1/user_onboarding?on_conflict=user_id', {
+            method: 'POST',
+            headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+            body: JSON.stringify({
+              user_id: userId,
+              completed: true,
+              completed_at: onboarding.completed_at || new Date().toISOString(),
+              data: onboarding.data || {},
+              source: 'android_legacy_migration',
+              updated_at: new Date().toISOString()
+            })
+          }).catch(function () {});
+        }
+        var avatarPath = profileData.avatar_path || profileData.avatarPath || null;
+        var avatarUrl = [
+          profileData.avatar,
+          profileData.avatar_url,
+          profileData.avatarUrl,
+          userRow.avatar_url,
+          publicAvatarUrlFromPath(avatarPath)
+        ].find(function (value) { return typeof value === 'string' && value.trim(); }) || null;
+        var rawProfileData = Object.assign({}, profileData);
+        if (avatarUrl) {
+          rawProfileData.avatar = rawProfileData.avatar || avatarUrl;
+          rawProfileData.avatar_url = rawProfileData.avatar_url || avatarUrl;
+        }
+        if (avatarPath) rawProfileData.avatar_path = avatarPath;
+        var normalizedProfile = Object.assign({}, userRow || {}, rawProfileData, compactObject({
+          avatar: avatarUrl || undefined,
+          avatar_url: avatarUrl || undefined,
+          isOnboarded: onboarding.completed,
+          onboarding_completed: onboarding.completed,
+          onboarding_completed_at: onboarding.completed_at || rawProfileData.onboardingCompletedAt || null
+        }));
+        var settings = isObject(settingsRow && settingsRow.settings) ? settingsRow.settings : (isObject(rawProfileData.settings) ? rawProfileData.settings : {});
+        var tours = isObject(rawProfileData.tours) ? rawProfileData.tours : {};
         return jsonResponse({
           ok: true,
-          session: session,
-          profile: profile,
+          code: 'BOOTSTRAP_OK',
           user_id: userId,
-          onboarding_completed: onboarding_completed,
-          restore_recommended: false,
-          best_backup: null,
-          backup_candidates: [],
-          backup_warning: null
+          session: session,
+          user: userRow || null,
+          profile: normalizedProfile,
+          profile_data: rawProfileData,
+          profile_updated_at: profileRow && profileRow.updated_at || null,
+          onboarding: onboarding,
+          onboarding_completed: onboarding.completed,
+          settings: settings,
+          tours: tours,
+          stats_summary: statsSummary || null,
+          daily_user_stats: dailyRows,
+          study_sessions_log: sessionRows,
+          cloud_snapshot: cloudSnapshot,
+          best_backup: bestBackup.selected || null,
+          backup_candidates: bestBackup.candidates || [],
+          restore_recommended: !!(bestBackup.selected && bestBackup.selected.rich),
+          backup_warning: bestBackup.warning_if_empty_latest || bestBackup.error || null,
+          fetched_at: new Date().toISOString()
         });
       })
-      .catch(function () {
-        // Network failure during DB fetch — assume onboarded so we don't loop
+      .catch(function (e) {
+        // Network failure during DB fetch — preserve local state and let boot use cached snapshots/retry.
         return jsonResponse({
-          ok: true,
+          ok: false,
+          error: e && e.message || 'bootstrap_failed',
           session: session,
           profile: null,
           user_id: userId,
-          onboarding_completed: true,
-          restore_recommended: false,
+          onboarding: { state: 'unknown' },
+          onboarding_completed: undefined,
           best_backup: null,
           backup_candidates: [],
           backup_warning: null
-        });
+        }, 503);
       });
   }
 
@@ -473,23 +843,27 @@
     var userId = session.user && session.user.id;
     if (!userId) return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id' }, 401));
 
-    // Upsert user_onboarding row with completed=true
-    return supaFetch('/rest/v1/user_onboarding?user_id=eq.' + userId, {
-      method: 'PATCH',
-      headers: { 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ completed: true, updated_at: new Date().toISOString() })
-    }).then(function (r) {
-      // If no row to patch (new user), insert one
-      if (r.status === 404 || r.status === 200) {
-        return supaFetch('/rest/v1/user_onboarding', {
-          method: 'POST',
-          headers: { 'Prefer': 'return=minimal,resolution=merge-duplicates' },
-          body: JSON.stringify({ user_id: userId, completed: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        }).then(function () {
-          return jsonResponse({ ok: true, android: true });
-        });
+    var now = new Date().toISOString();
+    var onboardingData = body && (body.data || body.onboarding_data || body.onboarding);
+    return supaJson('/rest/v1/user_onboarding?on_conflict=user_id', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify({
+        user_id: userId,
+        completed: true,
+        completed_at: now,
+        data: isObject(onboardingData) ? onboardingData : {},
+        updated_at: now
+      })
+    }).then(function (result) {
+      if (!result.ok) {
+        return jsonResponse({ ok: false, error: result.body && (result.body.message || result.body.error) || 'Onboarding upsert failed' }, result.status || 500);
       }
-      return jsonResponse({ ok: true, android: true });
+      var row = Array.isArray(result.body) ? result.body[0] : result.body;
+      if (!row || row.completed !== true) {
+        return jsonResponse({ ok: false, error: 'Onboarding completion was not persisted' }, 500);
+      }
+      return jsonResponse({ ok: true, android: true, onboarding: row, onboarding_completed: true });
     }).catch(function (e) {
       return errorResponse(e.message);
     });
@@ -557,10 +931,11 @@
       credentials: 'omit'
     }).then(function (r) {
       return r.json().then(function (d) {
+        if (!r.ok) return jsonResponse({ ok: false, error: d && (d.message || d.error) || 'Leaderboard RPC failed', data: [] }, r.status || 500);
         return jsonResponse({ ok: true, data: Array.isArray(d) ? d : [], android: true });
       });
     }).catch(function () {
-      return jsonResponse({ ok: true, data: [], android: true });
+      return jsonResponse({ ok: false, error: 'Leaderboard RPC failed', data: [], android: true }, 503);
     });
   }
 
@@ -575,10 +950,11 @@
       credentials: 'omit'
     }).then(function (r) {
       return r.json().then(function (d) {
+        if (!r.ok) return jsonResponse({ ok: false, error: d && (d.message || d.error) || 'Daily leaderboard RPC failed', data: [] }, r.status || 500);
         return jsonResponse({ ok: true, data: Array.isArray(d) ? d : [], android: true });
       });
     }).catch(function () {
-      return jsonResponse({ ok: true, data: [], android: true });
+      return jsonResponse({ ok: false, error: 'Daily leaderboard RPC failed', data: [], android: true }, 503);
     });
   }
 
@@ -593,10 +969,11 @@
       credentials: 'omit'
     }).then(function (r) {
       return r.json().then(function (d) {
+        if (!r.ok) return jsonResponse({ ok: false, error: d && (d.message || d.error) || 'Group leaderboard RPC failed', data: [] }, r.status || 500);
         return jsonResponse({ ok: true, data: Array.isArray(d) ? d : [], android: true });
       });
     }).catch(function () {
-      return jsonResponse({ ok: true, data: [], android: true });
+      return jsonResponse({ ok: false, error: 'Group leaderboard RPC failed', data: [], android: true }, 503);
     });
   }
 
@@ -611,10 +988,11 @@
       credentials: 'omit'
     }).then(function (r) {
       return r.json().then(function (d) {
+        if (!r.ok) return jsonResponse({ ok: false, error: d && (d.message || d.error) || 'Group analytics RPC failed', data: null }, r.status || 500);
         return jsonResponse({ ok: true, data: d, android: true });
       });
     }).catch(function () {
-      return jsonResponse({ ok: true, data: null, android: true });
+      return jsonResponse({ ok: false, error: 'Group analytics RPC failed', data: null, android: true }, 503);
     });
   }
 

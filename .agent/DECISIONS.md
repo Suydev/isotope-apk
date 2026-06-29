@@ -187,3 +187,65 @@
 **Consequences:** Never run `npm run build` expecting it to produce the production UI. Always use public/ as-is.
 **Files affected:** N/A — just awareness
 **Reversible:** N/A
+
+---
+
+## DEC-010 — Commit the Android native project
+
+**Date:** 2026-06-29
+**Context:** CI previously recreated the Android platform with `npx cap add android`, which can discard native manifest, Gradle, resource, and Kotlin customizations.
+
+**Chosen:** Generate the Android project once, commit `android/`, and make CI run `npx cap sync android`.
+
+**Why:** Native configuration is production code. Recreating the platform during every build makes notification, permission, manifest, SDK, and Gradle changes unreliable.
+
+**Consequences:**
+- `android/` is now part of the repair branch.
+- CI applies native patches before and after `npx cap sync android`.
+- Build output and copied web assets remain ignored.
+
+---
+
+## DEC-011 — Pin isotope-code source commit for APK builds
+
+**Date:** 2026-06-29
+**Context:** Packaging whatever happens to be latest on `isotope-code/main` makes Android builds non-deterministic.
+
+**Chosen:** Pin GitHub Actions to `isotope-code` commit `fd39fad1384333ad774f19f35b754659a34dae60`.
+
+**Why:** Bundle patch contracts and regression evidence apply to a specific compiled asset set.
+
+**Consequences:**
+- Updating the web UI source requires intentionally changing the pinned SHA and rerunning patch-contract tests.
+
+---
+
+## DEC-012 — `/__auth/check` must be neutral and non-destructive
+
+**Date:** 2026-06-29
+**Context:** The Android bridge previously implemented email checking by attempting Supabase signup with a dummy password.
+
+**Chosen:** Return a neutral response from `/__auth/check` and let real signup return the authoritative result.
+
+**Why:** Availability probing must not create users, send email, consume auth rate limits, or reveal arbitrary account existence.
+
+**Consequences:**
+- The UI cannot rely on pre-checks to determine whether an arbitrary email exists.
+- Regression test verifies zero signup requests.
+
+---
+
+## DEC-013 — Android bootstrap must match server bootstrap contract
+
+**Date:** 2026-06-29
+**Context:** `restore-and-launch.js` applies bootstrap snapshots using `snapshot.onboarding.completed`, `profile_data`, `cloud_snapshot`, `study_sessions_log`, and `stats_summary`. Returning only `onboarding_completed` caused incorrect boot routing.
+
+**Chosen:** Android `/__auth/bootstrap` returns the canonical server-compatible response and `restore-and-launch.js` remains backwards-compatible with legacy `onboarding_completed`.
+
+**Why:** Login, restore, and boot routing need one authoritative state machine across server and Android.
+
+**Consequences:**
+- Unknown onboarding state remains unknown on network failure; it is not defaulted to false.
+- New seeded `completed=false` rows route to onboarding.
+- Completed rows route to dashboard.
+- Legacy meaningful profile/study data without a valid onboarding row is migrated safely.
