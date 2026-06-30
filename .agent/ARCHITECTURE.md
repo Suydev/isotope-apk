@@ -210,6 +210,13 @@ so `scripts/apply-android-patches.js` patches that adapter to fall back to the
 bridge-written `localStorage` session keys on Android. Without this compatibility
 layer, `initializeAuth()` can reset a successfully logged-in user back to auth UI.
 
+After successful native login, the Auth bundle patch also refreshes
+`window.__ISO_BOOT_STATE__` from the verified bootstrap response before it routes.
+AppAccessGate is patched to honor `readyLoggedOut` only when the auth store is not
+authenticated, and its storage cleanup set excludes Android auth-session keys. This
+prevents the startup no-session boot snapshot from sending a successfully logged-in
+Android user back to `/auth`.
+
 ## Android Native Bridge Globals
 
 `android-bridge.js` exposes native-only helpers used by patched bundles:

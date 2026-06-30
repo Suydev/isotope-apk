@@ -92,12 +92,13 @@ if (state) {
 const tasks = readText('.agent/NEXT_TASKS.md');
 console.log(`\n${BOLD}ACTIVE TASK${RESET}`);
 if (tasks) {
-  const activeMatch = tasks.match(/### TASK ([A-Z]+-\d+)[\s\S]*?Status:\*\* ACTIVE[\s\S]*?(?=### TASK|$)/);
-  if (activeMatch) {
-    const taskBlock = activeMatch[0];
+  const taskBlocks = tasks.match(/### TASK [\s\S]*?(?=### TASK|$)/g) || [];
+  const taskBlock = taskBlocks.find(block => /\*\*Status:\*\* ACTIVE/.test(block));
+  if (taskBlock) {
+    const idMatch = taskBlock.match(/^### TASK ([A-Z]+-\d+)/m);
     const objMatch = taskBlock.match(/\*\*Objective:\*\* (.+)/);
     const nextMatch = taskBlock.match(/```bash([\s\S]*?)```/);
-    console.log(`  ID:  ${activeMatch[1]}`);
+    console.log(`  ID:  ${idMatch ? idMatch[1] : 'unknown'}`);
     if (objMatch) console.log(`  ${objMatch[1]}`);
     if (nextMatch) {
       console.log(`  Next command:`);

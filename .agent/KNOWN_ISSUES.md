@@ -117,11 +117,12 @@ User tested the previous GitHub-built APK and reported:
 **Likely causes found:**
 
 - The patched Auth login still called the compiled `initializeAuth()`, which can re-read the compiled Supabase client/session state and flip the app back to logged-out UI.
+- `restore-and-launch.js` can leave `window.__ISO_BOOT_STATE__.state="readyLoggedOut"` from startup, and AppAccessGate previously honored that stale state even after Android login hydrated the auth store.
 - `index.html` still included PWA manifest/mobile-web-app metadata.
 - The compiled `PWAManager` was still mounted globally.
 - Notification scheduling still depended on browser service-worker/`setTimeout` behavior for key paths.
 
-**Current fix:** Auth login now hydrates the auth store directly from Android bootstrap/session, Android packaging strips PWA metadata, the Android app shell disables `PWAManager`, and notification/focus bundles call native scheduling helpers.
+**Current fix:** Auth login now hydrates the auth store directly from Android bootstrap/session, refreshes `window.__ISO_BOOT_STATE__` before navigation, Android packaging strips PWA metadata, the Android app shell disables `PWAManager`, and notification/focus bundles call native scheduling helpers.
 
 **Evidence:** `npm test` covers auth-store hydration, PWA manager disablement, manifest/meta removal, native notification scheduling hooks, and focus timer native scheduling hooks.
 
@@ -140,3 +141,17 @@ After commit `f1fa416`, the user reported a sharper reproduction: credentials sh
 **Evidence:** `npm test` includes `apply-android-patches lets Supabase auth storage read bridge-written sessions`. `npm run build` placed the fallback in both `www/assets/App-pJGjDiPw.js` and `android/app/src/main/assets/public/assets/App-pJGjDiPw.js`.
 
 **Remaining risk:** Must be verified in a GitHub-built APK on an emulator or physical device. No ADB device is currently visible from this environment.
+
+---
+
+## ISSUE-013 — Stale startup boot state can override successful native login
+**Severity:** CRITICAL
+**Status:** FIXED IN PATCH SCRIPT + UNIT TESTED + LOCAL BUILD VERIFIED (2026-06-30)
+
+After native login succeeds, `restore-and-launch.js` may still have `window.__ISO_BOOT_STATE__.state` set to `readyLoggedOut` from the initial no-session startup. The compiled Auth patch hydrated the auth store and navigated to dashboard/onboarding, but AppAccessGate then read the stale logged-out boot state and redirected back to `/auth`.
+
+**Current fix:** The Auth bundle patch writes a fresh `window.__ISO_BOOT_STATE__` from the verified bootstrap result before navigation. AppAccessGate now honors `readyLoggedOut` only when the auth store is not authenticated, and its localStorage cleanup set no longer removes Android auth-session keys.
+
+**Evidence:** `npm test` includes `apply-android-patches prevents stale logged-out boot state and preserves Android auth keys`. `npm run build` placed the fix in both `www/assets/Auth-Cw0VAaCZ.js` / `AppAccessGate-B975UtK7.js` and synced Android assets.
+
+**Remaining risk:** Needs a new GitHub-built APK and ADB/device login test before the user-facing symptom can be marked fixed.

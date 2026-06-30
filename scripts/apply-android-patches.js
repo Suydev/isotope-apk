@@ -258,6 +258,20 @@ patchFile(accessGateBundle, [
     'if((isLocalWorkspaceEmpty()||window.__ISO_IS_ANDROID__)&&restore_recommended)',
     false
   ],
+  // Do not let the pre-login boot snapshot force /auth after native login has
+  // already hydrated the compiled auth store.
+  [
+    'if (Y === "readyLoggedOut") return r.jsx(z, {',
+    'if (Y === "readyLoggedOut" && !u) return r.jsx(z, {',
+    true
+  ],
+  // The browser cleanup/migration path must not remove Android auth-session
+  // keys. The native auth bridge writes these keys for Supabase session restore.
+  [
+    'st = new Set(["isotope-auth", "isotope-onboarding", "isotope-notifications", "isotope-tools-storage", "ai-storage", "isotope-quotes", "sidebar-storage", "group-ui-preferences", "isotope-query-cache", "isotope-auth-token", "isotope:pending_session_sync", "isotope_device_id", "device_id", "isotope_intro_seen", "focus-bg-image", "focus-distractions", "session-custom-goals", "pwa-banner-dismissed", "pwa-install-dismissed", "notification-prompt-dismissed", "challenge_reminders", "isotope_scheduled_challenges", "isotope_completed_challenges", "tools-last-reset"])',
+    'st = new Set(["isotope-onboarding", "isotope-notifications", "isotope-tools-storage", "ai-storage", "isotope-quotes", "sidebar-storage", "group-ui-preferences", "isotope-query-cache", "isotope:pending_session_sync", "isotope_device_id", "device_id", "isotope_intro_seen", "focus-bg-image", "focus-distractions", "session-custom-goals", "pwa-banner-dismissed", "pwa-install-dismissed", "notification-prompt-dismissed", "challenge_reminders", "isotope_scheduled_challenges", "isotope_completed_challenges", "tools-last-reset"])',
+    true
+  ],
 ], 'AppAccessGate bundle');
 
 // ── 4. Auth bundle — login must route from bootstrap decision only ───────────
@@ -303,6 +317,34 @@ patchFile(authBundle, [
       '                var __nativeUser = __r.user || __r.session && __r.session.user || {};',
       '                var __profile = __r.bootstrap && (__r.bootstrap.profile || __r.bootstrap.profile_data) || {};',
       '                var __plan = __r.bootstrap && __r.bootstrap.user && __r.bootstrap.user.plan_type || __profile.planType || __profile.plan_type || "ranker";',
+      '                var __bootState = __completed ? "readyDashboard" : "readyNeedsOnboarding";',
+      '                try {',
+      '                    window.__ISO_BOOT_STATE__ = Object.assign({}, window.__ISO_BOOT_STATE__ || {}, {',
+      '                        state: __bootState,',
+      '                        session: __r.session || null,',
+      '                        user_id: __nativeUser.id || __r.user_id || __r.bootstrap && __r.bootstrap.user_id || null,',
+      '                        user: __nativeUser,',
+      '                        profile: __r.bootstrap && __r.bootstrap.profile || __profile || null,',
+      '                        profile_data: __r.bootstrap && __r.bootstrap.profile_data || __profile || null,',
+      '                        onboarding: __r.bootstrap && __r.bootstrap.onboarding || {',
+      '                            state: __completed ? "completed" : "incomplete",',
+      '                            completed: __completed,',
+      '                            completed_at: null,',
+      '                            data: {}',
+      '                        },',
+      '                        onboarding_completed: __completed,',
+      '                        cloud_snapshot: __r.bootstrap && __r.bootstrap.cloud_snapshot || null,',
+      '                        best_backup: __r.bootstrap && __r.bootstrap.best_backup || null,',
+      '                        backup_candidates: __r.bootstrap && __r.bootstrap.backup_candidates || [],',
+      '                        restore_recommended: !!(__r.bootstrap && __r.bootstrap.restore_recommended),',
+      '                        backup_warning: __r.bootstrap && __r.bootstrap.backup_warning || null,',
+      '                        fetched_at: __r.bootstrap && __r.bootstrap.fetched_at || new Date().toISOString(),',
+      '                        source: "android-auth-login"',
+      '                    });',
+      '                    window.dispatchEvent(new CustomEvent("isotope:boot-state", {',
+      '                        detail: window.__ISO_BOOT_STATE__',
+      '                    }))',
+      '                } catch (__ignoredBootState) {}',
       '                m.setState({',
       '                    isAuthenticated: !0,',
       '                    isInitialized: !0,',
@@ -331,7 +373,7 @@ patchFile(authBundle, [
       '                        }',
       '                    }))',
       '                } catch (__ignored) {}',
-      '                b(__completed ? "/dashboard" : "/onboarding", {',
+      '                b(__bootState === "readyDashboard" ? "/dashboard" : "/onboarding", {',
       '                    replace: !0',
       '                })',
       '            } catch (__e) {',

@@ -58,8 +58,11 @@ git push -u origin codex/android-production-repair
 
 **Current evidence:**
 - Supabase Auth logs show the user-reported credential attempt returned HTTP 200 from `/token`.
+- Fresh root cause found after the user retested `ce73a3f`: the startup boot state could remain `readyLoggedOut` after native login and AppAccessGate redirected the now-authenticated user back to `/auth`.
 - Local regression tests cover auth-store routing, canonical bootstrap response handling, Android auth storage fallback, PWA stripping, PWA manager disablement, and native notification/focus hooks.
+- Local regression tests now also cover Auth writing a fresh Android boot state after login, AppAccessGate ignoring stale `readyLoggedOut` once authenticated, and preserving Android auth session keys during storage cleanup.
 - `npm run build` succeeds through `prepare-www`, required patching, Capacitor sync, and final idempotent patching.
+- Generated `www/` and synced `android/app/src/main/assets/public` contain `window.__ISO_BOOT_STATE__` login refresh, `readyDashboard` / `readyNeedsOnboarding` routing, and `Y === "readyLoggedOut" && !u`.
 - GitHub Actions passed for commit `ce73a3f` in push run `28415768373` and PR run `28415767170`.
 - Downloaded artifact `IsotopeAI-debug-35` (id `7969405842`) was extracted and statically inspected.
 - APK path for install testing: `/data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk`.
@@ -68,10 +71,9 @@ git push -u origin codex/android-production-repair
 
 **Exact next commands:**
 ```bash
-adb devices -l
-adb install -r /data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk
-adb logcat -c
-adb logcat
+git add scripts/agent-status.mjs scripts/apply-android-patches.js test/prepare-patches.test.mjs .agent
+git commit -m "fix: refresh Android boot state after login"
+git push
 ```
 
 ---

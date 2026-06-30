@@ -303,3 +303,52 @@ adb install -r /data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/
 adb logcat -c
 adb logcat
 ```
+
+---
+
+## 2026-06-30 — Stale post-login boot-state repair
+
+**Agent/account:** Codex
+**Branch:** codex/android-production-repair
+**Starting commit:** `75b5b98`
+**Ending state:** Stale boot-state fix implemented, locally tested, and locally built; commit/push/GitHub APK build still pending.
+
+**User-reported APK result after `ce73a3f`:**
+- Credentials were accepted visually enough to show the IsotopeAI loading screen briefly.
+- The app then returned to login/create-account.
+- User asked to inspect the code more deeply and treat the package as a native app, not a PWA.
+
+**Root cause found:**
+- `restore-and-launch.js` can publish `window.__ISO_BOOT_STATE__.state="readyLoggedOut"` during the initial no-session startup.
+- After native login succeeds, the Auth patch hydrated the auth store and navigated, but it did not refresh `window.__ISO_BOOT_STATE__`.
+- AppAccessGate then read the stale `readyLoggedOut` snapshot and redirected the now-authenticated app back to `/auth`.
+- AppAccessGate's localStorage cleanup set also included `isotope-auth` and `isotope-auth-token`, which is unsafe for Android because those keys participate in bridge/session restore.
+
+**Completed:**
+- Patched `scripts/apply-android-patches.js` so Auth writes a fresh canonical `window.__ISO_BOOT_STATE__` from bootstrap before navigation.
+- Patched Auth routing to use the new boot state: `readyDashboard` routes to `/dashboard`, `readyNeedsOnboarding` routes to `/onboarding`.
+- Patched AppAccessGate so `readyLoggedOut` redirects to `/auth` only when `isAuthenticated` is false.
+- Patched AppAccessGate cleanup so Android auth keys are not removed.
+- Added regression coverage for stale boot-state routing and auth-key preservation.
+- Fixed `scripts/agent-status.mjs` so it reports the actual ACTIVE task block instead of combining the first task ID with a later active task body.
+
+**Commands run:**
+- `node --check scripts/apply-android-patches.js`
+- `node --check test/prepare-patches.test.mjs`
+- `npm test`
+- `npm run build`
+- `rg` checks against generated `www/` and synced `android/app/src/main/assets/public`
+- `adb devices -l`
+- `node --check scripts/agent-status.mjs`
+- `npm run agent:status`
+
+**Tests passed:**
+- `npm test`: 12 tests passed.
+- `npm run build`: first patch pass applied 17 targets; second pass was idempotent with 0 required failures.
+- Generated `www/assets/Auth-Cw0VAaCZ.js` and synced Android Auth chunk contain `window.__ISO_BOOT_STATE__`, `readyDashboard`, `readyNeedsOnboarding`, and `isotope:boot-state`.
+- Generated and synced AppAccessGate chunk contains `Y === "readyLoggedOut" && !u` and no longer keeps `isotope-auth` / `isotope-auth-token` in the cleanup set.
+- `npm run agent:status` now reports active task `ANDROID-006` with the stale boot-state commit/push action.
+
+**Blocked/Not verified:**
+- ADB is installed but still shows no attached/authorized device.
+- Runtime login, dashboard route, onboarding route, notification prompt, and process-death behavior still require a new GitHub-built APK installed on a device/emulator.

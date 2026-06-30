@@ -1,19 +1,25 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-06-30T02:24:45Z
+**Updated:** 2026-06-30T02:59:47Z
 **Branch:** codex/android-production-repair
-**Current phase:** ANDROID-006 — Repair post-login session persistence and native notification bootstrap
+**Current phase:** ANDROID-006 — Repair stale post-login boot routing and Android auth key preservation
 
 ---
 
 ## Verified This Session
 
-- [x] `npm test` passes 11 regression tests for auth/bootstrap/onboarding/PWA/native-notification/session-storage patch contracts.
+- [x] `npm test` passes 12 regression tests for auth/bootstrap/onboarding/PWA/native-notification/session-storage/stale-boot-state patch contracts.
 - [x] Supabase Management API access works with local `SUPABASE_PAT`; project `vteqquoqvksshmfhuepu` is `ACTIVE_HEALTHY`.
 - [x] Supabase Auth logs show the user-reported credential attempt reached `/token` and returned HTTP 200, so the reported login loop is local Android session/routing behavior after successful Supabase auth.
+- [x] Root cause found for the repeated post-login loop: `restore-and-launch.js` can leave `window.__ISO_BOOT_STATE__.state="readyLoggedOut"` from startup, and `AppAccessGate` honored that stale state after Auth hydrated the Android session.
+- [x] Auth bundle patch now writes a fresh `window.__ISO_BOOT_STATE__` from bootstrap before navigating after native login.
+- [x] AppAccessGate bundle patch now redirects `readyLoggedOut` to `/auth` only when the auth store is not authenticated.
+- [x] AppAccessGate storage cleanup patch now preserves Android auth keys instead of deleting `isotope-auth` / `isotope-auth-token`.
 - [x] `npm run prepare-www` copies the real `isotope-code/public` UI into `www/` and reports 154 JS bundles, total size 56.9 MB.
-- [x] `npm run build` succeeds through `prepare-www`, required bundle patching, `npx cap sync android`, and the final idempotent patch pass.
+- [x] `npm run build` succeeds through `prepare-www`, required bundle patching, `npx cap sync android`, and the final idempotent patch pass. First pass applied 17 patch targets; second pass applied 0.
 - [x] `npx cap sync android` succeeds and copies web assets into the committed Android project.
+- [x] Generated `www/` and `android/app/src/main/assets/public` both contain the new Auth boot-state write and AppAccessGate stale-logged-out guard.
+- [x] `npm run agent:status` now reports `ANDROID-006` as the active task after fixing the task-block parser.
 - [x] GitHub Actions builds for commit `ce73a3f` succeeded:
   - Push run `28415768373`
   - PR run `28415767170`
@@ -48,7 +54,7 @@
 ## Important Implementation State
 
 - User tested the previous GitHub-built APK and reported: login shows loading after credentials, briefly shows the IsotopeAI loading screen, then returns to login/create-account; Android notification permission is not requested; the app still feels like a PWA instead of native app.
-- Root cause evidence: Supabase logs show Auth login succeeded with HTTP 200, while the packaged app's compiled Supabase storage adapter only read IndexedDB-backed storage and did not see the session written by `auth-bridge.js` into `localStorage`.
+- Root cause evidence: Supabase logs show Auth login succeeded with HTTP 200. Two Android-side failure paths were then found: the compiled Supabase storage adapter could miss the bridge-written `localStorage` session, and `AppAccessGate` could trust a stale startup `readyLoggedOut` boot state even after Auth hydrated the session.
 - `isotope-code` source assets are pinned for CI at commit `fd39fad1384333ad774f19f35b754659a34dae60`.
 - Capacitor versions are pinned in `package.json` and `package-lock.json`.
 - `.github/workflows/android.yml` now runs on `main` and `codex/android-production-repair`, uses `npm ci`, runs `npm test`, prepares `www/`, applies patch checks, runs `npx cap sync android`, reapplies native patches, and builds the debug APK.
@@ -77,8 +83,7 @@ No emulator or physical Android device is visible to ADB from this environment. 
 ## Exact Next Commands
 
 ```bash
-git add android-bridge.js scripts/apply-android-patches.js test/prepare-patches.test.mjs .agent
-git commit -m "fix: persist Android auth session for app bootstrap"
+git add scripts/agent-status.mjs scripts/apply-android-patches.js test/prepare-patches.test.mjs .agent
+git commit -m "fix: refresh Android boot state after login"
 git push
-adb install -r /data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk
 ```

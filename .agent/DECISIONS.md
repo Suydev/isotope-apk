@@ -295,3 +295,20 @@
 - Android uses `isotope-auth-token`, `sb-vteqquoqvksshmfhuepu-auth-token`, and `isotope-last-session-raw` as compatible session fallbacks.
 - Regression tests fail if the storage fallback disappears from the packaged app bundle.
 - This remains a minified-bundle compatibility patch until authored source can be changed upstream.
+
+---
+
+## DEC-017 — Native login must refresh the global boot state before routing
+
+**Date:** 2026-06-30
+**Context:** After a no-session startup, `restore-and-launch.js` can publish `window.__ISO_BOOT_STATE__.state="readyLoggedOut"`. The Android Auth patch can then log in successfully and hydrate the auth store, but AppAccessGate still reads the stale logged-out boot snapshot and redirects back to `/auth`.
+
+**Chosen:** Patch the Auth bundle so successful `window.__isoLogin` writes a fresh canonical `window.__ISO_BOOT_STATE__` from bootstrap before navigating. Patch AppAccessGate so `readyLoggedOut` redirects to `/auth` only when the auth store is not authenticated. Keep Android auth-session keys out of the AppAccessGate localStorage cleanup set.
+
+**Why:** Android login needs one authoritative post-login state. Bootstrap decides dashboard versus onboarding, and stale startup state must not override a verified authenticated session.
+
+**Consequences:**
+- Existing completed users route to dashboard from `readyDashboard`.
+- New/incomplete users route to onboarding from `readyNeedsOnboarding`.
+- A temporary bootstrap failure still blocks routing instead of guessing.
+- Regression tests fail if the Auth boot-state refresh or AppAccessGate stale-state guard disappears.

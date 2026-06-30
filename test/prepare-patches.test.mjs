@@ -71,11 +71,35 @@ test('apply-android-patches makes Auth login route exactly once from bootstrap a
   assert.match(auth, /window\.__isoLogin/);
   assert.match(auth, /__r\.bootstrap && __r\.bootstrap\.onboarding/);
   assert.match(auth, /isAuthenticated: !0/);
+  assert.match(auth, /window\.__ISO_BOOT_STATE__ = Object\.assign/);
+  assert.match(auth, /readyDashboard/);
+  assert.match(auth, /readyNeedsOnboarding/);
+  assert.match(auth, /isotope:boot-state/);
   assert.match(auth, /isotope:native-auth-ready/);
   assert.match(auth, /Could not verify cloud onboarding state/);
-  assert.equal((auth.match(/b\(__completed \? "\/dashboard" : "\/onboarding"/g) || []).length, 1);
+  assert.equal((auth.match(/b\(__bootState === "readyDashboard" \? "\/dashboard" : "\/onboarding"/g) || []).length, 1);
   assert.equal(auth.includes('initializeAuth == "function" && await __state.initializeAuth()'), false);
   assert.equal(auth.includes('setTimeout(() => {\n                b("/dashboard"'), false);
+});
+
+test('apply-android-patches prevents stale logged-out boot state and preserves Android auth keys', () => {
+  const wwwDir = runPrepareWww();
+  const output = runApplyPatches(wwwDir);
+  assert.match(output, /Patched: AppAccessGate bundle/);
+
+  const assetsDir = path.join(wwwDir, 'assets');
+  const accessGateFile = fs.readdirSync(assetsDir).find((name) => /^AppAccessGate-.*\.js$/.test(name));
+  assert.ok(accessGateFile, 'AppAccessGate chunk should exist');
+  const accessGate = fs.readFileSync(path.join(assetsDir, accessGateFile), 'utf8');
+
+  assert.equal((accessGate.match(/Y === "readyLoggedOut" && !u/g) || []).length, 1);
+  assert.equal((accessGate.match(/Y === "readyLoggedOut"\) return/g) || []).length, 0);
+
+  const migrationSet = accessGate.match(/st = new Set\(\[[^\n]+\]\)/)?.[0] || '';
+  assert.ok(migrationSet, 'local storage migration cleanup set should exist');
+  assert.match(migrationSet, /"isotope-onboarding"/);
+  assert.doesNotMatch(migrationSet, /"isotope-auth"/);
+  assert.doesNotMatch(migrationSet, /"isotope-auth-token"/);
 });
 
 test('apply-android-patches lets Supabase auth storage read bridge-written sessions', () => {

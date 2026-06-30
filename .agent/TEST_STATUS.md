@@ -9,7 +9,7 @@ Tests are only marked PASS when actually executed. Android device and GitHub bui
 | Script syntax: `android-bridge.js` | PASS | 2026-06-30 | local branch | `node --check android-bridge.js` |
 | Script syntax: `apply-android-patches.js` | PASS | 2026-06-30 | local branch | `node --check scripts/apply-android-patches.js` |
 | Script syntax: `prepare-www.js` | PASS | 2026-06-30 | local branch | `node --check scripts/prepare-www.js` |
-| Regression tests | PASS | 2026-06-30 | local branch | `npm test`: 11 tests passed |
+| Regression tests | PASS | 2026-06-30 | local branch | `npm test`: 12 tests passed |
 | `/__auth/check` causes zero signup requests | PASS | 2026-06-30 | local branch | `npm test` |
 | Bootstrap completed onboarding canonical shape | PASS | 2026-06-30 | local branch | `npm test` |
 | Bootstrap legacy `onboarding_completed=true` fallback | PASS | 2026-06-30 | local branch | `npm test` |
@@ -20,11 +20,15 @@ Tests are only marked PASS when actually executed. Android device and GitHub bui
 | RPC failure propagation | PASS | 2026-06-30 | local branch | `npm test` |
 | Auth login routes once from bootstrap and hydrates auth state | PASS | 2026-06-30 | local branch | `npm test` |
 | Supabase auth storage reads bridge-written Android session | PASS | 2026-06-30 | local branch | `npm test` |
+| Stale `readyLoggedOut` boot state does not override authenticated Android login | PASS | 2026-06-30 | local branch | `npm test` |
+| AppAccessGate preserves Android auth keys during storage cleanup | PASS | 2026-06-30 | local branch | `npm test` |
 | Android PWA manager disabled and native notification scheduling hooks patched | PASS | 2026-06-30 | local branch | `npm test` |
 | Android bridge does not skip native notification setup when `window.Notification` exists | PASS | 2026-06-30 | local branch | `npm test` |
 | www/ asset preparation | PASS | 2026-06-30 | local branch | `npm run prepare-www`: 154 JS bundles, 56.9 MB |
-| Android bundle/native patch application | PASS | 2026-06-30 | local branch | `npm run build`: first pass patched 15 targets, final pass idempotent, 0 skipped, 0 required failures |
+| Android bundle/native patch application | PASS | 2026-06-30 | local branch | `npm run build`: first pass patched 17 targets, final pass idempotent, 0 skipped, 0 required failures |
+| Generated Android assets contain login boot-state refresh | PASS | 2026-06-30 | local branch | `rg` confirmed `window.__ISO_BOOT_STATE__`, `readyDashboard`, `readyNeedsOnboarding`, and `Y === "readyLoggedOut" && !u` in `www/` and `android/app/src/main/assets/public` |
 | Capacitor sync | PASS | 2026-06-30 | local branch | `npx cap sync android` |
+| Agent status active-task parser | PASS | 2026-06-30 | local branch | `node --check scripts/agent-status.mjs`; `npm run agent:status` now reports `ANDROID-006` |
 | Supabase project/auth-log inspection | PASS | 2026-06-30 | local branch | Management API: project active; Auth `/token` login returned HTTP 200 in recent logs |
 | GitHub Actions debug APK build | PASS | 2026-06-30 | `ce73a3f` | Push run `28415768373` and PR run `28415767170` succeeded |
 | Gradle debug APK build | PASS | 2026-06-30 | `ce73a3f` | Artifact `IsotopeAI-debug-35`, id `7969405842`, 44,659,790-byte zip |
@@ -55,14 +59,14 @@ Tests are only marked PASS when actually executed. Android device and GitHub bui
 
 ```text
 npm test
-tests 11
-pass 11
+tests 12
+pass 12
 fail 0
-duration_ms 7178.868
+duration_ms 4625.660
 ```
 
 ## Next Test to Run
 
-1. Make an Android device visible to ADB.
-2. Install `/data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk`.
-3. Capture Logcat/WebView console for login, bootstrap routing, dashboard, onboarding, restore, offline mode, timer, notifications, import/export, and responsive layout matrix.
+1. Push the stale boot-state fix and wait for the next GitHub Actions debug APK.
+2. Make an Android device visible to ADB.
+3. Install the new APK, then capture Logcat/WebView console for login, bootstrap routing, dashboard, onboarding, restore, offline mode, timer, notifications, import/export, and responsive layout matrix.
