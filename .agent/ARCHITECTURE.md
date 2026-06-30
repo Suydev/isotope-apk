@@ -204,6 +204,12 @@ www/
 9. Compiled `PWAManager` is patched out when `window.__ISO_IS_ANDROID__` is true.
 ```
 
+During Android login, `auth-bridge.js` writes the Supabase session into `localStorage`.
+The compiled Supabase client normally reads the app's IndexedDB-backed storage adapter,
+so `scripts/apply-android-patches.js` patches that adapter to fall back to the
+bridge-written `localStorage` session keys on Android. Without this compatibility
+layer, `initializeAuth()` can reset a successfully logged-in user back to auth UI.
+
 ## Android Native Bridge Globals
 
 `android-bridge.js` exposes native-only helpers used by patched bundles:

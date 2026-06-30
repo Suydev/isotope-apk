@@ -43,7 +43,7 @@ git push -u origin codex/android-production-repair
 ### TASK ANDROID-006
 **Priority:** P0
 **Status:** ACTIVE
-**Objective:** Build and install the follow-up APK for the user-reported login/PWA/native-notification failure.
+**Objective:** Build and install the follow-up APK for the user-reported post-login reset/PWA/native-notification failure.
 
 **Acceptance:**
 - APK contains the real IsotopeAI UI, not placeholder React UI.
@@ -51,13 +51,24 @@ git push -u origin codex/android-production-repair
 - Existing account logs in and routes to `/dashboard` only when bootstrap says onboarding is complete.
 - New account logs in and routes to `/onboarding` when `user_onboarding.completed=false`.
 - Bootstrap network failure shows loading/retry behavior instead of assuming dashboard or onboarding.
+- Supabase auth storage reads the bridge-written Android session and does not reset the user to login/create-account after the splash.
 - Android notification permission prompt is requested through Capacitor LocalNotifications.
 - Focus timer schedules/cancels native notifications using absolute timestamps.
 - WebView console and Logcat evidence are captured with tokens redacted.
 
+**Current evidence:**
+- Supabase Auth logs show the user-reported credential attempt returned HTTP 200 from `/token`.
+- Local regression tests cover auth-store routing, canonical bootstrap response handling, Android auth storage fallback, PWA stripping, PWA manager disablement, and native notification/focus hooks.
+- `npm run build` succeeds through `prepare-www`, required patching, Capacitor sync, and final idempotent patching.
+- Local Termux Gradle assembly is blocked by missing Android SDK; use GitHub Actions for the next APK.
+- `adb devices -l` currently shows no attached/authorized target.
+
 **Exact next commands:**
 ```bash
-# After pushing the follow-up commit, download the latest IsotopeAI-debug-* artifact.
+git add android-bridge.js scripts/apply-android-patches.js test/prepare-patches.test.mjs .agent
+git commit -m "fix: persist Android auth session for app bootstrap"
+git push
+# After GitHub Actions succeeds, download the latest IsotopeAI-debug-* artifact.
 adb install -r app-debug.apk
 adb logcat -c
 adb logcat

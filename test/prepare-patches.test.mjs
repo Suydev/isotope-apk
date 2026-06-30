@@ -43,6 +43,7 @@ test('prepare-www patches restore-and-launch for legacy onboarding_completed fal
   const wwwDir = runPrepareWww();
   const restore = fs.readFileSync(path.join(wwwDir, 'restore-and-launch.js'), 'utf8');
   const html = fs.readFileSync(path.join(wwwDir, 'index.html'), 'utf8');
+  const bridge = fs.readFileSync(path.join(wwwDir, 'android-bridge.js'), 'utf8');
 
   assert.match(restore, /typeof snapshot\.onboarding_completed === 'boolean'/);
   assert.match(restore, /onboarding: canonicalOnboarding/);
@@ -53,6 +54,8 @@ test('prepare-www patches restore-and-launch for legacy onboarding_completed fal
   assert.doesNotMatch(html, /manifest\.webmanifest/);
   assert.doesNotMatch(html, /apple-mobile-web-app-capable/);
   assert.doesNotMatch(html, /mobile-web-app-capable/);
+  assert.match(bridge, /replacing with native Capacitor bridge/);
+  assert.doesNotMatch(bridge, /skipping polyfill/);
 });
 
 test('apply-android-patches makes Auth login route exactly once from bootstrap and hydrates auth state', () => {
@@ -73,6 +76,23 @@ test('apply-android-patches makes Auth login route exactly once from bootstrap a
   assert.equal((auth.match(/b\(__completed \? "\/dashboard" : "\/onboarding"/g) || []).length, 1);
   assert.equal(auth.includes('initializeAuth == "function" && await __state.initializeAuth()'), false);
   assert.equal(auth.includes('setTimeout(() => {\n                b("/dashboard"'), false);
+});
+
+test('apply-android-patches lets Supabase auth storage read bridge-written sessions', () => {
+  const wwwDir = runPrepareWww();
+  runApplyPatches(wwwDir);
+
+  const assetsDir = path.join(wwwDir, 'assets');
+  const appFile = fs.readdirSync(assetsDir).find((name) => /^App-.*\.js$/.test(name) && fs.statSync(path.join(assetsDir, name)).size > 100_000);
+  assert.ok(appFile, 'App chunk should exist');
+  const app = fs.readFileSync(path.join(assetsDir, appFile), 'utf8');
+
+  assert.match(app, /window\.__ISO_IS_ANDROID__ && window\.localStorage/);
+  assert.match(app, /window\.localStorage\.getItem\(a\)/);
+  assert.match(app, /sb-vteqquoqvksshmfhuepu-auth-token/);
+  assert.match(app, /isotope-last-session-raw/);
+  assert.match(app, /window\.localStorage\.setItem\(a, e\)/);
+  assert.match(app, /window\.localStorage\.removeItem\(a\)/);
 });
 
 test('apply-android-patches disables PWA manager and uses native notification scheduling on Android', () => {

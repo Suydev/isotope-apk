@@ -149,6 +149,54 @@ patchFile(appBundle, [
   ['function O(a) {\n    return !0; if (!a) return !0;', 'function O(a) {\n    return !1; if (!a) return !1;', false],
   // Remove local-server "online check" requirement from sync
   ['__isoSyncAuthBlocked', '__isoSyncAuthBlocked_noop', false],
+  [
+    [
+      'fr = {',
+      '        getItem: async a => {',
+      '            const e = await x.getItem(a);',
+      '            return typeof e == "string" ? e : null',
+      '        },',
+      '        setItem: async (a, e) => {',
+      '            await x.setItem(a, e)',
+      '        },',
+      '        removeItem: async a => {',
+      '            await x.removeItem(a)',
+      '        }',
+      '    },'
+    ].join('\n'),
+    [
+      'fr = {',
+      '        getItem: async a => {',
+      '            const e = await x.getItem(a);',
+      '            if (typeof e == "string") return e;',
+      '            if (typeof window < "u" && window.__ISO_IS_ANDROID__ && window.localStorage) {',
+      '                const t = window.localStorage.getItem(a);',
+      '                if (typeof t == "string") return t;',
+      '                if (a === "isotope-auth-token") {',
+      '                    const s = window.localStorage.getItem("sb-vteqquoqvksshmfhuepu-auth-token") || window.localStorage.getItem("isotope-last-session-raw");',
+      '                    if (typeof s == "string") return s',
+      '                }',
+      '            }',
+      '            return null',
+      '        },',
+      '        setItem: async (a, e) => {',
+      '            await x.setItem(a, e);',
+      '            if (typeof window < "u" && window.__ISO_IS_ANDROID__ && window.localStorage) {',
+      '                window.localStorage.setItem(a, e);',
+      '                if (a === "isotope-auth-token") window.localStorage.setItem("sb-vteqquoqvksshmfhuepu-auth-token", e)',
+      '            }',
+      '        },',
+      '        removeItem: async a => {',
+      '            await x.removeItem(a);',
+      '            if (typeof window < "u" && window.__ISO_IS_ANDROID__ && window.localStorage) {',
+      '                window.localStorage.removeItem(a);',
+      '                if (a === "isotope-auth-token") window.localStorage.removeItem("sb-vteqquoqvksshmfhuepu-auth-token")',
+      '            }',
+      '        }',
+      '    },'
+    ].join('\n'),
+    true
+  ],
 ], 'App-pJGjDiPw.js');
 
 // ── 2. sessionSync bundle — 5 patches ────────────────────────────────────────

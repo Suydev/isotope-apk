@@ -279,3 +279,19 @@
 **Consequences:**
 - Auth routing depends on bootstrap only.
 - The store receives `isAuthenticated`, `isInitialized`, `userId`, `email`, plan fields, and identity fields immediately after login.
+
+---
+
+## DEC-016 — Android Supabase auth storage must read bridge-written localStorage sessions
+
+**Date:** 2026-06-30
+**Context:** Supabase Auth logs showed the user's credential login returned HTTP 200, but the APK still returned to login/create-account after the splash. `auth-bridge.js` writes the session to `localStorage`, while the compiled app's Supabase client storage adapter reads an IndexedDB-backed wrapper first.
+
+**Chosen:** Patch the compiled app bundle so the Supabase auth storage adapter falls back to Android bridge `localStorage` keys and mirrors set/remove operations there when `window.__ISO_IS_ANDROID__` is true.
+
+**Why:** `initializeAuth()` must see the same session that the Android auth bridge just created. Otherwise the browser auth initializer can conclude there is no session and reset the user to logged out.
+
+**Consequences:**
+- Android uses `isotope-auth-token`, `sb-vteqquoqvksshmfhuepu-auth-token`, and `isotope-last-session-raw` as compatible session fallbacks.
+- Regression tests fail if the storage fallback disappears from the packaged app bundle.
+- This remains a minified-bundle compatibility patch until authored source can be changed upstream.

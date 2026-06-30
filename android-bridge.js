@@ -1222,10 +1222,8 @@
   // We polyfill window.Notification using Capacitor's LocalNotifications plugin
   // so these calls work natively (real Android system notifications).
   (function setupNotificationPolyfill() {
-    // Only run if window.Notification is absent (standard in Android WebView)
     if (typeof window.Notification !== 'undefined') {
-      console.log('[IsotopeAI] Web Notification API already present — skipping polyfill');
-      return;
+      console.log('[IsotopeAI] Web Notification API already present — replacing with native Capacitor bridge');
     }
 
     var _permission = 'default';
