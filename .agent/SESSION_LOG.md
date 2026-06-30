@@ -607,3 +607,12 @@ git add .github/workflows/android.yml android-bridge.js android-floating-timer-b
 git commit -m "fix(android): repair sync bridge and floating timer"
 git push -u origin codex/android-production-repair
 ```
+
+**Push/build result:**
+- Commit created: `a99d575` (`fix(android): repair sync bridge and floating timer`)
+- Branch pushed: `origin/codex/android-production-repair`
+- GitHub Actions run: `28483486050`
+- Run status: PASS
+- Artifact: `IsotopeAI-debug-45`
+- Artifact id: `7996534384`
+- Artifact ZIP download from local shell: BLOCKED. `curl` to the artifact ZIP returned HTTP 401 because no `GITHUB_PAT`, `GH_TOKEN`, or authenticated `gh` is available.

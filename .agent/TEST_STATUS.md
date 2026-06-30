@@ -55,7 +55,8 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 | www asset preparation and patch idempotence | PASS | 2026-06-30 | local branch | `npm run build` |
 | Capacitor sync | PASS | 2026-06-30 | local branch | `npm run build` includes `npx cap sync android` |
 | Npm audit non-force fix | BLOCKED | 2026-06-30 | local branch | `npm audit --omit=optional`; fix requires forced Capacitor 8.4.1 upgrade |
-| GitHub Actions debug APK build for current repair | PENDING | 2026-06-30 | local branch | Must commit and push |
+| GitHub Actions debug APK build for current repair | PASS | 2026-06-30 | `a99d575` | Run `28483486050`, artifact `IsotopeAI-debug-45` id `7996534384` |
+| Artifact download/extract from local shell | BLOCKED | 2026-06-30 | `a99d575` | GitHub API artifact ZIP returned HTTP 401; no `GITHUB_PAT`, `GH_TOKEN`, or `gh` auth available |
 | Local Termux Gradle debug APK build | SKIPPED | 2026-06-30 | local branch | User instructed to use GitHub Actions only |
 | App launch in packaged APK | UNTESTED | — | — | Requires GitHub-built APK |
 | Login with real credentials in new APK | UNTESTED | — | — | Requires GitHub-built APK |
@@ -101,7 +102,6 @@ fix available only via npm audit fix --force -> @capacitor/cli@8.4.1
 
 ## Next Test to Run
 
-1. Push `codex/android-production-repair`.
-2. Wait for GitHub Actions debug APK build.
-3. Download and inspect the artifact.
-4. Install on the OnePlus Pad Go and verify login, sync, community, Floating Timer, Focus page, and logo behavior.
+1. Download and inspect artifact `7996534384` with GitHub auth or from the Actions UI.
+2. Install on the OnePlus Pad Go.
+3. Verify login, sync, community, Floating Timer, Focus page, and logo behavior.

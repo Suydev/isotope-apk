@@ -2,7 +2,7 @@
 
 **Updated:** 2026-06-30T23:42:36Z
 **Branch:** codex/android-production-repair
-**Current phase:** ANDROID-012 — Android Supabase sync/community repair after Floating Timer pass
+**Current phase:** ANDROID-012 — GitHub-built Android Supabase sync/Floating Timer repair awaiting device tests
 
 ---
 
@@ -45,7 +45,9 @@
 - Unit/patch-contract tested: YES, 33 Node tests.
 - Local Capacitor sync/build script: YES, `npm run build`.
 - Local Gradle/APK build: SKIPPED by user instruction. Use GitHub Actions only.
-- CI APK build for current commit: PENDING until commit is pushed.
+- CI APK build: PASS for commit `a99d575`, GitHub Actions run `28483486050`.
+- Debug artifact: `IsotopeAI-debug-45`, artifact id `7996534384`.
+- Artifact ZIP download from this shell: BLOCKED, GitHub API returned HTTP 401 because `GITHUB_PAT`/`GH_TOKEN`/`gh` auth is unavailable.
 - Emulator tested: NOT YET.
 - Physical-device tested: NOT YET.
 
@@ -66,8 +68,7 @@
 
 ## Not Yet Verified
 
-- GitHub Actions debug APK build for this combined Floating Timer + Supabase sync repair.
-- Download/extract static inspection of the new APK artifact.
+- Download/extract static inspection of the new APK artifact from this shell.
 - Runtime login/dashboard/onboarding with the new APK.
 - Runtime cloud sync, import/export, backup restore, and storage cleanup.
 - Empty local state cannot overwrite rich cloud data in the packaged APK.
@@ -80,8 +81,7 @@
 ## Next Commands
 
 ```bash
-npm run agent:handoff
-git add .github/workflows/android.yml android-bridge.js android-floating-timer-bridge.js android-pip-bridge.js android/app android/build.gradle android/capacitor.settings.gradle android/gradle/wrapper/gradle-wrapper.properties capacitor.config.json package.json package-lock.json scripts/apply-android-patches.js scripts/prepare-www.js test .agent
-git commit -m "fix(android): repair sync bridge and floating timer"
-git push -u origin codex/android-production-repair
+export GITHUB_PAT=...
+curl -L -H "Authorization: Bearer $GITHUB_PAT" -o /tmp/isotope-a99d575.zip https://api.github.com/repos/Suydev/isotope-apk/actions/artifacts/7996534384/zip
+unzip /tmp/isotope-a99d575.zip -d /tmp/isotope-a99d575
 ```

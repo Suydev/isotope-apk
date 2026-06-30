@@ -7,11 +7,9 @@
 ### TASK ANDROID-012
 **Priority:** P0
 **Status:** ACTIVE
-**Objective:** Commit, push, and verify the combined Android Floating Timer + Supabase sync bridge repair through GitHub Actions.
+**Objective:** Download/extract and runtime-test the GitHub-built combined Android Floating Timer + Supabase sync bridge repair.
 
 **Acceptance:**
-- Branch `codex/android-production-repair` is committed and pushed.
-- GitHub Actions debug APK build succeeds.
 - Artifact is downloaded/extracted and statically inspected.
 - OnePlus Pad Go install/runtime checks are recorded.
 - Device evidence distinguishes:
@@ -25,14 +23,18 @@
 - `npm test`: PASS, 33 tests.
 - `npm run build`: PASS through `prepare-www`, `apply-patches`, `npx cap sync android`, and final idempotent patch pass.
 - `git diff --check`: PASS.
+- Commit `a99d575` pushed to `origin/codex/android-production-repair`.
+- GitHub Actions run `28483486050`: PASS.
+- Debug artifact: `IsotopeAI-debug-45`, artifact id `7996534384`.
+- Local artifact download from the GitHub API is blocked by HTTP 401 because no `GITHUB_PAT`/`GH_TOKEN`/`gh` auth exists in this shell.
 - Local Gradle/APK build intentionally not run by user instruction; use GitHub Actions for APK assembly.
 
 **Exact next commands:**
 ```bash
-npm run agent:handoff
-git add .github/workflows/android.yml android-bridge.js android-floating-timer-bridge.js android-pip-bridge.js android/app android/build.gradle android/capacitor.settings.gradle android/gradle/wrapper/gradle-wrapper.properties capacitor.config.json package.json package-lock.json scripts/apply-android-patches.js scripts/prepare-www.js test .agent
-git commit -m "fix(android): repair sync bridge and floating timer"
-git push -u origin codex/android-production-repair
+export GITHUB_PAT=...
+curl -L -H "Authorization: Bearer $GITHUB_PAT" -o /tmp/isotope-a99d575.zip https://api.github.com/repos/Suydev/isotope-apk/actions/artifacts/7996534384/zip
+unzip /tmp/isotope-a99d575.zip -d /tmp/isotope-a99d575
+adb install -r /tmp/isotope-a99d575/app-debug.apk
 ```
 
 ---
