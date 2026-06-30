@@ -60,16 +60,16 @@ git push -u origin codex/android-production-repair
 - Supabase Auth logs show the user-reported credential attempt returned HTTP 200 from `/token`.
 - Local regression tests cover auth-store routing, canonical bootstrap response handling, Android auth storage fallback, PWA stripping, PWA manager disablement, and native notification/focus hooks.
 - `npm run build` succeeds through `prepare-www`, required patching, Capacitor sync, and final idempotent patching.
+- GitHub Actions passed for commit `ce73a3f` in push run `28415768373` and PR run `28415767170`.
+- Downloaded artifact `IsotopeAI-debug-35` (id `7969405842`) was extracted and statically inspected.
+- APK path for install testing: `/data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk`.
 - Local Termux Gradle assembly is blocked by missing Android SDK; use GitHub Actions for the next APK.
 - `adb devices -l` currently shows no attached/authorized target.
 
 **Exact next commands:**
 ```bash
-git add android-bridge.js scripts/apply-android-patches.js test/prepare-patches.test.mjs .agent
-git commit -m "fix: persist Android auth session for app bootstrap"
-git push
-# After GitHub Actions succeeds, download the latest IsotopeAI-debug-* artifact.
-adb install -r app-debug.apk
+adb devices -l
+adb install -r /data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk
 adb logcat -c
 adb logcat
 ```

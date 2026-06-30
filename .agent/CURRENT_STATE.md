@@ -1,6 +1,6 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-06-30T02:13:02Z
+**Updated:** 2026-06-30T02:24:45Z
 **Branch:** codex/android-production-repair
 **Current phase:** ANDROID-006 — Repair post-login session persistence and native notification bootstrap
 
@@ -14,6 +14,14 @@
 - [x] `npm run prepare-www` copies the real `isotope-code/public` UI into `www/` and reports 154 JS bundles, total size 56.9 MB.
 - [x] `npm run build` succeeds through `prepare-www`, required bundle patching, `npx cap sync android`, and the final idempotent patch pass.
 - [x] `npx cap sync android` succeeds and copies web assets into the committed Android project.
+- [x] GitHub Actions builds for commit `ce73a3f` succeeded:
+  - Push run `28415768373`
+  - PR run `28415767170`
+- [x] Debug artifact `IsotopeAI-debug-35` (artifact id `7969405842`) was downloaded and extracted locally.
+- [x] Extracted APK contains the real IsotopeAI UI: 154 JS chunks and 266 packaged public files.
+- [x] Extracted APK contains the Android auth storage fallback in `assets/App-pJGjDiPw.js`.
+- [x] Extracted APK contains native notification bootstrap helpers and does not skip native setup when `window.Notification` exists.
+- [x] `aapt dump permissions` confirms packaged permissions include `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `SCHEDULE_EXACT_ALARM`, `WAKE_LOCK`, `FOREGROUND_SERVICE`, and `INTERNET`.
 - [x] `/__auth/check` no longer calls Supabase signup and is covered by regression test.
 - [x] `/__auth/bootstrap` now returns the canonical server-compatible shape, including `onboarding`, `profile_data`, restore metadata, and backup fields.
 - [x] Onboarding completion now uses verified PostgREST upsert with `on_conflict=user_id`.
@@ -31,7 +39,6 @@
 
 ## Not Yet Verified
 
-- [ ] Follow-up GitHub Actions build for the latest session-storage/native-notification patch.
 - [ ] Follow-up APK installation on emulator or physical Android device.
 - [ ] Login with real credentials inside the follow-up packaged APK.
 - [ ] Existing-account dashboard route in follow-up packaged APK.
@@ -51,16 +58,17 @@
 
 ## Last Successful Build
 
-- GitHub Actions run `28374915430`
-- Commit: `d33d38cf976528fe827f69dee21c6d3061ef0c85`
-- URL: https://github.com/Suydev/isotope-apk/actions/runs/28374915430
+- GitHub Actions run `28415768373`
+- Commit: `ce73a3f`
+- URL: https://github.com/Suydev/isotope-apk/actions/runs/28415768373
 - Job: `Build Debug APK` succeeded
 
 ## Last Successful APK Path
 
-- Artifact: `IsotopeAI-debug-28`
-- Artifact id: `7953037831`
-- Download page: https://github.com/Suydev/isotope-apk/actions/runs/28374915430
+- Artifact: `IsotopeAI-debug-35`
+- Artifact id: `7969405842`
+- Downloaded APK: `/data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk`
+- Download page: https://github.com/Suydev/isotope-apk/actions/runs/28415768373
 
 ## Current Blocker
 
@@ -72,4 +80,5 @@ No emulator or physical Android device is visible to ADB from this environment. 
 git add android-bridge.js scripts/apply-android-patches.js test/prepare-patches.test.mjs .agent
 git commit -m "fix: persist Android auth session for app bootstrap"
 git push
+adb install -r /data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk
 ```

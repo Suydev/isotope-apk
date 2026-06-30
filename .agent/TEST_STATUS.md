@@ -26,8 +26,12 @@ Tests are only marked PASS when actually executed. Android device and GitHub bui
 | Android bundle/native patch application | PASS | 2026-06-30 | local branch | `npm run build`: first pass patched 15 targets, final pass idempotent, 0 skipped, 0 required failures |
 | Capacitor sync | PASS | 2026-06-30 | local branch | `npx cap sync android` |
 | Supabase project/auth-log inspection | PASS | 2026-06-30 | local branch | Management API: project active; Auth `/token` login returned HTTP 200 in recent logs |
-| GitHub Actions debug APK build | PASS | 2026-06-29 | `d33d38cf976528fe827f69dee21c6d3061ef0c85` | Run `28374915430`: https://github.com/Suydev/isotope-apk/actions/runs/28374915430 |
-| Gradle debug APK build | PASS | 2026-06-29 | `d33d38cf976528fe827f69dee21c6d3061ef0c85` | Artifact `IsotopeAI-debug-28`, id `7953037831`, 44,653,663-byte zip |
+| GitHub Actions debug APK build | PASS | 2026-06-30 | `ce73a3f` | Push run `28415768373` and PR run `28415767170` succeeded |
+| Gradle debug APK build | PASS | 2026-06-30 | `ce73a3f` | Artifact `IsotopeAI-debug-35`, id `7969405842`, 44,659,790-byte zip |
+| Downloaded APK static inspection | PASS | 2026-06-30 | `ce73a3f` | `/data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk`, 54 MB, 154 JS chunks, 266 public files |
+| APK auth storage fallback present | PASS | 2026-06-30 | `ce73a3f` | Extracted `assets/App-pJGjDiPw.js` contains Android `localStorage` fallback for `isotope-auth-token`, `sb-vteqquoqvksshmfhuepu-auth-token`, and `isotope-last-session-raw` |
+| APK native notification bridge present | PASS | 2026-06-30 | `ce73a3f` | Extracted `android-bridge.js` contains native replacement path and `__isoEnsureNotificationPermission` / `__isoScheduleNativeNotification` / `__isoScheduleFocusTimer` |
+| APK native permissions | PASS | 2026-06-30 | `ce73a3f` | `aapt dump permissions app-debug.apk` confirms notification, boot, wake lock, foreground service, exact alarm, network permissions |
 | Local Termux Gradle debug APK build | BLOCKED | 2026-06-30 | local branch | Java 17 installed; Gradle fails because Android SDK path is missing (`ANDROID_HOME`/`android/local.properties`) |
 | Gradle release AAB build | UNTESTED | — | — | GitHub Actions workflow_dispatch release |
 | Android lint | UNTESTED | — | — | Not run |
@@ -59,7 +63,6 @@ duration_ms 7178.868
 
 ## Next Test to Run
 
-1. Push the follow-up login/PWA/native-notification patch.
-2. Wait for GitHub Actions to produce the new debug artifact.
-3. Install that APK on emulator or physical Android device.
-4. Capture Logcat/WebView console for login, bootstrap routing, dashboard, onboarding, restore, offline mode, timer, notifications, import/export, and responsive layout matrix.
+1. Make an Android device visible to ADB.
+2. Install `/data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk`.
+3. Capture Logcat/WebView console for login, bootstrap routing, dashboard, onboarding, restore, offline mode, timer, notifications, import/export, and responsive layout matrix.

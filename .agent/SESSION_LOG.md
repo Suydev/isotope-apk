@@ -278,10 +278,28 @@ git push
 - No emulator/physical APK install or Logcat evidence for this new fix yet.
 - GitHub Actions build must run after pushing this commit to produce the next debug APK.
 
+**Push/build result:**
+- Commit pushed: `ce73a3f`
+- GitHub Actions push run: `28415768373` — PASS
+- GitHub Actions PR run: `28415767170` — PASS
+- Artifact: `IsotopeAI-debug-35`
+- Artifact id: `7969405842`
+- Downloaded APK: `/data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk`
+
+**Downloaded APK static inspection:**
+- APK size: 54 MB.
+- Packaged public assets: 266 files.
+- Packaged JS chunks: 154.
+- `index.html` loads `/android-bridge.js` first and `/auth-bridge.js?v=5` second.
+- PWA manifest/mobile-web-app metadata is absent; `pwa-local.js` and `update-checker.js` are disabled comments.
+- Extracted `assets/App-pJGjDiPw.js` contains the Android auth storage fallback for `isotope-auth-token`, `sb-vteqquoqvksshmfhuepu-auth-token`, and `isotope-last-session-raw`.
+- Extracted `android-bridge.js` contains the native notification replacement path and helper globals.
+- `aapt dump permissions` confirms Android notification, boot, wake lock, foreground service, exact alarm, network, biometric, and storage permissions.
+- `adb devices -l` still shows no attached/authorized device.
+
 **Next exact action:**
 ```bash
-git add android-bridge.js scripts/apply-android-patches.js test/prepare-patches.test.mjs .agent
-git commit -m "fix: persist Android auth session for app bootstrap"
-git push
-# then download the new IsotopeAI-debug-* artifact from GitHub Actions and inspect/install it
+adb install -r /data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk
+adb logcat -c
+adb logcat
 ```
