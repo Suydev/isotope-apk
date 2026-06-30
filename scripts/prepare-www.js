@@ -36,6 +36,7 @@ const REPO_DIR    = process.env.REPO_DIR    || path.resolve(__dirname, '../../is
 const SOURCE_DIR  = process.env.SOURCE_DIR  || path.join(REPO_DIR, 'public');
 const WWW_DIR     = process.env.WWW_DIR     || path.resolve(__dirname, '../www');
 const BRIDGE_FILE = process.env.BRIDGE_FILE || path.resolve(__dirname, '../android-bridge.js');
+const PIP_BRIDGE_FILE = process.env.PIP_BRIDGE_FILE || path.resolve(__dirname, '../android-pip-bridge.js');
 
 console.log('=== prepare-www.js ===');
 console.log('REPO_DIR   :', REPO_DIR);
@@ -108,6 +109,9 @@ console.log('\nStep 4: Copying android-bridge.js into www/ ...');
 const bridgeDest = path.join(WWW_DIR, 'android-bridge.js');
 fs.copyFileSync(BRIDGE_FILE, bridgeDest);
 console.log('  ✓ android-bridge.js copied to www/');
+const pipBridgeDest = path.join(WWW_DIR, 'android-pip-bridge.js');
+fs.copyFileSync(PIP_BRIDGE_FILE, pipBridgeDest);
+console.log('  ✓ android-pip-bridge.js copied to www/');
 
 // ── 5. Patch index.html ───────────────────────────────────────────────────────
 //    a) Inject android-bridge.js as VERY FIRST script (before auth-bridge.js)
@@ -120,6 +124,7 @@ let html = fs.readFileSync(indexDest, 'utf8');
 
 // 5a. Inject android-bridge.js as first child of <head>
 const bridgeScriptTag = '<script src="/android-bridge.js"></script>';
+const pipBridgeScriptTag = '<script src="/android-pip-bridge.js"></script>';
 if (!html.includes('android-bridge.js')) {
   html = html.replace(/<head>/i, '<head>\n    ' + bridgeScriptTag);
   console.log('  ✓ android-bridge.js injected as first script in <head>');
@@ -127,6 +132,13 @@ if (!html.includes('android-bridge.js')) {
   console.log('  ○ android-bridge.js already present in index.html');
 }
 
+
+if (!html.includes('android-pip-bridge.js')) {
+  html = html.replace(bridgeScriptTag, bridgeScriptTag + '\n    ' + pipBridgeScriptTag);
+  console.log('  ✓ android-pip-bridge.js injected immediately after android-bridge.js');
+} else {
+  console.log('  ○ android-pip-bridge.js already present in index.html');
+}
 // 5b. Disable pwa-local.js (SW registration causes stale-asset loops in Capacitor)
 if (html.includes('/pwa-local.js')) {
   html = html.replace(
