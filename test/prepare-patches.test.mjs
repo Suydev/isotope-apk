@@ -185,6 +185,8 @@ test('Android native project exposes notification icon, launcher logo, PiP, and 
   assert.match(manifest, /android:windowSoftInputMode="adjustResize"/);
   assert.match(activity, /addJavascriptInterface\(new IsotopeAndroidInterface\(\), "IsotopeAndroid"\)/);
   assert.match(activity, /enterPictureInPictureMode/);
+  assert.match(activity, /public void onStart\(\)/);
+  assert.doesNotMatch(activity, /protected void onStart\(\)/);
   assert.match(notificationIcon, /strokeColor="#FFFFFFFF"/);
   assert.match(launcherForeground, /A78BFA/);
   assert.match(launcherBackground, /#111827/);

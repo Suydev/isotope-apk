@@ -81,12 +81,13 @@ git push -u origin codex/android-production-repair
 - `npm test` passes 18 tests.
 - `npm run build` passes with first patch pass applying 23 targets and final patch pass applying 0.
 - Per user instruction, do not run local Gradle. Use GitHub Actions for APK assembly.
+- GitHub Actions for commit `868b889` failed at `Build Debug APK` after regression tests, prepare-www, patching, Capacitor sync, and re-patching all passed. Public logs are not downloadable without GitHub auth, but the local native diff showed `MainActivity.onStart()` was accidentally `protected` while `BridgeActivity.onStart()` is public. Local fix changes it back to `public` and adds a regression assertion.
 - `adb devices -l` currently shows no attached/authorized target.
 
 **Exact next commands:**
 ```bash
-git add android-bridge.js capacitor.config.json scripts/apply-android-patches.js test android .agent
-git commit -m "fix: wire Android native app behavior"
+git add android/app/src/main/java/in/isotopeai/app/MainActivity.java test/prepare-patches.test.mjs .agent
+git commit -m "fix: restore MainActivity onStart access"
 git push
 ```
 

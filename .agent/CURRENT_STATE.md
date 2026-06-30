@@ -1,6 +1,6 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-06-30T07:30:29Z
+**Updated:** 2026-06-30T07:39:16Z
 **Branch:** codex/android-production-repair
 **Current phase:** ANDROID-006 — Android-native wiring for online sync, notifications, PiP, logo, and shell behavior
 
@@ -20,6 +20,10 @@
 - [x] Android launcher foreground/background and density PNG icons were replaced with isotope-code logo assets; no default Android robot launcher icon remains in the committed resources.
 - [x] `npm run build` succeeds through `prepare-www`, required bundle patching, `npx cap sync android`, and the final idempotent patch pass. First pass applied 23 patch targets; second pass applied 0.
 - [x] Patch-contract tests verify Android online hook, Focus PiP hook, Settings Font Size hook, notification icon resource, launcher logo resource, PiP manifest/activity wiring, and notification config.
+- [x] GitHub Actions runs for commit `868b889` reached the Android compile step after tests/patching/sync all passed, then failed in `Build Debug APK`:
+  - Push run `28428151528`
+  - PR run `28428153462`
+- [x] Follow-up native compile fix written locally: `MainActivity.onStart()` now remains `public`, matching `BridgeActivity`; regression test asserts it is not `protected`.
 - [x] Supabase Management API access works with local `SUPABASE_PAT`; project `vteqquoqvksshmfhuepu` is `ACTIVE_HEALTHY`.
 - [x] Supabase Auth logs show the user-reported credential attempt reached `/token` and returned HTTP 200, so the reported login loop is local Android session/routing behavior after successful Supabase auth.
 - [x] Root cause found for the repeated post-login loop: `restore-and-launch.js` can leave `window.__ISO_BOOT_STATE__.state="readyLoggedOut"` from startup, and `AppAccessGate` honored that stale state after Auth hydrated the Android session.
@@ -55,7 +59,7 @@
 
 ## Not Yet Verified
 
-- [ ] GitHub Actions debug APK build for the current Android-native wiring commit.
+- [ ] GitHub Actions debug APK build for the follow-up native compile fix.
 - [ ] Download/extract static inspection of the current GitHub Actions APK artifact.
 - [ ] Follow-up APK installation on emulator or physical Android device.
 - [ ] Login with real credentials inside the follow-up packaged APK.
@@ -71,7 +75,7 @@
 - `isotope-code` source assets are pinned for CI at commit `fd39fad1384333ad774f19f35b754659a34dae60`.
 - Capacitor versions are pinned in `package.json` and `package-lock.json`.
 - `.github/workflows/android.yml` now runs on `main` and `codex/android-production-repair`, uses `npm ci`, runs `npm test`, prepares `www/`, applies patch checks, runs `npx cap sync android`, reapplies native patches, and builds the debug APK.
-- `gh` is not installed in this environment and `GITHUB_PAT` is not currently present. Branch push should use existing git credentials; Actions/artifact inspection may need browser access, an installed/authenticated `gh`, or a token.
+- `gh` is not installed in this environment and `.env` currently has no `GITHUB_PAT`. Branch push works through existing git credentials; Actions/artifact inspection may need browser access, an installed/authenticated `gh`, or `GITHUB_PAT`.
 - `adb` is installed, but `adb devices -l` currently shows no attached/authorized device.
 - Per user instruction, do not use local Gradle for APK assembly in this environment. GitHub Actions is the only APK build path for this checkpoint.
 
@@ -91,12 +95,12 @@
 
 ## Current Blocker
 
-No emulator or physical Android device is visible to ADB from this environment. Runtime claims must not be marked complete until the follow-up GitHub-built APK is installed and tested. APK assembly must be done by GitHub Actions only for this checkpoint.
+No emulator or physical Android device is visible to ADB from this environment. Runtime claims must not be marked complete until the follow-up GitHub-built APK is installed and tested. APK assembly must be done by GitHub Actions only for this checkpoint. The latest pushed Actions run failed at native debug build; a targeted `MainActivity.onStart()` compile fix is local and must be pushed.
 
 ## Exact Next Commands
 
 ```bash
-git add android-bridge.js capacitor.config.json scripts/apply-android-patches.js test android .agent
-git commit -m "fix: wire Android native app behavior"
+git add android/app/src/main/java/in/isotopeai/app/MainActivity.java test/prepare-patches.test.mjs .agent
+git commit -m "fix: restore MainActivity onStart access"
 git push
 ```

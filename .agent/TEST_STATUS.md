@@ -42,7 +42,9 @@ Tests are only marked PASS when actually executed. Android device and GitHub bui
 | APK auth storage fallback present | PASS | 2026-06-30 | `ce73a3f` | Extracted `assets/App-pJGjDiPw.js` contains Android `localStorage` fallback for `isotope-auth-token`, `sb-vteqquoqvksshmfhuepu-auth-token`, and `isotope-last-session-raw` |
 | APK native notification bridge present | PASS | 2026-06-30 | `ce73a3f` | Extracted `android-bridge.js` contains native replacement path and `__isoEnsureNotificationPermission` / `__isoScheduleNativeNotification` / `__isoScheduleFocusTimer` |
 | APK native permissions | PASS | 2026-06-30 | `ce73a3f` | `aapt dump permissions app-debug.apk` confirms notification, boot, wake lock, foreground service, exact alarm, network permissions |
-| Current GitHub Actions debug APK build | PENDING | 2026-06-30 | local branch | Must push current Android-native wiring commit; use GitHub Actions only for APK assembly |
+| Android-native wiring GitHub Actions debug APK build | FAIL | 2026-06-30 | `868b889` | Push run `28428151528` and PR run `28428153462` failed at `Build Debug APK` after tests/patch/sync passed |
+| MainActivity `onStart` access modifier contract | PASS | 2026-06-30 | local branch | Test asserts `public void onStart()` and rejects `protected void onStart()` |
+| Current GitHub Actions debug APK build | PENDING | 2026-06-30 | local branch | Must push native compile fix; use GitHub Actions only for APK assembly |
 | Local Termux Gradle debug APK build | SKIPPED | 2026-06-30 | local branch | User instructed to use GitHub Actions only. Earlier local attempt also showed no Android SDK path. |
 | Gradle release AAB build | UNTESTED | — | — | GitHub Actions workflow_dispatch release |
 | Android lint | UNTESTED | — | — | Not run |
@@ -69,7 +71,7 @@ npm test
 tests 18
 pass 18
 fail 0
-duration_ms 8132.196
+duration_ms 12875.035
 ```
 
 ## Next Test to Run

@@ -435,3 +435,22 @@ git add android-bridge.js capacitor.config.json scripts/apply-android-patches.js
 git commit -m "fix: wire Android native app behavior"
 git push
 ```
+
+**Push/build result:**
+- Commit pushed: `868b889`
+- GitHub Actions push run `28428151528`: FAILED at `Build Debug APK`
+- GitHub Actions PR run `28428153462`: FAILED at `Build Debug APK`
+- Earlier workflow steps passed: regression tests, source verification, prepare-www, first patch pass, Capacitor sync, final patch pass.
+- Public log download returned HTTP 403 without GitHub auth; `.env` did not include `GITHUB_PAT` at the time.
+
+**Immediate follow-up fix:**
+- Local Java review showed `MainActivity` overrode `BridgeActivity.public void onStart()` as `protected void onStart()`, which is a Java compile error because an override cannot reduce method visibility.
+- Fixed `MainActivity.onStart()` to `public`.
+- Added regression assertion in `test/prepare-patches.test.mjs`.
+
+**Next exact action after follow-up fix:**
+```bash
+git add android/app/src/main/java/in/isotopeai/app/MainActivity.java test/prepare-patches.test.mjs .agent
+git commit -m "fix: restore MainActivity onStart access"
+git push
+```
