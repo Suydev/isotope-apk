@@ -42,6 +42,9 @@ function patchFile(filePath, patches, label) {
   let changed = false;
 
   for (const [from, to, required] of patches) {
+    if (required && content.includes(to)) {
+      continue;
+    }
     const matchCount = content.split(from).length - 1;
     if (required && matchCount !== 1) {
       if (matchCount === 0 && content.includes(to)) {
@@ -249,14 +252,38 @@ patchFile(authBundle, [
       '                    });',
       '                    return',
       '                }',
-      '                try {',
-      '                    var __state = m.getState && m.getState();',
-      '                    __state && typeof __state.initializeAuth == "function" && await __state.initializeAuth()',
-      '                } catch (__ignored) {}',
+      '                var __nativeUser = __r.user || __r.session && __r.session.user || {};',
+      '                var __profile = __r.bootstrap && (__r.bootstrap.profile || __r.bootstrap.profile_data) || {};',
+      '                var __plan = __r.bootstrap && __r.bootstrap.user && __r.bootstrap.user.plan_type || __profile.planType || __profile.plan_type || "ranker";',
       '                m.setState({',
+      '                    isAuthenticated: !0,',
+      '                    isInitialized: !0,',
       '                    isLoading: !1,',
+      '                    userId: __nativeUser.id || __r.user_id || __r.bootstrap && __r.bootstrap.user_id || null,',
+      '                    email: __nativeUser.email || null,',
+      '                    emailVerified: __nativeUser.email_confirmed_at != null,',
+      '                    planType: __plan,',
+      '                    planExpiresAt: __profile.planExpiresAt || __profile.plan_expires_at || null,',
+      '                    accessSource: __profile.accessSource || __profile.access_source || "grandfathered",',
+      '                    billingStatus: __profile.billingStatus || __profile.billing_status || "active",',
+      '                    cancelAtPeriodEnd: __profile.cancelAtPeriodEnd || __profile.cancel_at_period_end || !1,',
+      '                    portalEligible: __profile.portalEligible || __profile.portal_eligible || !1,',
+      '                    authMethod: "email",',
+      '                    identities: __nativeUser.identities || [],',
+      '                    createdAt: __nativeUser.created_at || new Date().toISOString(),',
+      '                    isTemporaryLocalSession: !1,',
+      '                    temporaryLocalMessage: null,',
       '                    error: null',
-      '                }), b(__completed ? "/dashboard" : "/onboarding", {',
+      '                });',
+      '                try {',
+      '                    window.dispatchEvent(new CustomEvent("isotope:native-auth-ready", {',
+      '                        detail: {',
+      '                            session: __r.session || null,',
+      '                            bootstrap: __r.bootstrap || null',
+      '                        }',
+      '                    }))',
+      '                } catch (__ignored) {}',
+      '                b(__completed ? "/dashboard" : "/onboarding", {',
       '                    replace: !0',
       '                })',
       '            } catch (__e) {',
@@ -271,6 +298,17 @@ patchFile(authBundle, [
   ],
 ], 'Auth bundle');
 
+// ── 4b. App bundle — disable web PWA manager in native Android ──────────────
+
+console.log('\n=== Patching Android app shell bundle ===');
+patchFile(appBundle, [
+  [
+    'children: [S.jsx(mn, {}), S.jsx(pn, {})]',
+    'children: [typeof window < "u" && window.__ISO_IS_ANDROID__ ? null : S.jsx(mn, {}), S.jsx(pn, {})]',
+    true
+  ],
+], 'App bundle PWA manager');
+
 // ── 5. useInvites — fix RPC parameter name ───────────────────────────────────
 
 console.log('\n=== Patching useInvites bundle ===');
@@ -282,7 +320,218 @@ patchFile(invitesBundle, [
   ['token_input:', 'p_code:', false],
 ], 'useInvites bundle');
 
-// ── 6. Focus bundle — PIP polyfill (optional, for video PiP) ─────────────────
+// ── 6. Notification store — native scheduled notifications ──────────────────
+
+console.log('\n=== Patching Notification store bundle ===');
+const notificationBundle = findAsset('useNotificationStore-');
+
+patchFile(notificationBundle, [
+  [
+    [
+      '        scheduleNotification: e => {',
+      '            const i = `notif-${Date.now()}-${Math.random().toString(36).substr(2,9)}`,',
+      '                t = { ...e,',
+      '                    id: i',
+      '                };',
+      '            r(n => ({',
+      '                scheduledNotifications: [...n.scheduledNotifications, t]',
+      '            }));',
+      '            const o = new Date,',
+      '                s = new Date(e.scheduledFor).getTime() - o.getTime();',
+      '            return s > 0 && setTimeout(() => {',
+      '                const n = c();',
+      '                n.sendNotification(e.category, e.title, {',
+      '                    body: e.body,',
+      '                    icon: e.icon || f,',
+      '                    badge: e.badge || u,',
+      '                    tag: e.tag,',
+      '                    requireInteraction: e.requireInteraction,',
+      '                    data: e.data',
+      '                }), n.cancelNotification(i)',
+      '            }, s), i',
+      '        },'
+    ].join('\n'),
+    [
+      '        scheduleNotification: e => {',
+      '            const i = `notif-${Date.now()}-${Math.random().toString(36).substr(2,9)}`,',
+      '                t = { ...e,',
+      '                    id: i',
+      '                };',
+      '            r(n => ({',
+      '                scheduledNotifications: [...n.scheduledNotifications, t]',
+      '            }));',
+      '            const o = new Date,',
+      '                s = new Date(e.scheduledFor).getTime() - o.getTime();',
+      '            if (typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoScheduleNativeNotification == "function") {',
+      '                window.__isoScheduleNativeNotification({',
+      '                    id: i,',
+      '                    title: e.title,',
+      '                    body: e.body || "",',
+      '                    at: e.scheduledFor,',
+      '                    tag: e.tag,',
+      '                    route: e.data && e.data.url || "/focus",',
+      '                    data: {',
+      '                        ...(e.data || {}),',
+      '                        category: e.category,',
+      '                        url: e.data && e.data.url || "/focus"',
+      '                    }',
+      '                }).catch(n => console.error("[NotificationStore] Native schedule failed:", n));',
+      '                return i',
+      '            }',
+      '            return s > 0 && setTimeout(() => {',
+      '                const n = c();',
+      '                n.sendNotification(e.category, e.title, {',
+      '                    body: e.body,',
+      '                    icon: e.icon || f,',
+      '                    badge: e.badge || u,',
+      '                    tag: e.tag,',
+      '                    requireInteraction: e.requireInteraction,',
+      '                    data: e.data',
+      '                }), n.cancelNotification(i)',
+      '            }, s), i',
+      '        },'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '        cancelNotification: e => {',
+      '            r(i => ({',
+      '                scheduledNotifications: i.scheduledNotifications.filter(t => t.id !== e)',
+      '            }))',
+      '        },'
+    ].join('\n'),
+    [
+      '        cancelNotification: e => {',
+      '            typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoCancelNativeNotification == "function" && window.__isoCancelNativeNotification(e).catch(() => {});',
+      '            r(i => ({',
+      '                scheduledNotifications: i.scheduledNotifications.filter(t => t.id !== e)',
+      '            }))',
+      '        },'
+    ].join('\n'),
+    true
+  ],
+  [
+    '"serviceWorker" in navigator && navigator.serviceWorker.controller ? await (await navigator.serviceWorker.ready).showNotification(i, d) : typeof Notification < "u" && new Notification(i, d)',
+    'typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoScheduleNativeNotification == "function" ? await window.__isoScheduleNativeNotification({title:i,body:d.body||"",at:Date.now()+500,tag:d.tag,route:d.data&&d.data.url||"/focus",data:d.data||{}}) : "serviceWorker" in navigator && navigator.serviceWorker.controller ? await (await navigator.serviceWorker.ready).showNotification(i, d) : typeof Notification < "u" && new Notification(i, d)',
+    true
+  ],
+], 'Notification store bundle');
+
+// ── 7. Focus store — native completion alarm scheduling ─────────────────────
+
+console.log('\n=== Patching Focus store bundle ===');
+const focusStoreBundle = findAsset('useFocusStore-');
+
+patchFile(focusStoreBundle, [
+  [
+    [
+      '                questionActionHistory: []',
+      '            }), n().persistTimerState()',
+      '        },',
+      '        pauseTimer:'
+    ].join('\n'),
+    [
+      '                questionActionHistory: []',
+      '            }), n().persistTimerState(), typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoScheduleFocusTimer == "function" && s.mode === "pomodoro" && window.__isoScheduleFocusTimer({',
+      '                at: Date.now() + Math.max(1, s.timeLeft || s.totalTime || 0) * 1e3,',
+      '                title: "Focus session complete",',
+      '                body: "Your IsotopeAI focus session is complete."',
+      '            }).catch(() => {})',
+      '        },',
+      '        pauseTimer:'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '                }]',
+      '            })), n().persistTimerState()',
+      '        },',
+      '        resumeTimer:'
+    ].join('\n'),
+    [
+      '                }]',
+      '            })), n().persistTimerState(), typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoCancelFocusTimer == "function" && window.__isoCancelFocusTimer().catch(() => {})',
+      '        },',
+      '        resumeTimer:'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '                    pauseLogs: t',
+      '                }',
+      '            }), n().persistTimerState()',
+      '        },',
+      '        resetTimer:'
+    ].join('\n'),
+    [
+      '                    pauseLogs: t',
+      '                }',
+      '            }), n().persistTimerState();',
+      '            const __state = n();',
+      '            typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoScheduleFocusTimer == "function" && __state.mode === "pomodoro" && window.__isoScheduleFocusTimer({',
+      '                at: Date.now() + Math.max(1, __state.timeLeft || __state.totalTime || 0) * 1e3,',
+      '                title: "Focus session complete",',
+      '                body: "Your IsotopeAI focus session is complete."',
+      '            }).catch(() => {})',
+      '        },',
+      '        resetTimer:'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '                questionActionHistory: []',
+      '            }), S.clearTimerState()',
+      '        },',
+      '        skipToBreak:'
+    ].join('\n'),
+    [
+      '                questionActionHistory: []',
+      '            }), S.clearTimerState(), typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoCancelFocusTimer == "function" && window.__isoCancelFocusTimer().catch(() => {})',
+      '        },',
+      '        skipToBreak:'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '                questionsBySubject: {},',
+      '                questionsByChapter: {}',
+      '            }), S.clearTimerState()',
+      '        },',
+      '        persistTimerState:'
+    ].join('\n'),
+    [
+      '                questionsBySubject: {},',
+      '                questionsByChapter: {}',
+      '            }), S.clearTimerState(), typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoCancelFocusTimer == "function" && window.__isoCancelFocusTimer().catch(() => {})',
+      '        },',
+      '        persistTimerState:'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '            if (!i.sessionStartTime || i.activePhase === "break") return null;',
+      '            r({',
+      '                sessionStartTime: null',
+      '            });'
+    ].join('\n'),
+    [
+      '            if (!i.sessionStartTime || i.activePhase === "break") return null;',
+      '            typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoCancelFocusTimer == "function" && window.__isoCancelFocusTimer().catch(() => {});',
+      '            r({',
+      '                sessionStartTime: null',
+      '            });'
+    ].join('\n'),
+    true
+  ],
+], 'Focus store bundle');
+
+// ── 8. Focus bundle — PIP polyfill (optional, for video PiP) ─────────────────
 
 console.log('\n=== Patching Focus bundle ===');
 const focusBundle = findAsset('Focus-') || path.join(ASSETS_DIR, 'Focus-BmgY-9vP.js');
@@ -296,7 +545,7 @@ patchFile(focusBundle, [
   ],
 ], 'Focus bundle');
 
-// ── 7. AndroidManifest.xml — add required permissions ───────────────────────
+// ── 9. AndroidManifest.xml — add required permissions ───────────────────────
 
 console.log('\n=== Patching AndroidManifest.xml ===');
 const manifestPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'AndroidManifest.xml');
@@ -375,7 +624,7 @@ if (fs.existsSync(manifestPath)) {
   skipCount++;
 }
 
-// ── 8. Gradle — set correct SDK versions ─────────────────────────────────────
+// ── 10. Gradle — set correct SDK versions ────────────────────────────────────
 
 console.log('\n=== Patching Gradle SDK versions ===');
 const buildGradlePath = path.join(ANDROID_DIR, 'app', 'build.gradle');

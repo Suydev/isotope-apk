@@ -43,19 +43,21 @@ git push -u origin codex/android-production-repair
 ### TASK ANDROID-006
 **Priority:** P0
 **Status:** ACTIVE
-**Objective:** Install the GitHub-built debug APK and verify auth routing on Android.
+**Objective:** Build and install the follow-up APK for the user-reported login/PWA/native-notification failure.
 
 **Acceptance:**
 - APK contains the real IsotopeAI UI, not placeholder React UI.
+- Android package no longer exposes PWA manifest/mobile-web-app metadata or compiled PWA manager UI.
 - Existing account logs in and routes to `/dashboard` only when bootstrap says onboarding is complete.
 - New account logs in and routes to `/onboarding` when `user_onboarding.completed=false`.
 - Bootstrap network failure shows loading/retry behavior instead of assuming dashboard or onboarding.
+- Android notification permission prompt is requested through Capacitor LocalNotifications.
+- Focus timer schedules/cancels native notifications using absolute timestamps.
 - WebView console and Logcat evidence are captured with tokens redacted.
 
 **Exact next commands:**
 ```bash
-# Download IsotopeAI-debug-28 from:
-# https://github.com/Suydev/isotope-apk/actions/runs/28374915430
+# After pushing the follow-up commit, download the latest IsotopeAI-debug-* artifact.
 adb install -r app-debug.apk
 adb logcat -c
 adb logcat
@@ -78,7 +80,7 @@ adb logcat
 
 ### TASK ANDROID-008
 **Priority:** P0
-**Status:** TODO
+**Status:** PARTIAL
 **Objective:** Implement real native focus timer notifications and process-death recovery.
 
 **Acceptance:**
@@ -87,6 +89,8 @@ adb logcat
 - Notification survives WebView process death where Android permits.
 - Notification tap opens `/focus`.
 - Android 13+ notification permission denial is handled cleanly.
+
+**Current state:** Code-level bridge and bundle patches exist and are covered by regression tests. Device/process-death evidence is still required before marking done.
 
 ---
 

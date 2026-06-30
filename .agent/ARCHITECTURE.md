@@ -1,6 +1,6 @@
 # IsotopeAI Android — Architecture
 
-Last updated: 2026-06-29
+Last updated: 2026-06-30
 
 ---
 
@@ -200,9 +200,23 @@ www/
    └─ queries Supabase: user_onboarding + user_profiles
    └─ sets window.__ISO_BOOT_STATE__
    └─ routes to: /auth | /onboarding | /dashboard
-8. pwa-local.js (defer) — polls /api/version → intercepted by bridge → always "online"
-9. update-checker.js (defer) — suppressed by window.__ISO_SUPPRESS_UPDATE_CHECK__
+8. pwa-local.js and update-checker.js are disabled in Android packaging.
+9. Compiled `PWAManager` is patched out when `window.__ISO_IS_ANDROID__` is true.
 ```
+
+## Android Native Bridge Globals
+
+`android-bridge.js` exposes native-only helpers used by patched bundles:
+
+| Global | Purpose |
+|---|---|
+| `window.__isoLogin(email, password)` | Active Android login implementation; returns session + bootstrap. |
+| `window.__isoUp(email, password)` | Active Android signup implementation. |
+| `window.__isoScheduleNativeNotification(payload)` | Schedules Capacitor LocalNotifications by absolute timestamp. |
+| `window.__isoCancelNativeNotification(id)` | Cancels a scheduled native notification. |
+| `window.__isoScheduleFocusTimer(payload)` | Schedules the focus-completion notification and routes taps to `/focus`. |
+| `window.__isoCancelFocusTimer()` | Cancels the focus-completion notification on pause/reset/complete. |
+| `window.__isoEnsureNotificationPermission(opts)` | Creates the channel and requests/checks Android notification permission. |
 
 ## Bootstrap Response Contract
 

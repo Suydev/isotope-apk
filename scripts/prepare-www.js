@@ -158,6 +158,15 @@ if (html.includes('initial-scale=1.0"') && !html.includes('viewport-fit=cover'))
   console.log('  ✓ viewport-fit=cover added');
 }
 
+// 5e. Remove browser/PWA install affordances from the native Android shell.
+// Capacitor is the app container; Android builds must not expose web-app install
+// metadata that makes the runtime behave like a PWA inside a WebView.
+html = replaceOptional(html, /<link\s+rel="manifest"\s+href="\/manifest\.webmanifest"\s*>\s*/i, '', 'manifest.webmanifest link');
+html = replaceOptional(html, /<meta\s+name="apple-mobile-web-app-capable"\s+content="yes"\s*\/>\s*/i, '', 'apple PWA capable meta');
+html = replaceOptional(html, /<meta\s+name="apple-mobile-web-app-status-bar-style"\s+content="[^"]*"\s*\/>\s*/i, '', 'apple PWA status-bar meta');
+html = replaceOptional(html, /<meta\s+name="apple-mobile-web-app-title"\s+content="[^"]*"\s*\/>\s*/i, '', 'apple PWA title meta');
+html = replaceOptional(html, /<meta\s+name="mobile-web-app-capable"\s+content="yes"\s*\/>\s*/i, '', 'mobile web-app capable meta');
+
 fs.writeFileSync(indexDest, html, 'utf8');
 console.log('  ✓ index.html patched');
 
@@ -221,6 +230,18 @@ if (fs.existsSync(restoreLaunchPath)) {
     '    if (dbResult !== null) {\n',
     "    if (dbResult !== null && typeof dbResult.isOnboarded === 'boolean') {\n",
     'restore-and-launch boot decision boolean guard'
+  );
+  restoreJs = replaceExactlyOnce(
+    restoreJs,
+    "    else window.history.replaceState(null, '', '/onboarding'); // unknown state → onboarding (safe default)\n",
+    "    // Unknown cloud state stays unresolved; do not assume dashboard or onboarding.\n",
+    'restore-and-launch no unknown onboarding fallback'
+  );
+  restoreJs = replaceExactlyOnce(
+    restoreJs,
+    "  } else if (session && bootDecision?.state === BOOT_STATES.SYNC_FAILED && (isOnboardingPath || isAuthPath)) {\n    window.history.replaceState(null, '', '/dashboard');\n",
+    "  } else if (session && bootDecision?.state === BOOT_STATES.SYNC_FAILED && (isOnboardingPath || isAuthPath)) {\n    // Preserve current route so the app can show retry/loading instead of guessing.\n",
+    'restore-and-launch no sync-failed dashboard fallback'
   );
   fs.writeFileSync(restoreLaunchPath, restoreJs, 'utf8');
   console.log('  ✓ restore-and-launch.js patched for canonical/legacy bootstrap responses');
@@ -382,4 +403,10 @@ function replaceExactlyOnce(text, from, to, label) {
     process.exit(1);
   }
   return text.replace(from, to);
+}
+
+function replaceOptional(text, pattern, to, label) {
+  const next = text.replace(pattern, to);
+  if (next !== text) console.log(`  ✓ ${label} removed`);
+  return next;
 }

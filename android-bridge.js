@@ -1230,6 +1230,8 @@
 
     var _permission = 'default';
     var _notifIdCounter = 1000;
+    var _nativeListenerInstalled = false;
+    var _nativeChannelReady = false;
 
     function getLocalNotifications() {
       try {
@@ -1238,6 +1240,157 @@
                window.Capacitor.Plugins.LocalNotifications || null;
       } catch (e) { return null; }
     }
+
+    function nativeNotificationId(id) {
+      if (typeof id === 'number' && Number.isFinite(id)) return Math.max(1, Math.floor(id));
+      var s = String(id || 'isotope-notification');
+      var hash = 0;
+      for (var i = 0; i < s.length; i++) hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+      return Math.abs(hash % 1000000000) + 1;
+    }
+
+    function installNativeNotificationTapHandler(ln) {
+      if (_nativeListenerInstalled || !ln || typeof ln.addListener !== 'function') return;
+      _nativeListenerInstalled = true;
+      try {
+        ln.addListener('localNotificationActionPerformed', function (event) {
+          var extra = event && event.notification && event.notification.extra || {};
+          var route = extra.route || extra.url || extra.data && extra.data.url || '/focus';
+          try {
+            if (route && typeof route === 'string') {
+              window.history.pushState(null, '', route.charAt(0) === '/' ? route : '/' + route);
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }
+          } catch (e) {
+            window.location.href = route || '/focus';
+          }
+        });
+      } catch (e) {
+        console.warn('[IsotopeAI] notification tap listener failed:', e && e.message);
+      }
+    }
+
+    function createNativeNotificationChannel(ln) {
+      if (!ln || !ln.createChannel) return Promise.resolve(false);
+      installNativeNotificationTapHandler(ln);
+      if (_nativeChannelReady) return Promise.resolve(true);
+      return ln.createChannel({
+        id: 'isotope-focus',
+        name: 'Focus Sessions',
+        description: 'Focus session completion and study reminders',
+        importance: 4,
+        visibility: 1,
+        sound: 'default',
+        vibration: true,
+        lights: true,
+        lightColor: '#6366F1'
+      }).then(function () {
+        _nativeChannelReady = true;
+        console.log('[IsotopeAI] Notification channel created: isotope-focus');
+        return true;
+      }).catch(function (e) {
+        console.warn('[IsotopeAI] createChannel error:', e && e.message);
+        return false;
+      });
+    }
+
+    window.__isoEnsureNotificationPermission = function (opts) {
+      var ln = getLocalNotifications();
+      opts = opts || {};
+      if (!ln) {
+        _permission = 'denied';
+        IsotopeNotification.permission = 'denied';
+        return Promise.resolve({ ok: false, permission: 'denied', reason: 'LocalNotifications unavailable' });
+      }
+      return createNativeNotificationChannel(ln).then(function () {
+        if (!ln.checkPermissions) return { display: 'prompt' };
+        return ln.checkPermissions();
+      }).then(function (result) {
+        if (result && result.display === 'granted') {
+          _permission = 'granted';
+          IsotopeNotification.permission = 'granted';
+          return { ok: true, permission: 'granted' };
+        }
+        if (opts.request === false || !ln.requestPermissions) {
+          _permission = result && result.display === 'denied' ? 'denied' : 'default';
+          IsotopeNotification.permission = _permission;
+          return { ok: false, permission: _permission };
+        }
+        return ln.requestPermissions().then(function (requested) {
+          var granted = requested && requested.display === 'granted';
+          _permission = granted ? 'granted' : 'denied';
+          IsotopeNotification.permission = _permission;
+          return { ok: granted, permission: _permission };
+        });
+      }).catch(function (e) {
+        _permission = 'denied';
+        IsotopeNotification.permission = 'denied';
+        return { ok: false, permission: 'denied', reason: e && e.message };
+      });
+    };
+
+    window.__isoScheduleNativeNotification = function (payload) {
+      var ln = getLocalNotifications();
+      if (!ln || !ln.schedule) return Promise.resolve({ ok: false, reason: 'LocalNotifications unavailable' });
+      payload = payload || {};
+      var at = payload.at || payload.scheduledFor || Date.now();
+      var when = at instanceof Date ? at : new Date(at);
+      if (Number.isNaN(when.getTime())) when = new Date(Date.now() + 500);
+      if (when.getTime() < Date.now() + 250) when = new Date(Date.now() + 500);
+      var data = payload.data || {};
+      return window.__isoEnsureNotificationPermission({ request: payload.requestPermission !== false }).then(function (permission) {
+        if (!permission.ok) return permission;
+        var numericId = nativeNotificationId(payload.id || payload.tag || payload.title || Date.now());
+        return ln.schedule({
+          notifications: [{
+            id: numericId,
+            title: payload.title || 'IsotopeAI',
+            body: payload.body || '',
+            schedule: { at: when },
+            channelId: payload.channelId || 'isotope-focus',
+            smallIcon: 'ic_launcher',
+            iconColor: payload.iconColor || '#6366f1',
+            extra: {
+              notificationId: payload.id || String(numericId),
+              tag: payload.tag || '',
+              route: payload.route || data.url || '/focus',
+              url: payload.route || data.url || '/focus',
+              data: data
+            }
+          }]
+        }).then(function () {
+          return { ok: true, id: payload.id || String(numericId), native_id: numericId, scheduled_at: when.toISOString() };
+        });
+      }).catch(function (e) {
+        console.warn('[IsotopeAI] native notification schedule failed:', e && e.message);
+        return { ok: false, reason: e && e.message };
+      });
+    };
+
+    window.__isoCancelNativeNotification = function (id) {
+      var ln = getLocalNotifications();
+      if (!ln || !ln.cancel) return Promise.resolve({ ok: false, reason: 'LocalNotifications unavailable' });
+      return ln.cancel({ notifications: [{ id: nativeNotificationId(id) }] })
+        .then(function () { return { ok: true }; })
+        .catch(function (e) { return { ok: false, reason: e && e.message }; });
+    };
+
+    window.__isoScheduleFocusTimer = function (payload) {
+      payload = payload || {};
+      return window.__isoScheduleNativeNotification({
+        id: 'isotope-focus-complete',
+        title: payload.title || 'Focus session complete',
+        body: payload.body || 'Your IsotopeAI focus session is complete.',
+        at: payload.at,
+        route: '/focus',
+        channelId: 'isotope-focus',
+        data: { url: '/focus', kind: 'focus-complete' }
+      });
+    };
+
+    window.__isoCancelFocusTimer = function () {
+      return window.__isoCancelNativeNotification('isotope-focus-complete');
+    };
 
     // Constructor: new Notification(title, options)
     function IsotopeNotification(title, opts) {
@@ -1281,12 +1434,20 @@
         _permission = 'denied';
         return Promise.resolve('denied');
       }
-      return ln.requestPermissions().then(function (result) {
+      return window.__isoEnsureNotificationPermission({ request: true }).then(function (result) {
+        if (result && result.permission) {
+          _permission = result.permission;
+          IsotopeNotification.permission = _permission;
+          console.log('[IsotopeAI] Notification permission:', _permission);
+          return _permission;
+        }
+        return ln.requestPermissions().then(function (result) {
         var granted = result && result.display === 'granted';
         _permission = granted ? 'granted' : 'denied';
         IsotopeNotification.permission = _permission;
         console.log('[IsotopeAI] Notification permission:', _permission);
         return _permission;
+        });
       }).catch(function (e) {
         console.warn('[IsotopeAI] requestPermissions error:', e && e.message);
         _permission = 'denied';
@@ -1323,22 +1484,7 @@
       var ln = getLocalNotifications();
       if (!ln || !ln.createChannel) return;
 
-      // Create the notification channel used by all IsotopeAI alerts
-      ln.createChannel({
-        id: 'isotope-focus',
-        name: 'Focus Sessions',
-        description: 'Focus session check-ins and study reminders',
-        importance: 4,           // IMPORTANCE_HIGH — shows heads-up
-        visibility: 1,           // VISIBILITY_PUBLIC
-        sound: 'default',
-        vibration: true,
-        lights: true,
-        lightColor: '#6366F1'
-      }).then(function () {
-        console.log('[IsotopeAI] Notification channel created: isotope-focus');
-      }).catch(function (e) {
-        console.warn('[IsotopeAI] createChannel error:', e && e.message);
-      });
+      createNativeNotificationChannel(ln);
 
       // Check current permission state and sync to polyfill
       if (ln.checkPermissions) {
@@ -1348,9 +1494,16 @@
             IsotopeNotification.permission = 'granted';
             console.log('[IsotopeAI] Notification permission already granted');
           } else if (result && result.display === 'prompt') {
-            // Don't auto-request — the app will call requestPermission() when needed
             _permission = 'default';
             IsotopeNotification.permission = 'default';
+            try {
+              if (!localStorage.getItem('isotope-native-notification-prompted-v1')) {
+                localStorage.setItem('isotope-native-notification-prompted-v1', String(Date.now()));
+                setTimeout(function () {
+                  window.__isoEnsureNotificationPermission({ request: true });
+                }, 1200);
+              }
+            } catch (e) {}
           } else {
             _permission = 'denied';
             IsotopeNotification.permission = 'denied';

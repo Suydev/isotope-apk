@@ -42,17 +42,24 @@ function runApplyPatches(wwwDir) {
 test('prepare-www patches restore-and-launch for legacy onboarding_completed fallback', () => {
   const wwwDir = runPrepareWww();
   const restore = fs.readFileSync(path.join(wwwDir, 'restore-and-launch.js'), 'utf8');
+  const html = fs.readFileSync(path.join(wwwDir, 'index.html'), 'utf8');
 
   assert.match(restore, /typeof snapshot\.onboarding_completed === 'boolean'/);
   assert.match(restore, /onboarding: canonicalOnboarding/);
   assert.match(restore, /typeof completed === 'boolean' \? completed : undefined/);
   assert.match(restore, /dbResult !== null && typeof dbResult\.isOnboarded === 'boolean'/);
+  assert.doesNotMatch(restore, /unknown state .+ onboarding/);
+  assert.doesNotMatch(restore, /SYNC_FAILED[\s\S]{0,160}replaceState\(null, '', '\/dashboard'\)/);
+  assert.doesNotMatch(html, /manifest\.webmanifest/);
+  assert.doesNotMatch(html, /apple-mobile-web-app-capable/);
+  assert.doesNotMatch(html, /mobile-web-app-capable/);
 });
 
-test('apply-android-patches makes Auth login route exactly once from bootstrap', () => {
+test('apply-android-patches makes Auth login route exactly once from bootstrap and hydrates auth state', () => {
   const wwwDir = runPrepareWww();
   const output = runApplyPatches(wwwDir);
   assert.match(output, /Patched: Auth bundle/);
+  assert.match(output, /Patched: App bundle PWA manager/);
 
   const authFile = fs.readdirSync(path.join(wwwDir, 'assets')).find((name) => /^Auth-.*\.js$/.test(name));
   assert.ok(authFile, 'Auth chunk should exist');
@@ -60,7 +67,33 @@ test('apply-android-patches makes Auth login route exactly once from bootstrap',
 
   assert.match(auth, /window\.__isoLogin/);
   assert.match(auth, /__r\.bootstrap && __r\.bootstrap\.onboarding/);
+  assert.match(auth, /isAuthenticated: !0/);
+  assert.match(auth, /isotope:native-auth-ready/);
   assert.match(auth, /Could not verify cloud onboarding state/);
   assert.equal((auth.match(/b\(__completed \? "\/dashboard" : "\/onboarding"/g) || []).length, 1);
+  assert.equal(auth.includes('initializeAuth == "function" && await __state.initializeAuth()'), false);
   assert.equal(auth.includes('setTimeout(() => {\n                b("/dashboard"'), false);
+});
+
+test('apply-android-patches disables PWA manager and uses native notification scheduling on Android', () => {
+  const wwwDir = runPrepareWww();
+  runApplyPatches(wwwDir);
+
+  const assetsDir = path.join(wwwDir, 'assets');
+  const appFile = fs.readdirSync(assetsDir).find((name) => /^App-.*\.js$/.test(name) && fs.statSync(path.join(assetsDir, name)).size > 100_000);
+  const notificationFile = fs.readdirSync(assetsDir).find((name) => /^useNotificationStore-.*\.js$/.test(name));
+  const focusStoreFile = fs.readdirSync(assetsDir).find((name) => /^useFocusStore-.*\.js$/.test(name));
+  assert.ok(appFile, 'App chunk should exist');
+  assert.ok(notificationFile, 'notification store chunk should exist');
+  assert.ok(focusStoreFile, 'focus store chunk should exist');
+
+  const app = fs.readFileSync(path.join(assetsDir, appFile), 'utf8');
+  const notifications = fs.readFileSync(path.join(assetsDir, notificationFile), 'utf8');
+  const focusStore = fs.readFileSync(path.join(assetsDir, focusStoreFile), 'utf8');
+
+  assert.match(app, /__ISO_IS_ANDROID__ \? null : S\.jsx\(mn/);
+  assert.match(notifications, /__isoScheduleNativeNotification/);
+  assert.match(notifications, /__isoCancelNativeNotification/);
+  assert.match(focusStore, /__isoScheduleFocusTimer/);
+  assert.match(focusStore, /__isoCancelFocusTimer/);
 });

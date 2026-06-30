@@ -164,3 +164,57 @@ adb install -r app-debug.apk
 adb logcat -c
 adb logcat
 ```
+
+---
+
+## Session 2026-06-30 (Login/PWA/Native Notification Follow-Up)
+
+**Agent/account:** Codex
+**Branch:** codex/android-production-repair
+**Starting commit:** `8abb671d4d8f`
+**Ending state:** Follow-up patch ready to commit and push.
+
+**User-reported APK result:**
+- After credentials, login stayed loading and then returned to the create-account page.
+- Android notification permission was not requested.
+- The app still behaved like a PWA instead of a native app.
+
+**Completed:**
+- Patched Android Auth bundle replacement so successful `window.__isoLogin` hydrates the auth Zustand store directly from Android session/bootstrap and routes exactly once.
+- Patched Android packaging to strip PWA manifest/mobile-web-app metadata.
+- Patched App bundle to skip the compiled `PWAManager` on Android.
+- Added native LocalNotifications bridge helpers in `android-bridge.js` for permission, channel creation, scheduling, cancellation, focus timer scheduling, and notification-tap routing to `/focus`.
+- Patched notification and focus-store bundles to call native scheduling/cancel helpers on Android.
+- Hardened patch idempotence so required patches do not re-apply into their own fallback expressions.
+- Added regression coverage for auth-store hydration, PWA stripping, PWA manager disablement, and native notification/focus scheduling hooks.
+
+**Commands run:**
+- `node --check android-bridge.js`
+- `node --check scripts/prepare-www.js`
+- `node --check scripts/apply-android-patches.js`
+- `npm test`
+- `npm run prepare-www`
+- `npm run apply-patches`
+- `npx cap sync android`
+- `npm run apply-patches`
+
+**Tests passed:**
+- 10 Node regression tests.
+- `prepare-www` copied the real UI: 154 JS bundles, 56.9 MB.
+- First patch pass: 14 patches, 0 skipped, 0 required failures.
+- Final patch pass after sync: 0 bundle changes, 0 skipped, 0 required failures.
+
+**Not verified:**
+- Follow-up GitHub Actions APK build.
+- Emulator or physical-device install.
+- Real-device login, notification permission prompt, process-death notification, and app/PWA behavior.
+
+**Tooling limitation:**
+- `adb` is not installed in this environment, so device validation is still external.
+
+**Next exact action:**
+```bash
+git add android-bridge.js scripts/prepare-www.js scripts/apply-android-patches.js test/prepare-patches.test.mjs .agent
+git commit -m "fix: harden Android native login and notifications"
+git push
+```

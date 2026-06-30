@@ -28,13 +28,13 @@ Android bootstrap previously returned `onboarding_completed` without the canonic
 
 ## ISSUE-003 — Auth navigation race after login
 **Severity:** CRITICAL
-**Status:** FIXED IN PATCH SCRIPT + UNIT TESTED (2026-06-29)
+**Status:** FIXED IN PATCH SCRIPT + UNIT TESTED (2026-06-30)
 
 The compiled Auth bundle navigated to `/dashboard` whenever `signIn().success` was true. Since `auth-bridge.js` is loaded after `android-bridge.js` and becomes the active login implementation, login could race against restore/bootstrap routing and skip onboarding.
 
-**Current fix:** `scripts/apply-android-patches.js` patches the Auth bundle login handler to call `window.__isoLogin`, wait for bootstrap, and route exactly once based on `bootstrap.onboarding.completed`.
+**Current fix:** `scripts/apply-android-patches.js` patches the Auth bundle login handler to call `window.__isoLogin`, wait for bootstrap, hydrate the auth Zustand store directly from the Android bootstrap/session, and route exactly once based on `bootstrap.onboarding.completed`.
 
-**Evidence:** `npm test` includes `apply-android-patches makes Auth login route exactly once from bootstrap`.
+**Evidence:** `npm test` includes `apply-android-patches makes Auth login route exactly once from bootstrap and hydrates auth state`.
 
 ---
 
@@ -60,11 +60,15 @@ The workflow checks out `Suydev/isotope-code` at pinned commit `fd39fad1384333ad
 
 ---
 
-## ISSUE-006 — Native notifications are not implemented
+## ISSUE-006 — Native notifications are code-level only
 **Severity:** HIGH
-**Status:** OPEN
+**Status:** PARTIAL CODE FIX + UNIT TESTED (2026-06-30)
 
 The Web Notification polyfill is not sufficient for process-death reliability. A real Android notification implementation must schedule from an absolute timer completion timestamp, survive WebView process death where Android permits, restore after restart/reboot, and route notification taps to `/focus`.
+
+**Current fix:** `android-bridge.js` exposes Capacitor LocalNotifications helpers for permission, scheduling, cancellation, channel creation, and tap routing. The notification store and focus store patches call these helpers on Android.
+
+**Remaining risk:** No emulator/physical-device evidence yet. Reboot persistence and Android process-death reliability still need APK testing.
 
 ---
 
@@ -97,3 +101,26 @@ The timer still needs packaged APK tests for backgrounding, rotation, force-stop
 **Status:** OPEN
 
 `gh` is not installed in this environment. Baseline artifact download, `gh run list`, workflow log inspection, and PR creation cannot be done through the GitHub CLI here.
+
+---
+
+## ISSUE-011 — Previous APK still looked like PWA and login fell back to create-account UI
+**Severity:** CRITICAL
+**Status:** FOLLOW-UP FIX WRITTEN + UNIT TESTED (2026-06-30)
+
+User tested the previous GitHub-built APK and reported:
+
+- Login shows loading after credentials, then the create-account page appears.
+- Android notification permission is not requested.
+- The APK still feels like a PWA rather than a native app.
+
+**Likely causes found:**
+
+- The patched Auth login still called the compiled `initializeAuth()`, which can re-read the compiled Supabase client/session state and flip the app back to logged-out UI.
+- `index.html` still included PWA manifest/mobile-web-app metadata.
+- The compiled `PWAManager` was still mounted globally.
+- Notification scheduling still depended on browser service-worker/`setTimeout` behavior for key paths.
+
+**Current fix:** Auth login now hydrates the auth store directly from Android bootstrap/session, Android packaging strips PWA metadata, the Android app shell disables `PWAManager`, and notification/focus bundles call native scheduling helpers.
+
+**Evidence:** `npm test` covers auth-store hydration, PWA manager disablement, manifest/meta removal, native notification scheduling hooks, and focus timer native scheduling hooks.

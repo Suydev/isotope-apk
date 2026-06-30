@@ -249,3 +249,33 @@
 - New seeded `completed=false` rows route to onboarding.
 - Completed rows route to dashboard.
 - Legacy meaningful profile/study data without a valid onboarding row is migrated safely.
+
+---
+
+## DEC-014 — Android package must suppress web/PWA runtime affordances
+
+**Date:** 2026-06-30
+**Context:** The user-tested APK still behaved like a PWA: the HTML kept web-app manifest metadata and the compiled `PWAManager` still mounted inside the native shell.
+
+**Chosen:** Strip PWA manifest/mobile-web-app metadata during `prepare-www`, keep service-worker/update scripts disabled, and patch the App bundle so `PWAManager` does not render when `window.__ISO_IS_ANDROID__` is true.
+
+**Why:** Capacitor is the app container. The packaged APK should not show browser install/update/offline PWA behavior inside the Android runtime.
+
+**Consequences:**
+- Web/PWA metadata remains intact in `isotope-code`; only Android packaging removes it.
+- Patch-contract tests fail if the Android PWA suppression is absent.
+
+---
+
+## DEC-015 — Android login hydrates auth store directly after bridge bootstrap
+
+**Date:** 2026-06-30
+**Context:** The previous Auth patch waited for bootstrap but still called the compiled `initializeAuth()`. On Android, that initializer can re-read browser Supabase client/session state and flip the UI back to logged-out/create-account state.
+
+**Chosen:** After `window.__isoLogin` and bootstrap succeed, patch the Auth bundle to set the persisted auth store directly from the returned Android session/bootstrap, then route once.
+
+**Why:** The Android bridge is the authoritative login implementation. The compiled browser auth initializer must not be allowed to undo the just-verified bridge login state.
+
+**Consequences:**
+- Auth routing depends on bootstrap only.
+- The store receives `isAuthenticated`, `isInitialized`, `userId`, `email`, plan fields, and identity fields immediately after login.
