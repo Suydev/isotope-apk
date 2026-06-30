@@ -10,8 +10,9 @@
  *    fix plan_type, disable circuit breaker, disable local auth suppression
  * 2. sessionSync-mloIEnTd.js — 5 patches to prevent false "sync success" when offline
  * 3. AppAccessGate-B975UtK7.js — enable cloud bootstrap download on empty local
- * 4. useInvites-D9RLFwf8.js — rename token_input → p_code for accept_invite RPC
- * 5. AndroidManifest.xml — add internet, notification, and file permissions
+ * 4. useOnlineStatus-BJOTUERN.js — route online state through Capacitor Network
+ * 5. useInvites-D9RLFwf8.js — rename token_input → p_code for accept_invite RPC
+ * 6. AndroidManifest.xml — add internet, notification, PiP, and file permissions
  */
 
 const fs   = require('fs');
@@ -399,6 +400,61 @@ patchFile(appBundle, [
   ],
 ], 'App bundle PWA manager');
 
+// ── 4c. useOnlineStatus — use Capacitor Network state on Android ────────────
+
+console.log('\n=== Patching online status hook ===');
+const onlineStatusBundle = findAsset('useOnlineStatus-');
+
+patchFile(onlineStatusBundle, [
+  [
+    [
+      'function a() {',
+      '    const [r, t] = n.useState(navigator.onLine), [e, i] = n.useState(!1);',
+      '    return n.useEffect(() => {',
+      '        const s = () => {',
+      '                t(!0), e && i(!1)',
+      '            },',
+      '            o = () => {',
+      '                t(!1), i(!0)',
+      '            };',
+      '        return window.addEventListener("online", s), window.addEventListener("offline", o), () => {',
+      '            window.removeEventListener("online", s), window.removeEventListener("offline", o)',
+      '        }',
+      '    }, [e]), {',
+      '        isOnline: r,',
+      '        wasOffline: e',
+      '    }',
+      '}'
+    ].join('\n'),
+    [
+      'function a() {',
+      '    const d = () => typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoIsOnline == "function" ? window.__isoIsOnline() : navigator.onLine,',
+      '        [r, t] = n.useState(d),',
+      '        [e, i] = n.useState(!1);',
+      '    return n.useEffect(() => {',
+      '        const s = () => {',
+      '                t(!0), e && i(!1)',
+      '            },',
+      '            o = () => {',
+      '                t(!1), i(!0)',
+      '            },',
+      '            c = u => {',
+      '                const f = !!(u && u.detail && (u.detail.connected ?? u.detail.online));',
+      '                f ? s() : o()',
+      '            };',
+      '        return t(d()), window.addEventListener("online", s), window.addEventListener("offline", o), window.addEventListener("isotope:network", c), () => {',
+      '            window.removeEventListener("online", s), window.removeEventListener("offline", o), window.removeEventListener("isotope:network", c)',
+      '        }',
+      '    }, [e]), {',
+      '        isOnline: r,',
+      '        wasOffline: e',
+      '    }',
+      '}'
+    ].join('\n'),
+    true
+  ],
+], 'useOnlineStatus bundle');
+
 // ── 5. useInvites — fix RPC parameter name ───────────────────────────────────
 
 console.log('\n=== Patching useInvites bundle ===');
@@ -627,6 +683,34 @@ console.log('\n=== Patching Focus bundle ===');
 const focusBundle = findAsset('Focus-') || path.join(ASSETS_DIR, 'Focus-BmgY-9vP.js');
 
 patchFile(focusBundle, [
+  [
+    [
+      '            Xe = async () => {',
+      '                if (!("documentPictureInPicture" in window)) {',
+      '                    alert("Picture-in-Picture is not supported in this browser.");',
+      '                    return',
+      '                }',
+      '                try {'
+    ].join('\n'),
+    [
+      '            Xe = async () => {',
+      '                if (typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoEnterFocusPip == "function") {',
+      '                    const __pip = await window.__isoEnterFocusPip({',
+      '                        route: "/focus"',
+      '                    });',
+      '                    if (__pip && __pip.ok) return;',
+      '                    if (!("documentPictureInPicture" in window)) {',
+      '                        alert(__pip && __pip.reason || "Picture-in-Picture is not available on this Android device.");',
+      '                        return',
+      '                    }',
+      '                } else if (!("documentPictureInPicture" in window)) {',
+      '                    alert("Picture-in-Picture is not supported in this browser.");',
+      '                    return',
+      '                }',
+      '                try {'
+    ].join('\n'),
+    true
+  ],
   // Ensure background video doesn't crash without PiP support on Android
   [
     'requestPictureInPicture()',
@@ -634,6 +718,97 @@ patchFile(focusBundle, [
     false
   ],
 ], 'Focus bundle');
+
+// ── 8b. Settings bundle — Android font-size control ─────────────────────────
+
+console.log('\n=== Patching Settings bundle ===');
+const settingsBundle = findAsset('SettingsLayout-');
+
+patchFile(settingsBundle, [
+  [
+    [
+      '        } = Z(), [g, y] = s.useState("system"), [h, r] = s.useState("#f97316"), [m, b] = s.useState(!1), [f, v] = s.useState("standard"), [l, z] = s.useState("comfortable");',
+      '        s.useEffect(() => {',
+      '            t && (y(t.settings ?.theme || "system"), r(t.personalization ?.accentColor || "#f97316"), b(t.personalization ?.dyslexiaFont || !1), v(t.settings ?.performanceMode || "standard"), z(t.personalization ?.dashboardLayout || "comfortable"))',
+      '        }, [t]), s.useEffect(() => (De(h), () => {'
+    ].join('\n'),
+    [
+      '        } = Z(), [g, y] = s.useState("system"), [h, r] = s.useState("#f97316"), [m, b] = s.useState(!1), [f, v] = s.useState("standard"), [l, z] = s.useState("comfortable"), [P, q] = s.useState(100);',
+      '        s.useEffect(() => {',
+      '            t && (y(t.settings ?.theme || "system"), r(t.personalization ?.accentColor || "#f97316"), b(t.personalization ?.dyslexiaFont || !1), v(t.settings ?.performanceMode || "standard"), z(t.personalization ?.dashboardLayout || "comfortable"), q(Number(t.personalization ?.fontScale || localStorage.getItem("isotope-font-scale") || 100)))',
+      '        }, [t]), s.useEffect(() => (De(h), () => {'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '        }), [h, t ?.personalization ?.accentColor]), s.useEffect(() => (Me(m), () => {',
+      '            Me(t ?.personalization ?.dyslexiaFont ?? ut)',
+      '        }), [m, t ?.personalization ?.dyslexiaFont]);'
+    ].join('\n'),
+    [
+      '        }), [h, t ?.personalization ?.accentColor]), s.useEffect(() => (Me(m), () => {',
+      '            Me(t ?.personalization ?.dyslexiaFont ?? ut)',
+      '        }), [m, t ?.personalization ?.dyslexiaFont]), s.useEffect(() => {',
+      '            const i = Math.min(120, Math.max(90, Number(P) || 100));',
+      '            typeof document < "u" && document.documentElement && (document.documentElement.style.fontSize = `${i}%`);',
+      '            try {',
+      '                localStorage.setItem("isotope-font-scale", String(i))',
+      '            } catch {}',
+      '        }, [P]);'
+    ].join('\n'),
+    true
+  ],
+  [
+    '                    dyslexiaFont: m',
+    '                    dyslexiaFont: m,\n                    fontScale: P',
+    true
+  ],
+  [
+    [
+      '                    }), e.jsx(D, {',
+      '                        checked: m,',
+      '                        onChange: () => b(!m),',
+      '                        ariaLabel: "Dyslexia Friendly Font"',
+      '                    })]',
+      '                })]'
+    ].join('\n'),
+    [
+      '                    }), e.jsx(D, {',
+      '                        checked: m,',
+      '                        onChange: () => b(!m),',
+      '                        ariaLabel: "Dyslexia Friendly Font"',
+      '                    })]',
+      '                }), e.jsxs("div", {',
+      '                    className: "p-4 rounded-xl bg-zinc-50 dark:bg-black/20 border border-zinc-200 dark:border-white/5 space-y-3",',
+      '                    children: [e.jsxs("div", {',
+      '                        className: "flex items-center justify-between gap-4",',
+      '                        children: [e.jsxs("div", {',
+      '                            children: [e.jsx("h4", {',
+      '                                className: "font-bold text-zinc-900 dark:text-white",',
+      '                                children: "Font Size"',
+      '                            }), e.jsx("p", {',
+      '                                className: "text-xs text-zinc-600 dark:text-zinc-300 mt-0.5",',
+      '                                children: "Adjust app text scale for this device."',
+      '                            })]',
+      '                        }), e.jsxs("span", {',
+      '                            className: "text-sm font-semibold text-brand-500 tabular-nums",',
+      '                            children: [P, "%"]',
+      '                        })]',
+      '                    }), e.jsx("input", {',
+      '                        type: "range",',
+      '                        min: "90",',
+      '                        max: "120",',
+      '                        step: "5",',
+      '                        value: P,',
+      '                        onChange: i => q(parseInt(i.target.value, 10) || 100),',
+      '                        className: "w-full accent-brand-500"',
+      '                    })]',
+      '                })]'
+    ].join('\n'),
+    true
+  ],
+], 'Settings bundle');
 
 // ── 9. AndroidManifest.xml — add required permissions ───────────────────────
 
@@ -684,6 +859,19 @@ if (fs.existsSync(manifestPath)) {
     );
   }
 
+  const missingActivityAttributes = [
+    ['android:resizeableActivity', 'android:resizeableActivity="true"'],
+    ['android:supportsPictureInPicture', 'android:supportsPictureInPicture="true"'],
+    ['android:windowSoftInputMode', 'android:windowSoftInputMode="adjustResize"'],
+  ].filter(([attrName]) => !manifest.includes(attrName)).map(([, attrLine]) => attrLine);
+  if (missingActivityAttributes.length > 0) {
+    manifest = manifest.replace(
+      'android:exported="true"',
+      `android:exported="true"\n            ${missingActivityAttributes.join('\n            ')}`
+    );
+    patchCount += missingActivityAttributes.length;
+  }
+
   fs.writeFileSync(manifestPath, manifest, 'utf8');
   console.log(`  ✓ Patched AndroidManifest.xml (added ${added} permissions)`);
   patchCount += added;
@@ -711,6 +899,41 @@ if (fs.existsSync(manifestPath)) {
   }
 } else {
   console.log('  SKIP: AndroidManifest.xml not found (run after cap add android)');
+  skipCount++;
+}
+
+// ── 9b. Android resources — icon and notification contracts ─────────────────
+
+console.log('\n=== Verifying Android native resources ===');
+if (fs.existsSync(ANDROID_DIR)) {
+  const notificationIconPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'res', 'drawable', 'ic_notification.xml');
+  const mainActivityPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'java', 'in', 'isotopeai', 'app', 'MainActivity.java');
+  const launcherForegroundPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'res', 'drawable-v24', 'ic_launcher_foreground.xml');
+  const launcherBackgroundPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'res', 'values', 'ic_launcher_background.xml');
+
+  const resourceChecks = [
+    [notificationIconPath, 'ic_notification.xml', /strokeColor="#FFFFFFFF"|fillColor="#FFFFFFFF"/],
+    [mainActivityPath, 'MainActivity.java PiP bridge', /enterPictureInPictureMode|JavascriptInterface/],
+    [launcherForegroundPath, 'launcher foreground isotope atom', /A78BFA|PictureInPicture/],
+    [launcherBackgroundPath, 'launcher background color', /#111827/],
+  ];
+
+  for (const [filePath, label, pattern] of resourceChecks) {
+    if (!fs.existsSync(filePath)) {
+      console.error(`  ERROR: Missing Android resource: ${label}`);
+      failureCount++;
+      continue;
+    }
+    const content = fs.readFileSync(filePath, 'utf8');
+    if (!pattern.test(content)) {
+      console.error(`  ERROR: Android resource contract failed: ${label}`);
+      failureCount++;
+      continue;
+    }
+    console.log(`  ✓ Verified: ${label}`);
+  }
+} else {
+  console.log('  SKIP: Android resources not found');
   skipCount++;
 }
 

@@ -62,11 +62,11 @@ The workflow checks out `Suydev/isotope-code` at pinned commit `fd39fad1384333ad
 
 ## ISSUE-006 — Native notifications are code-level only
 **Severity:** HIGH
-**Status:** PARTIAL CODE FIX + UNIT TESTED (2026-06-30)
+**Status:** PARTIAL CODE FIX + UNIT TESTED + RESOURCE CONTRACT TESTED (2026-06-30)
 
 The Web Notification polyfill is not sufficient for process-death reliability. A real Android notification implementation must schedule from an absolute timer completion timestamp, survive WebView process death where Android permits, restore after restart/reboot, and route notification taps to `/focus`.
 
-**Current fix:** `android-bridge.js` exposes Capacitor LocalNotifications helpers for permission, scheduling, cancellation, channel creation, and tap routing. The notification store and focus store patches call these helpers on Android.
+**Current fix:** `android-bridge.js` exposes Capacitor LocalNotifications helpers for permission, scheduling, cancellation, channel creation, and tap routing. The notification store and focus store patches call these helpers on Android. The missing `ic_notification` drawable was added, bridge scheduling now uses that icon with `allowWhileIdle`, and `__isoScheduleFocusTimer` cancels the previous completion notification before scheduling a replacement.
 
 **Remaining risk:** No emulator/physical-device evidence yet. Reboot persistence and Android process-death reliability still need APK testing.
 
@@ -100,7 +100,7 @@ The timer still needs packaged APK tests for backgrounding, rotation, force-stop
 **Severity:** MEDIUM
 **Status:** OPEN
 
-`gh` is not installed in this environment. Baseline artifact download, `gh run list`, workflow log inspection, and PR creation cannot be done through the GitHub CLI here.
+`gh` is not installed in this environment and `GITHUB_PAT` is not currently present. Baseline artifact download, `gh run list`, workflow log inspection, and PR creation cannot be done through the GitHub CLI unless `gh` is installed/authenticated or a token is provided. Normal `git push` may still work through existing git credentials.
 
 ---
 
@@ -155,3 +155,45 @@ After native login succeeds, `restore-and-launch.js` may still have `window.__IS
 **Evidence:** `npm test` includes `apply-android-patches prevents stale logged-out boot state and preserves Android auth keys`. `npm run build` placed the fix in both `www/assets/Auth-Cw0VAaCZ.js` / `AppAccessGate-B975UtK7.js` and synced Android assets.
 
 **Remaining risk:** Needs a new GitHub-built APK and ADB/device login test before the user-facing symptom can be marked fixed.
+
+---
+
+## ISSUE-014 — Android online/cloud sync can falsely show offline
+**Severity:** CRITICAL
+**Status:** CODE FIX WRITTEN + UNIT TESTED (2026-06-30)
+
+The compiled `useOnlineStatus` hook read `navigator.onLine`, which is unreliable in the Android WebView context and can leave Settings/cloud sync showing offline or local-only mode while the device is connected.
+
+**Current fix:** `android-bridge.js` now reads Capacitor Network status, overrides the Android `navigator.onLine` getter, exposes `window.__isoIsOnline()`, and dispatches `isotope:network`. `scripts/apply-android-patches.js` patches the compiled `useOnlineStatus` bundle to consume that Android state and event.
+
+**Evidence:** `npm test` includes Android bridge network-state coverage and patch-contract coverage for `useOnlineStatus`.
+
+**Remaining risk:** Needs GitHub-built APK install and online/cloud sync runtime evidence. Supabase RPC/storage failures must still be inspected if cloud sync remains broken after the false-offline fix.
+
+---
+
+## ISSUE-015 — Focus Picture-in-Picture was browser-only
+**Severity:** HIGH
+**Status:** CODE FIX WRITTEN + UNIT TESTED (2026-06-30)
+
+Focus PiP depended only on browser `documentPictureInPicture`, which Android WebView does not provide.
+
+**Current fix:** `MainActivity.java` exposes `window.IsotopeAndroid.enterFocusPip()` and `isPipSupported()` through a JavaScript interface. The Focus bundle now calls `window.__isoEnterFocusPip()` first on Android, and the manifest enables PiP/resizable activity.
+
+**Evidence:** `npm test` covers bridge PiP delegation and patch/native resource contracts.
+
+**Remaining risk:** Needs device/emulator PiP testing from the GitHub-built APK.
+
+---
+
+## ISSUE-016 — Native app polish gaps: logo, keyboard, back button, font scale
+**Severity:** HIGH
+**Status:** CODE FIX WRITTEN + UNIT TESTED (2026-06-30)
+
+User reported the APK still felt PWA-like and requested the isotope-code logo, Android app-shell stabilization, and a proper Font Size section in Settings.
+
+**Current fix:** Launcher vector and density PNG resources now use isotope-code logo assets; manifest uses `adjustResize`; bridge handles Capacitor back-button events; Settings bundle gets a matching Font Size slider persisted to profile/localStorage and applied by the bridge on startup.
+
+**Evidence:** `npm test` verifies the Settings patch and Android native resource contracts. `npm run build` passed through sync and idempotent patching.
+
+**Remaining risk:** Needs device layout/keyboard/back-button verification from the GitHub-built APK.

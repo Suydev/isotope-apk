@@ -43,7 +43,7 @@ git push -u origin codex/android-production-repair
 ### TASK ANDROID-006
 **Priority:** P0
 **Status:** ACTIVE
-**Objective:** Build and install the follow-up APK for the user-reported post-login reset/PWA/native-notification failure.
+**Objective:** Build and install the follow-up APK for the user-reported Android-native wiring failures after login.
 
 **Acceptance:**
 - APK contains the real IsotopeAI UI, not placeholder React UI.
@@ -52,8 +52,15 @@ git push -u origin codex/android-production-repair
 - New account logs in and routes to `/onboarding` when `user_onboarding.completed=false`.
 - Bootstrap network failure shows loading/retry behavior instead of assuming dashboard or onboarding.
 - Supabase auth storage reads the bridge-written Android session and does not reset the user to login/create-account after the splash.
+- Cloud sync/online status uses Capacitor Network and does not falsely show offline while Android is connected.
 - Android notification permission prompt is requested through Capacitor LocalNotifications.
 - Focus timer schedules/cancels native notifications using absolute timestamps.
+- Notification resources are valid and scheduled notifications use `ic_notification` with `allowWhileIdle`.
+- Focus Picture-in-Picture uses the native Android PiP bridge where available.
+- Android back button navigates/backs/minimizes without abruptly closing active app flows.
+- Keyboard inset behavior uses `adjustResize`.
+- Settings includes a matching Font Size control and persists/apply device text scale.
+- Launcher icon resources use isotope-code logo assets, not default Android assets.
 - WebView console and Logcat evidence are captured with tokens redacted.
 
 **Current evidence:**
@@ -66,13 +73,20 @@ git push -u origin codex/android-production-repair
 - GitHub Actions passed for commit `ce73a3f` in push run `28415768373` and PR run `28415767170`.
 - Downloaded artifact `IsotopeAI-debug-35` (id `7969405842`) was extracted and statically inspected.
 - APK path for install testing: `/data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk`.
-- Local Termux Gradle assembly is blocked by missing Android SDK; use GitHub Actions for the next APK.
+- Current code-level Android-native wiring pass is implemented locally:
+  - `android-bridge.js` now exposes Capacitor Network backed `__isoIsOnline`, native PiP globals, Android back button handling, startup font-scale application, and corrected notification scheduling.
+  - `scripts/apply-android-patches.js` patches online status, Focus PiP, Settings Font Size, notification/focus scheduling, and verifies native resources.
+  - `MainActivity.java` exposes `IsotopeAndroid` JavaScript interface for Focus PiP.
+  - Manifest/resource/config changes cover PiP, keyboard resize, notification icon, launcher logo, and LocalNotifications config.
+- `npm test` passes 18 tests.
+- `npm run build` passes with first patch pass applying 23 targets and final patch pass applying 0.
+- Per user instruction, do not run local Gradle. Use GitHub Actions for APK assembly.
 - `adb devices -l` currently shows no attached/authorized target.
 
 **Exact next commands:**
 ```bash
-git add scripts/agent-status.mjs scripts/apply-android-patches.js test/prepare-patches.test.mjs .agent
-git commit -m "fix: refresh Android boot state after login"
+git add android-bridge.js capacitor.config.json scripts/apply-android-patches.js test android .agent
+git commit -m "fix: wire Android native app behavior"
 git push
 ```
 

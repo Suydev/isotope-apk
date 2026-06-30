@@ -220,6 +220,26 @@
 
 ---
 
+## DEC-012 — Android owns native-only app behavior
+
+**Date:** 2026-06-30
+**Context:** The packaged APK still exposed browser/PWA assumptions after login: `navigator.onLine` could report offline while Android was connected, Focus PiP depended on browser `documentPictureInPicture`, notifications used web/service-worker paths and mismatched Android icons, and the native activity had no app-shell behavior beyond an empty Capacitor activity.
+
+**Chosen:** Keep the compiled IsotopeAI UI as source of truth, but wire Android-only behavior through Capacitor/native contracts:
+- Capacitor Network drives Android online state and the patched `useOnlineStatus` bundle.
+- Capacitor LocalNotifications drives scheduled focus notifications with a real `ic_notification` resource.
+- `MainActivity` exposes an `IsotopeAndroid` JavaScript interface for Focus Picture-in-Picture.
+- Android manifest/activity resources own PiP, keyboard resize, launcher icon, and notification resources.
+- `android-bridge.js` owns app back-button handling and device font-scale startup application.
+
+**Why:** These behaviors cannot be proven by browser APIs inside a WebView. The APK must act like an Android app while preserving the existing compiled UI.
+
+**Consequences:**
+- `scripts/apply-android-patches.js` now has explicit patch-contract tests for online status, Focus PiP, Settings Font Size, and native resource requirements.
+- Device/emulator evidence is still required before marking cloud sync, notification delivery, PiP, and keyboard/back behavior fully fixed.
+
+---
+
 ## DEC-012 — `/__auth/check` must be neutral and non-destructive
 
 **Date:** 2026-06-29

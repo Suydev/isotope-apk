@@ -53,24 +53,38 @@ function makeSession(userId = '11111111-1111-4111-8111-111111111111') {
   };
 }
 
-function createBridgeHarness(handler) {
+function createBridgeHarness(handler, options = {}) {
   const calls = [];
+  const events = [];
+  const windowListeners = new Map();
+  const documentListeners = new Map();
   const localStorage = new MemoryStorage();
+  const addListener = (target, type, callback) => {
+    if (!target.has(type)) target.set(type, []);
+    target.get(type).push(callback);
+  };
+  const emit = (target, event) => {
+    events.push(event);
+    for (const callback of target.get(event.type) || []) callback(event);
+  };
   const document = {
-    addEventListener() {},
+    addEventListener(type, callback) { addListener(documentListeners, type, callback); },
+    dispatchEvent(event) { emit(documentListeners, event); return true; },
     querySelector() { return null; },
-    createElement() { return {}; },
+    createElement() { return { style: {}, set textContent(value) { this._text = value; }, get textContent() { return this._text; } }; },
+    documentElement: { style: {} },
     head: { appendChild() {} },
   };
   const window = {
-    Capacitor: { Plugins: {} },
-    location: { protocol: 'https:', origin: 'https://app.local' },
+    Capacitor: { Plugins: options.plugins || {} },
+    location: { protocol: 'https:', origin: 'https://app.local', pathname: '/' },
+    history: { back() {} },
     localStorage,
     sessionStorage: new MemoryStorage(),
     document,
     navigator: { userAgent: 'Android' },
-    addEventListener() {},
-    dispatchEvent() {},
+    addEventListener(type, callback) { addListener(windowListeners, type, callback); },
+    dispatchEvent(event) { emit(windowListeners, event); return true; },
     setTimeout,
     clearTimeout,
     console,
@@ -91,6 +105,9 @@ function createBridgeHarness(handler) {
     Event: class Event {
       constructor(type) { this.type = type; }
     },
+    KeyboardEvent: class KeyboardEvent {
+      constructor(type, init) { this.type = type; this.key = init?.key; this.bubbles = init?.bubbles; }
+    },
     setTimeout,
     clearTimeout,
     fetch: async (url, init = {}) => {
@@ -100,7 +117,7 @@ function createBridgeHarness(handler) {
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(BRIDGE_PATH, 'utf8'), context, { filename: BRIDGE_PATH });
-  return { context, window, localStorage, calls };
+  return { context, window, localStorage, calls, events };
 }
 
 function installSession(storage, session = makeSession()) {
@@ -260,4 +277,96 @@ test('RPC failure is propagated instead of returned as ok:true', async () => {
   assert.equal(response.status, 400);
   assert.equal(data.ok, false);
   assert.match(data.error, /bad rpc/);
+});
+
+test('Android bridge routes online state through Capacitor Network', async () => {
+  let networkListener;
+  const harness = createBridgeHarness(defaultSupabaseHandler(), {
+    plugins: {
+      Network: {
+        async getStatus() { return { connected: false }; },
+        addListener(eventName, callback) {
+          assert.equal(eventName, 'networkStatusChange');
+          networkListener = callback;
+        },
+      },
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(harness.window.__isoIsOnline(), false);
+  assert.equal(harness.window.navigator.onLine, false);
+
+  networkListener({ connected: true });
+  assert.equal(harness.window.__isoIsOnline(), true);
+  assert.equal(harness.window.navigator.onLine, true);
+  assert.equal(harness.events.some((event) => event.type === 'isotope:network' && event.detail.connected === true), true);
+});
+
+test('native notifications use ic_notification and allowWhileIdle scheduling', async () => {
+  const scheduled = [];
+  const channels = [];
+  const harness = createBridgeHarness(defaultSupabaseHandler(), {
+    plugins: {
+      LocalNotifications: {
+        async createChannel(channel) { channels.push(channel); },
+        async checkPermissions() { return { display: 'granted' }; },
+        async schedule(payload) { scheduled.push(payload); },
+      },
+    },
+  });
+
+  const result = await harness.window.__isoScheduleNativeNotification({
+    id: 'unit-native',
+    title: 'Done',
+    body: 'Finished',
+    at: Date.now() + 10_000,
+    route: '/focus',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(channels[0].id, 'isotope-focus');
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].notifications[0].smallIcon, 'ic_notification');
+  assert.equal(scheduled[0].notifications[0].schedule.allowWhileIdle, true);
+  assert.equal(scheduled[0].notifications[0].extra.route, '/focus');
+});
+
+test('focus timer native scheduling cancels previous completion notification first', async () => {
+  const canceled = [];
+  const scheduled = [];
+  const harness = createBridgeHarness(defaultSupabaseHandler(), {
+    plugins: {
+      LocalNotifications: {
+        async createChannel() {},
+        async checkPermissions() { return { display: 'granted' }; },
+        async cancel(payload) { canceled.push(payload); },
+        async schedule(payload) { scheduled.push(payload); },
+      },
+    },
+  });
+
+  const result = await harness.window.__isoScheduleFocusTimer({ at: Date.now() + 60_000 });
+
+  assert.equal(result.ok, true);
+  assert.equal(canceled.length, 1);
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].notifications[0].extra.data.kind, 'focus-complete');
+  assert.equal(scheduled[0].notifications[0].smallIcon, 'ic_notification');
+});
+
+test('Focus PiP bridge delegates to the Android JavaScript interface', async () => {
+  let entered = 0;
+  const harness = createBridgeHarness(defaultSupabaseHandler());
+  harness.window.IsotopeAndroid = {
+    isPipSupported() { return true; },
+    enterFocusPip() { entered += 1; },
+  };
+
+  assert.equal(harness.window.__isoAndroidPipSupported(), true);
+  const result = await harness.window.__isoEnterFocusPip({ route: '/focus' });
+
+  assert.equal(result.ok, true);
+  assert.equal(entered, 1);
+  assert.match(harness.localStorage.getItem('isotope-focus-pip-state'), /"route":"\/focus"/);
 });

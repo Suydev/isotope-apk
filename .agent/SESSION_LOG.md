@@ -352,3 +352,86 @@ adb logcat
 **Blocked/Not verified:**
 - ADB is installed but still shows no attached/authorized device.
 - Runtime login, dashboard route, onboarding route, notification prompt, and process-death behavior still require a new GitHub-built APK installed on a device/emulator.
+
+**Push/build result:**
+- Commit pushed: `737aa4e`
+- GitHub Actions build status was not yet recorded in this section before the next user report.
+
+---
+
+## 2026-06-30 — Android-native wiring pass for cloud sync, notifications, PiP, logo, and shell behavior
+
+**Agent/account:** Codex
+**Branch:** codex/android-production-repair
+**Starting commit:** `737aa4e`
+**Ending state:** Android-native wiring implemented, tests/build passed locally through Capacitor sync, commit/push/GitHub APK build pending.
+
+**User-reported APK result after latest GitHub build:**
+- Login/app shell opens farther than before, but cloud sync and online status do not work.
+- Settings/cloud sync says the user is offline or switching to local mode even when online.
+- Notification permission is requested, but focus notification is not delivered.
+- The app still feels like a PWA rather than a native Android app.
+- Keyboard/back behavior is unstable.
+- Old Android logo remains.
+- Settings needs a proper Font Size section.
+- Focus tab should use Android Picture-in-Picture if possible.
+- User explicitly instructed to use GitHub Actions only for APK assembly and stop local Gradle builds.
+
+**Root causes / code mismatches found:**
+- Compiled `useOnlineStatus` used `navigator.onLine`; Android WebView can report stale/false offline state.
+- Capacitor config referenced `ic_notification`, but no `ic_notification` drawable existed; bridge scheduled `ic_launcher`.
+- Focus PiP depended only on browser `documentPictureInPicture`, unsupported in Android WebView.
+- `MainActivity.java` was an empty `BridgeActivity` with no native app bridge.
+- Manifest lacked PiP/resizable/keyboard resize activity attributes.
+- Launcher foreground and density PNGs still used default Android assets.
+- Settings had dyslexia font but no device text-scale control.
+
+**Completed:**
+- `android-bridge.js`:
+  - Added Capacitor Network-backed `window.__isoIsOnline()`, `navigator.onLine` override, and `isotope:network` events.
+  - Added native Focus PiP globals: `__isoAndroidPipSupported()` and `__isoEnterFocusPip()`.
+  - Added Android back-button handling through Capacitor App plugin.
+  - Applies persisted `isotope-font-scale` on startup.
+  - Schedules notifications with `ic_notification`, `allowWhileIdle`, and cancels the previous focus-completion notification before rescheduling.
+- `MainActivity.java`:
+  - Installs `window.IsotopeAndroid` JavaScript interface.
+  - Supports `isPipSupported`, `isInPipMode`, and `enterFocusPip`.
+  - Dispatches `isotope:pip-mode` on PiP state changes.
+- Android manifest/resources/config:
+  - Enabled `supportsPictureInPicture`, `resizeableActivity`, and `windowSoftInputMode="adjustResize"`.
+  - Added `drawable/ic_notification.xml`.
+  - Replaced launcher vector/background and density PNGs with isotope-code logo assets.
+  - Removed nonexistent LocalNotifications `sound: "beep"` setting.
+- `scripts/apply-android-patches.js`:
+  - Added required patch for `useOnlineStatus` to consume Android network state.
+  - Added required Focus bundle patch to call native PiP on Android.
+  - Added required Settings bundle patch for Font Size slider and persistence.
+  - Added native resource contract verification.
+- Tests:
+  - Added bridge tests for Capacitor Network state, native notification icon/schedule contract, focus timer cancellation/reschedule, and PiP delegation.
+  - Added patch-contract tests for online status, Focus PiP, Settings Font Size, and native resources.
+
+**Commands run:**
+- `pkg install -y imagemagick` to generate committed launcher PNG assets from isotope-code logo.
+- `npm test`
+- `npm run build`
+- `adb devices -l`
+- One local `npm run android:debug` attempt occurred before the user clarified to use GitHub Actions only; it failed because no Android SDK path exists. Do not repeat local Gradle for this checkpoint.
+
+**Tests passed:**
+- `npm test`: 18 tests passed.
+- `npm run build`: `prepare-www`, required bundle patching, `npx cap sync android`, and final idempotent patch pass succeeded.
+- First patch pass applied 23 targets; final pass applied 0, with 0 skipped and 0 required failures.
+- `adb devices -l` still shows no attached/authorized device.
+
+**Blocked/Not verified:**
+- GitHub Actions APK build for this commit is not yet started until push.
+- Current APK artifact is not downloaded/static-inspected yet.
+- No device/emulator runtime evidence for cloud sync, online status, notifications, PiP, keyboard/back behavior, login, onboarding, backup restore, import/export, or responsive layouts.
+
+**Next exact action:**
+```bash
+git add android-bridge.js capacitor.config.json scripts/apply-android-patches.js test android .agent
+git commit -m "fix: wire Android native app behavior"
+git push
+```

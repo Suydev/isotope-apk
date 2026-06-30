@@ -141,3 +141,53 @@ test('apply-android-patches disables PWA manager and uses native notification sc
   assert.match(focusStore, /__isoScheduleFocusTimer/);
   assert.match(focusStore, /__isoCancelFocusTimer/);
 });
+
+test('apply-android-patches wires Android online status, Focus PiP, and font scale controls', () => {
+  const wwwDir = runPrepareWww();
+  const output = runApplyPatches(wwwDir);
+
+  assert.match(output, /Patching online status hook/);
+  assert.match(output, /Patching Focus bundle/);
+  assert.match(output, /Patching Settings bundle/);
+
+  const assetsDir = path.join(wwwDir, 'assets');
+  const onlineFile = fs.readdirSync(assetsDir).find((name) => /^useOnlineStatus-.*\.js$/.test(name));
+  const focusFile = fs.readdirSync(assetsDir).find((name) => /^Focus-.*\.js$/.test(name));
+  const settingsFile = fs.readdirSync(assetsDir).find((name) => /^SettingsLayout-.*\.js$/.test(name));
+  assert.ok(onlineFile, 'online status chunk should exist');
+  assert.ok(focusFile, 'Focus chunk should exist');
+  assert.ok(settingsFile, 'Settings chunk should exist');
+
+  const online = fs.readFileSync(path.join(assetsDir, onlineFile), 'utf8');
+  const focus = fs.readFileSync(path.join(assetsDir, focusFile), 'utf8');
+  const settings = fs.readFileSync(path.join(assetsDir, settingsFile), 'utf8');
+
+  assert.match(online, /__isoIsOnline/);
+  assert.match(online, /isotope:network/);
+  assert.doesNotMatch(online, /useState\(navigator\.onLine\)/);
+  assert.match(focus, /__isoEnterFocusPip/);
+  assert.match(focus, /Picture-in-Picture is not available on this Android device/);
+  assert.match(settings, /children: "Font Size"/);
+  assert.match(settings, /fontScale: P/);
+  assert.match(settings, /isotope-font-scale/);
+});
+
+test('Android native project exposes notification icon, launcher logo, PiP, and keyboard contracts', () => {
+  const manifest = fs.readFileSync(path.join(ROOT, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
+  const activity = fs.readFileSync(path.join(ROOT, 'android/app/src/main/java/in/isotopeai/app/MainActivity.java'), 'utf8');
+  const notificationIcon = fs.readFileSync(path.join(ROOT, 'android/app/src/main/res/drawable/ic_notification.xml'), 'utf8');
+  const launcherForeground = fs.readFileSync(path.join(ROOT, 'android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml'), 'utf8');
+  const launcherBackground = fs.readFileSync(path.join(ROOT, 'android/app/src/main/res/values/ic_launcher_background.xml'), 'utf8');
+  const capacitorConfig = fs.readFileSync(path.join(ROOT, 'capacitor.config.json'), 'utf8');
+
+  assert.match(manifest, /android:supportsPictureInPicture="true"/);
+  assert.match(manifest, /android:resizeableActivity="true"/);
+  assert.match(manifest, /android:windowSoftInputMode="adjustResize"/);
+  assert.match(activity, /addJavascriptInterface\(new IsotopeAndroidInterface\(\), "IsotopeAndroid"\)/);
+  assert.match(activity, /enterPictureInPictureMode/);
+  assert.match(notificationIcon, /strokeColor="#FFFFFFFF"/);
+  assert.match(launcherForeground, /A78BFA/);
+  assert.match(launcherBackground, /#111827/);
+  assert.match(capacitorConfig, /"smallIcon": "ic_notification"/);
+  assert.doesNotMatch(capacitorConfig, /"sound": "beep"/);
+});

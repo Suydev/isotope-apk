@@ -40,6 +40,90 @@
 
   // Signal to pwa-local.js that server is "online" (no node server needed)
   window.__ISO_ANDROID_NATIVE__ = true;
+  window.__ISO_ANDROID_ONLINE__ = true;
+
+  function getCapacitorPlugin(name) {
+    try {
+      return window.Capacitor &&
+             window.Capacitor.Plugins &&
+             window.Capacitor.Plugins[name] || null;
+    } catch (e) { return null; }
+  }
+
+  function dispatchAndroidEvent(name, detail) {
+    try {
+      window.dispatchEvent(new CustomEvent(name, { detail: detail || {} }));
+    } catch (e) {}
+  }
+
+  function setNativeOnline(connected, source) {
+    var next = connected !== false;
+    var previous = window.__ISO_ANDROID_ONLINE__ !== false;
+    window.__ISO_ANDROID_ONLINE__ = next;
+    try {
+      if (window.__iso_set_server_online && next) window.__iso_set_server_online(true);
+    } catch (e) {}
+    dispatchAndroidEvent('isotope:network', {
+      connected: next,
+      online: next,
+      source: source || 'android'
+    });
+    if (previous !== next) {
+      try { window.dispatchEvent(new Event(next ? 'online' : 'offline')); } catch (e) {}
+    }
+  }
+
+  window.__isoIsOnline = function () {
+    return window.__ISO_ANDROID_ONLINE__ !== false;
+  };
+
+  try {
+    Object.defineProperty(navigator, 'onLine', {
+      configurable: true,
+      get: function () { return window.__isoIsOnline(); }
+    });
+  } catch (e) {}
+
+  (function setupAndroidNetworkBridge() {
+    var listenerInstalled = false;
+    var pollCount = 0;
+
+    function install() {
+      var network = getCapacitorPlugin('Network');
+      if (!network) return false;
+      if (typeof network.getStatus === 'function') {
+        try {
+          network.getStatus().then(function (status) {
+            setNativeOnline(!status || status.connected !== false, 'capacitor:getStatus');
+          }).catch(function () {
+            setNativeOnline(true, 'capacitor:getStatus-error');
+          });
+        } catch (e) {
+          setNativeOnline(true, 'capacitor:getStatus-exception');
+        }
+      }
+      if (!listenerInstalled && typeof network.addListener === 'function') {
+        listenerInstalled = true;
+        try {
+          network.addListener('networkStatusChange', function (status) {
+            setNativeOnline(!status || status.connected !== false, 'capacitor:networkStatusChange');
+          });
+        } catch (e) {}
+      }
+      return true;
+    }
+
+    function poll() {
+      pollCount++;
+      if (install()) return;
+      if (pollCount < 30) setTimeout(poll, 100);
+    }
+
+    setNativeOnline(true, 'android-default');
+    poll();
+    try { document.addEventListener('deviceready', install); } catch (e) {}
+    try { document.addEventListener('DOMContentLoaded', install); } catch (e) {}
+  })();
 
   // ── Inject __IK__ global (mirrors server-side injection) ───────────────────
   // The AI store reads window.__IK__.supa / .anon / .gemini / .groq
@@ -1173,6 +1257,33 @@
     return getAccessToken();
   };
 
+  window.__isoAndroidPipSupported = function () {
+    try {
+      return !!(window.IsotopeAndroid &&
+                typeof window.IsotopeAndroid.isPipSupported === 'function' &&
+                window.IsotopeAndroid.isPipSupported());
+    } catch (e) { return false; }
+  };
+
+  window.__isoEnterFocusPip = function (payload) {
+    payload = payload || {};
+    try {
+      localStorage.setItem('isotope-focus-pip-state', JSON.stringify({
+        route: payload.route || '/focus',
+        requested_at: new Date().toISOString()
+      }));
+    } catch (e) {}
+    try {
+      if (window.IsotopeAndroid && typeof window.IsotopeAndroid.enterFocusPip === 'function') {
+        window.IsotopeAndroid.enterFocusPip();
+        return Promise.resolve({ ok: true, native: true });
+      }
+      return Promise.resolve({ ok: false, native: false, reason: 'Android PiP bridge unavailable' });
+    } catch (e) {
+      return Promise.resolve({ ok: false, native: false, reason: e && e.message || 'Android PiP failed' });
+    }
+  };
+
   // ── Patch update-checker: suppress GitHub update checks on Android ──────────
   // update-checker.js polls GitHub API — no need on Android APK
   window.__ISO_SUPPRESS_UPDATE_CHECK__ = true;
@@ -1205,6 +1316,14 @@
       '  --safe-area-left: env(safe-area-inset-left, 0px);',
       '  --safe-area-right: env(safe-area-inset-right, 0px);',
       '}',
+      'html {',
+      '  text-size-adjust: 100%;',
+      '  -webkit-text-size-adjust: 100%;',
+      '}',
+      'html, body, #root {',
+      '  min-height: 100%;',
+      '  overscroll-behavior: none;',
+      '}',
       'body {',
       '  padding-top: env(safe-area-inset-top, 0px);',
       '  padding-bottom: env(safe-area-inset-bottom, 0px);',
@@ -1213,7 +1332,68 @@
       '.no-select, button, [role="button"] { -webkit-user-select: none; user-select: none; }'
     ].join('\n');
     document.head.appendChild(style);
+
+    try {
+      var fontScale = Number(localStorage.getItem('isotope-font-scale') || '100');
+      if (Number.isFinite(fontScale) && fontScale >= 90 && fontScale <= 120) {
+        document.documentElement.style.fontSize = String(fontScale) + '%';
+      }
+    } catch (e) {}
   });
+
+  (function setupAndroidBackButton() {
+    var installed = false;
+    var attempts = 0;
+
+    function hasOpenDialog() {
+      try {
+        return !!document.querySelector('[role="dialog"], [aria-modal="true"]');
+      } catch (e) { return false; }
+    }
+
+    function closeTopDialog() {
+      try {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        return true;
+      } catch (e) { return false; }
+    }
+
+    function install() {
+      if (installed) return true;
+      var app = getCapacitorPlugin('App');
+      if (!app || typeof app.addListener !== 'function') return false;
+      installed = true;
+      try {
+        app.addListener('backButton', function (event) {
+          var path = window.location && window.location.pathname || '/';
+          if (hasOpenDialog() && closeTopDialog()) return;
+          if (path && path !== '/' && path !== '/dashboard' && path !== '/auth' && path !== '/login') {
+            try { window.history.back(); return; } catch (e) {}
+          }
+          if (event && event.canGoBack) {
+            try { window.history.back(); return; } catch (e) {}
+          }
+          if (typeof app.minimizeApp === 'function') {
+            app.minimizeApp();
+          }
+        });
+      } catch (e) {
+        installed = false;
+        return false;
+      }
+      return true;
+    }
+
+    function poll() {
+      attempts++;
+      if (install()) return;
+      if (attempts < 30) setTimeout(poll, 100);
+    }
+
+    poll();
+    try { document.addEventListener('deviceready', install); } catch (e) {}
+    try { document.addEventListener('DOMContentLoaded', install); } catch (e) {}
+  })();
 
   // ── Web Notification API polyfill ─────────────────────────────────────────
   // Android WebView does NOT implement window.Notification.
@@ -1344,9 +1524,9 @@
             id: numericId,
             title: payload.title || 'IsotopeAI',
             body: payload.body || '',
-            schedule: { at: when },
+            schedule: { at: when, allowWhileIdle: true },
             channelId: payload.channelId || 'isotope-focus',
-            smallIcon: 'ic_launcher',
+            smallIcon: 'ic_notification',
             iconColor: payload.iconColor || '#6366f1',
             extra: {
               notificationId: payload.id || String(numericId),
@@ -1375,7 +1555,7 @@
 
     window.__isoScheduleFocusTimer = function (payload) {
       payload = payload || {};
-      return window.__isoScheduleNativeNotification({
+      var schedulePayload = {
         id: 'isotope-focus-complete',
         title: payload.title || 'Focus session complete',
         body: payload.body || 'Your IsotopeAI focus session is complete.',
@@ -1383,7 +1563,10 @@
         route: '/focus',
         channelId: 'isotope-focus',
         data: { url: '/focus', kind: 'focus-complete' }
-      });
+      };
+      return window.__isoCancelNativeNotification('isotope-focus-complete')
+        .catch(function () {})
+        .then(function () { return window.__isoScheduleNativeNotification(schedulePayload); });
     };
 
     window.__isoCancelFocusTimer = function () {
@@ -1412,9 +1595,9 @@
           id: id,
           title: title,
           body: body,
-          schedule: { at: new Date(Date.now() + 500) },
+          schedule: { at: new Date(Date.now() + 500), allowWhileIdle: true },
           channelId: 'isotope-focus',
-          smallIcon: 'ic_launcher',
+          smallIcon: 'ic_notification',
           iconColor: '#6366f1',
           extra: { tag: tag }
         }]

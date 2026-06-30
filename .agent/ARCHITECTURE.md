@@ -54,6 +54,8 @@ Last updated: 2026-06-30
 │   appId: in.isotopeai.app                           │
 │   webDir: www/                                       │
 │   androidScheme: https                               │
+│   Activity: in.isotopeai.app.MainActivity            │
+│   JS interface: window.IsotopeAndroid                │
 │                                                      │
 │   Plugins:                                           │
 │   @capacitor/local-notifications — Timer alerts      │
@@ -202,6 +204,8 @@ www/
    └─ routes to: /auth | /onboarding | /dashboard
 8. pwa-local.js and update-checker.js are disabled in Android packaging.
 9. Compiled `PWAManager` is patched out when `window.__ISO_IS_ANDROID__` is true.
+10. Capacitor Network updates `window.__ISO_ANDROID_ONLINE__` and dispatches `isotope:network`.
+11. MainActivity exposes Focus PiP through `window.IsotopeAndroid.enterFocusPip()`.
 ```
 
 During Android login, `auth-bridge.js` writes the Supabase session into `localStorage`.
@@ -230,6 +234,22 @@ Android user back to `/auth`.
 | `window.__isoScheduleFocusTimer(payload)` | Schedules the focus-completion notification and routes taps to `/focus`. |
 | `window.__isoCancelFocusTimer()` | Cancels the focus-completion notification on pause/reset/complete. |
 | `window.__isoEnsureNotificationPermission(opts)` | Creates the channel and requests/checks Android notification permission. |
+| `window.__isoIsOnline()` | Returns Capacitor Network backed Android online state; patched `useOnlineStatus` consumes this. |
+| `window.__isoEnterFocusPip(payload)` | Delegates Focus Picture-in-Picture to the native `IsotopeAndroid` JavaScript interface. |
+| `window.__isoAndroidPipSupported()` | Reports native PiP support from `MainActivity`. |
+
+## Android Native Resource Contracts
+
+The committed Android project is production code. CI must sync it, not recreate it.
+
+| File | Contract |
+|---|---|
+| `android/app/src/main/java/in/isotopeai/app/MainActivity.java` | Installs `window.IsotopeAndroid`, supports Focus PiP, emits `isotope:pip-mode`. |
+| `android/app/src/main/AndroidManifest.xml` | Activity has `supportsPictureInPicture`, `resizeableActivity`, and `windowSoftInputMode="adjustResize"`. |
+| `android/app/src/main/res/drawable/ic_notification.xml` | Small white notification icon used by LocalNotifications. |
+| `android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml` | Isotope logo foreground, not default Android asset. |
+| `android/app/src/main/res/values/ic_launcher_background.xml` | Dark isotope launcher background. |
+| `capacitor.config.json` | LocalNotifications `smallIcon` is `ic_notification`; no nonexistent custom sound. |
 
 ## Bootstrap Response Contract
 

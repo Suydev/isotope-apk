@@ -1,11 +1,29 @@
-No tests have been run yet.
+npm test
 
-First test will be the GitHub Actions debug APK build.
-See .agent/TEST_STATUS.md for the complete test matrix.
+Result: PASS
+Date: 2026-06-30
+Branch: codex/android-production-repair
 
-Next test to trigger:
-1. Push all files to GitHub (node scripts/push-to-github.js)
-2. GitHub Actions will run .github/workflows/android.yml
-3. Download app-debug.apk artifact from Actions tab
-4. Install on device: adb install app-debug.apk
-5. Launch and verify login screen appears (NOT placeholder)
+Summary:
+- tests 18
+- pass 18
+- fail 0
+- duration_ms 8132.196693
+
+Covered in this run:
+- neutral non-destructive /__auth/check
+- canonical bootstrap onboarding/profile contract
+- onboarding completion verified upsert
+- RPC failure propagation
+- Android auth storage fallback
+- stale readyLoggedOut boot-state guard
+- PWA manager disablement
+- native notification scheduling hooks
+- Capacitor Network-backed online state
+- native notification icon and allowWhileIdle scheduling
+- focus timer notification cancellation/reschedule
+- Focus PiP bridge delegation
+- online/PiP/font-size bundle patch contracts
+- Android resource contracts for PiP, keyboard resize, notification icon, launcher logo
+
+APK assembly for this checkpoint must be validated by GitHub Actions only.

@@ -17,8 +17,7 @@
     },
     "LocalNotifications": {
       "smallIcon": "ic_notification",
-      "iconColor": "#f97316",
-      "sound": "beep"
+      "iconColor": "#f97316"
     },
     "StatusBar": {
       "style": "DARK",

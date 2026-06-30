@@ -12,6 +12,16 @@
 | `android-bridge.js` | **CRITICAL** — fetch interceptor for /__auth/*, /__supa/*, /api/* |
 | `AGENTS.md` | Agent handoff rules (read this first) |
 
+### Native Android Files
+| File | Purpose |
+|------|---------|
+| `android/app/src/main/java/in/isotopeai/app/MainActivity.java` | Capacitor activity plus `window.IsotopeAndroid` Focus PiP bridge |
+| `android/app/src/main/AndroidManifest.xml` | Permissions, PiP/resizable activity, keyboard resize, native app metadata |
+| `android/app/src/main/res/drawable/ic_notification.xml` | LocalNotifications small icon |
+| `android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml` | Adaptive launcher foreground using isotope-code logo |
+| `android/app/src/main/res/values/ic_launcher_background.xml` | Adaptive launcher background color |
+| `android/app/src/main/res/mipmap-*/ic_launcher*.png` | Density launcher icons generated from isotope-code logo |
+
 ### Build Scripts
 | File | Purpose |
 |------|---------|
