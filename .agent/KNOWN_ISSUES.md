@@ -82,9 +82,15 @@ The timer still needs packaged APK tests for backgrounding, rotation, force-stop
 
 ## ISSUE-008 — Backup safety requires Android evidence
 **Severity:** HIGH
-**Status:** OPEN
+**Status:** CODE FIX WRITTEN + UNIT TESTED; APK RUNTIME UNVERIFIED (2026-06-30)
 
 `BLOCKED_EMPTY_OVERWRITE` must be preserved and verified in the packaged APK. Empty fresh install must never overwrite richer cloud data.
+
+**Current fix:** Android backup upload now scans Supabase Storage candidates, blocks empty local-over-rich cloud writes, writes canonical `backups/latest.json`, `backups/history/*.json`, and `cloud-snapshot/latest.json`, and only runs cleanup after verified upload/readback.
+
+**Evidence:** `npm test` covers empty-over-rich blocking, canonical upload, restore-best-backup payload shape, import archive/promote, and stale archive cleanup.
+
+**Remaining risk:** Needs GitHub-built APK runtime verification against the real Supabase project and Storage RLS.
 
 ---
 
@@ -160,11 +166,11 @@ After native login succeeds, `restore-and-launch.js` may still have `window.__IS
 
 ## ISSUE-014 — Android online/cloud sync can falsely show offline
 **Severity:** CRITICAL
-**Status:** CODE FIX WRITTEN + UNIT TESTED (2026-06-30)
+**Status:** CODE FIX WRITTEN + UNIT TESTED; APK RUNTIME UNVERIFIED (2026-06-30)
 
 The compiled `useOnlineStatus` hook read `navigator.onLine`, which is unreliable in the Android WebView context and can leave Settings/cloud sync showing offline or local-only mode while the device is connected.
 
-**Current fix:** `android-bridge.js` now reads Capacitor Network status, overrides the Android `navigator.onLine` getter, exposes `window.__isoIsOnline()`, and dispatches `isotope:network`. `scripts/apply-android-patches.js` patches the compiled `useOnlineStatus` bundle to consume that Android state and event.
+**Current fix:** `android-bridge.js` now reads Capacitor Network status, overrides the Android `navigator.onLine` getter, exposes `window.__isoIsOnline()`, and dispatches `isotope:network`. `scripts/apply-android-patches.js` patches the compiled `useOnlineStatus` bundle to consume that Android state and event. The bridge also intercepts direct absolute Supabase `/functions/v1/*` calls so Supabase JS client function invocations do not bypass Android's RPC mapping.
 
 **Evidence:** `npm test` includes Android bridge network-state coverage and patch-contract coverage for `useOnlineStatus`.
 
@@ -172,17 +178,81 @@ The compiled `useOnlineStatus` hook read `navigator.onLine`, which is unreliable
 
 ---
 
-## ISSUE-015 — Focus Picture-in-Picture was browser-only
+## ISSUE-015 — Previous system PiP timer was not interactive
 **Severity:** HIGH
-**Status:** CODE FIX WRITTEN + UNIT TESTED (2026-06-30)
+**Status:** REPLACED IN CODE + UNIT TESTED; DEVICE UNVERIFIED (2026-06-30)
 
-Focus PiP depended only on browser `documentPictureInPicture`, which Android WebView does not provide.
+The previous repair path injected `android-pip-bridge.js`, faked `documentPictureInPicture`, and entered Android system PiP through `MainActivity`. Android system PiP does not allow directly clickable app UI; only system PiP menu actions are available. Therefore the previous "compact timer PiP" could not satisfy the desktop-equivalent interactive timer requirement.
 
-**Current fix:** `MainActivity.java` exposes `window.IsotopeAndroid.enterFocusPip()` and `isPipSupported()` through a JavaScript interface. The Focus bundle now calls `window.__isoEnterFocusPip()` first on Android, and the manifest enables PiP/resizable activity.
+**Current fix:** The old document-PiP shim is removed from packaging. Focus now calls `window.__isoOpenFloatingTimer()` and passes real `useFocusStore` state/actions to `android-floating-timer-bridge.js`. Native Android renders `FloatingTimerService` with `WindowManager`, `TYPE_APPLICATION_OVERLAY`, Display-over-other-apps permission flow, a foreground service notification, transparent outside window, rounded draggable card, and queued actions back to the WebView.
 
-**Evidence:** `npm test` covers bridge PiP delegation and patch/native resource contracts.
+**Evidence:** `npm test` covers bridge packaging, overlay permission denial, tracked/non-tracked question-control behavior, Correct/Incorrect/Skip/Undo/Target dispatch, target bounding, service/overlay native contracts, and queued action replay contracts. `npm run build` passed with idempotent patching.
 
-**Remaining risk:** Needs device/emulator PiP testing from the GitHub-built APK.
+**Remaining risk:** Needs GitHub-built APK and OnePlus Pad Go runtime evidence. Do not mark runtime Floating Timer done until the overlay is dragged over another app and real counts update from the native controls.
+
+---
+
+## ISSUE-017 — Focus-type emoji corruption
+**Severity:** HIGH
+**Status:** FIXED IN CODE + UNIT TESTED; DEVICE UNVERIFIED (2026-06-30)
+
+The production profile normalizer used `(icon.trim() || "📌").slice(0, 4)`, which counts UTF-16 code units and can split emoji. It also preserved corrupted stored values such as `����`, U+FFFD, and `ï¿½`, causing Lecture and other focus types to render broken icons.
+
+**Current fix:** Android installs a grapheme-safe icon normalizer before the app bundle loads. The App bundle patch calls it while normalizing focus types. Stored Android profile data is repaired once when corrupted. Built-in invalid icons fall back to canonical values:
+`theory=📚`, `questions=❓`, `lecture=🎓`, `revision=📝`, `practice=💪`, `other=📌`.
+
+**Evidence:** `npm test` covers compound emoji, Lecture `����`, U+FFFD, `ï¿½`, valid custom emoji, unpaired surrogates, one-shot persistence, and preservation of canonical/custom focus types.
+
+**Remaining risk:** Needs GitHub-built APK and device verification that Lecture displays `🎓`.
+
+---
+
+## ISSUE-018 — npm audit dev dependency vulnerabilities
+**Severity:** MEDIUM
+**Status:** BLOCKED WITHOUT CAPACITOR MAJOR UPGRADE (2026-06-30)
+
+`npm audit` reports 2 high-severity dev-only vulnerabilities through `@capacitor/cli@6.2.1`:
+
+- `tar@6.2.1`
+- `glob@9.3.5`
+
+**Current finding:** `npm audit fix --dry-run` and `npm audit fix --package-lock-only --dry-run` have no non-force fix. The available fix forces `@capacitor/cli@8.4.1`, a major Capacitor migration that can break native bridge and patch-script behavior.
+
+**Decision:** Do not run `npm audit fix --force` in this repair. Track a separate Capacitor 8 migration after the Floating Timer/auth/sync runtime issues are stabilized.
+
+---
+
+## ISSUE-019 — Android Supabase functions/storage were partially disconnected beyond login
+**Severity:** CRITICAL
+**Status:** CODE FIX WRITTEN + UNIT TESTED; APK RUNTIME UNVERIFIED (2026-06-30)
+
+User reported the APK is still mostly disconnected from Supabase except login/info. Code review confirmed multiple Android bridge gaps:
+
+- the bridge intercepted `/__supa/functions/v1/*` but not direct absolute Supabase `/functions/v1/*` calls from the Supabase JS client;
+- `finish-session` forwarded raw browser payloads instead of SQL parameter names;
+- daily leaderboard called nonexistent `get_daily_leaderboard`;
+- group leaderboard/analytics forwarded `groupId` instead of `p_group_id`;
+- import was a no-op acknowledgment;
+- snapshot updated only a timestamp instead of uploading a canonical backup;
+- backup upload wrote one loose `userId/backup-*.json` object, creating orphaned files and no canonical restore target.
+
+**Current fix:** `android-bridge.js` now maps direct function URLs and `/__supa/functions/v1/*`, transforms RPC payloads to the exact SQL signatures, propagates non-2xx failures, writes canonical backup/cloud snapshot objects, returns browser restore payloads, and provides explicit storage cleanup preview/apply routes.
+
+**Evidence:** `npm test` covers direct function interception, RPC payload mapping, RPC failure propagation, session sync snapshot upload, canonical backup upload, `BLOCKED_EMPTY_OVERWRITE`, restore payload shape, import archive/promote, and stale archive cleanup.
+
+**Remaining risk:** Needs GitHub-built APK runtime verification with the real Supabase project, because RLS/Data API/Storage policies can still block requests even when the client contract is correct.
+
+---
+
+## ISSUE-020 — Focus page intermittent black screen and dark-mode PNG logo
+**Severity:** HIGH
+**Status:** REPORTED; NOT YET REPRODUCED (2026-06-30)
+
+User reported that opening the Focus page sometimes works, sometimes does not, and sometimes shows a full black screen. User also reported the app logo is a PNG and looks wrong in dark mode.
+
+**Current state:** Not fixed in this checkpoint. The current code adds WebView hardware acceleration and renderer priority to reduce WebView rendering instability without changing the UI, but this is not proof that the Focus black-screen bug is fixed.
+
+**Required evidence before fixing:** GitHub-built APK, exact route, Logcat, WebView console output, screenshot, whether it happens after rotation/backgrounding, and whether the Floating Timer bridge is active.
 
 ---
 

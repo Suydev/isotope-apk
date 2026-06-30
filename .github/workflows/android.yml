@@ -28,14 +28,14 @@ jobs:
     steps:
       # ── Checkout this repo (Capacitor wrapper + bridge) ───────────────────
       - name: Checkout isotope-apk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: isotope-apk
 
       # ── Checkout source assets from isotope-code ──────────────────────────
       # isotope-code is a public repo — no token needed
       - name: Checkout isotope-code (source assets)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Suydev/isotope-code
           ref: ${{ env.ISOTOPE_CODE_REF }}
@@ -43,7 +43,7 @@ jobs:
 
       # ── Node.js setup ─────────────────────────────────────────────────────
       - name: Setup Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -51,16 +51,17 @@ jobs:
 
       # ── Java setup ────────────────────────────────────────────────────────
       - name: Setup JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
 
       # ── Android SDK ───────────────────────────────────────────────────────
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
-          accept-android-sdk-licenses: true
+          packages: ''
+          log-accepted-android-sdk-licenses: false
 
       - name: Install Android SDK Build Tools & Platform
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
@@ -168,7 +169,7 @@ jobs:
 
       # ── Upload APK artifact ───────────────────────────────────────────────
       - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: IsotopeAI-debug-${{ github.run_number }}
           path: isotope-apk/android/app/build/outputs/apk/debug/app-debug.apk
@@ -178,7 +179,7 @@ jobs:
       # ── Upload build logs on failure ──────────────────────────────────────
       - name: Upload build logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-logs-${{ github.run_number }}
           path: |
@@ -197,34 +198,35 @@ jobs:
 
     steps:
       - name: Checkout isotope-apk
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: isotope-apk
 
       - name: Checkout isotope-code (source assets)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Suydev/isotope-code
           ref: ${{ env.ISOTOPE_CODE_REF }}
           path: isotope-code
 
       - name: Setup Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: isotope-apk/package-lock.json
 
       - name: Setup JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
-          accept-android-sdk-licenses: true
+          packages: ''
+          log-accepted-android-sdk-licenses: false
 
       - name: Install Android SDK components
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
@@ -267,7 +269,7 @@ jobs:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false"
 
       - name: Upload Release AAB
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: IsotopeAI-release-aab-${{ github.run_number }}
           path: isotope-apk/android/app/build/outputs/bundle/release/app-release.aab

@@ -56,6 +56,7 @@ Last updated: 2026-06-30
 │   androidScheme: https                               │
 │   Activity: in.isotopeai.app.MainActivity            │
 │   JS interface: window.IsotopeAndroid                │
+│   Service: in.isotopeai.app.FloatingTimerService     │
 │                                                      │
 │   Plugins:                                           │
 │   @capacitor/local-notifications — Timer alerts      │
@@ -70,6 +71,40 @@ Last updated: 2026-06-30
 
 ---
 
+## Android Floating Timer Layer
+
+```
+Focus-BmgY-9vP.js
+  └─ patched PiP button calls window.__isoOpenFloatingTimer({
+       getState, subscribe, dispatch
+     })
+       │
+       ▼
+android-floating-timer-bridge.js
+  ├─ validates timer state
+  ├─ normalizes focus-type emoji safely
+  ├─ sends JSON snapshots to window.IsotopeAndroid
+  └─ receives native actions through window.__ISO_FLOATING_TIMER__
+       │
+       ▼
+MainActivity.java
+  ├─ checks/request Display-over-other-apps permission
+  ├─ starts/updates/stops FloatingTimerService
+  └─ queues native actions until WebView handler confirms success
+       │
+       ▼
+FloatingTimerService.java
+  ├─ WindowManager TYPE_APPLICATION_OVERLAY
+  ├─ foreground service notification
+  ├─ transparent outside window + rounded draggable card
+  ├─ native timestamp-based timer display
+  └─ Correct / Incorrect / Skip / Undo / Target / Expand / Close actions
+```
+
+System Picture-in-Picture is not the primary timer implementation. It remains only as a reduced fallback exposed by `MainActivity.enterReducedSystemPictureInPicture(...)` when a future caller explicitly chooses it.
+
+---
+
 ## Former server.mjs Endpoint → Mobile Replacement Map
 
 | Existing endpoint | Consumer in UI | Mobile replacement | Status |
@@ -80,12 +115,12 @@ Last updated: 2026-06-30
 | `/__auth/bootstrap` | restore-and-launch.js | android-bridge.js `handleBootstrap()` → Supabase REST | ✅ DONE |
 | `/__auth/profile` GET | auth-bridge.js, SettingsLayout | android-bridge.js `handleGetProfile()` → Supabase REST | ✅ DONE |
 | `/__auth/profile` POST | `__isoPostProfile()` | android-bridge.js `handlePostProfile()` → Supabase PATCH | ✅ DONE |
-| `/__auth/backup` POST | `__isoUploadBackupJSON()` | android-bridge.js `handleUploadBackup()` → Supabase Storage | ✅ DONE |
-| `/__auth/backup/latest` GET | `downloadBackupPayload()` | android-bridge.js `handleGetLatestBackup()` → Storage download | ✅ DONE |
-| `/__auth/backup/best` GET | auth-bridge.js | android-bridge.js `handleGetBestBackup()` → Storage scan | ✅ DONE |
-| `/__auth/snapshot` POST | `__isoRefreshCloudSnapshot()` | android-bridge.js `handleSnapshot()` → Supabase PATCH | ✅ DONE |
-| `/__auth/import` POST | SettingsLayout import | android-bridge.js `handleImport()` → client-side | ✅ DONE |
-| `/__auth/restore-best-backup` POST | AppAccessGate | android-bridge.js `handleRestoreBestBackup()` | ✅ DONE |
+| `/__auth/backup` POST | `__isoUploadBackupJSON()` | Canonical Supabase Storage upload + empty-over-rich block + cleanup | ✅ UNIT TESTED |
+| `/__auth/backup/latest` GET | `downloadBackupPayload()` | Best valid Storage candidate returned as `backup_json` | ✅ UNIT TESTED |
+| `/__auth/backup/best` GET | auth-bridge.js | Storage scan across canonical/import/export candidates | ✅ UNIT TESTED |
+| `/__auth/snapshot` POST | `__isoRefreshCloudSnapshot()` | Local adapter backup → canonical Storage upload; visible 503 if adapter missing | ✅ UNIT TESTED |
+| `/__auth/import` POST | SettingsLayout import | Import archive + canonical promotion + browser restore metadata | ✅ UNIT TESTED |
+| `/__auth/restore-best-backup` POST | AppAccessGate | Richest valid backup returned/promoted for local restore | ✅ UNIT TESTED |
 | `/__supa/*` | Various Supabase calls | android-bridge.js `handleSupaProxy()` → direct fetch | ✅ DONE |
 | `/api/version` | pwa-local.js server check | android-bridge.js static response | ✅ DONE |
 | `/api/health` | Health monitoring | android-bridge.js static response | ✅ DONE |
@@ -156,6 +191,7 @@ canonical backup JSON:
 www/
 ├── index.html                    ← Patched: android-bridge.js injected first
 ├── android-bridge.js             ← Fetch interceptor (injected by prepare-www.js)
+├── android-floating-timer-bridge.js ← Floating Timer + emoji repair bridge
 ├── auth-bridge.js                ← Supabase auth client (login/signup/bootstrap)
 ├── restore-and-launch.js         ← App boot sequence (reads __ISO_SUPA_URL__)
 ├── boot-recovery.js              ← Clears caches on JS chunk load failure
@@ -205,7 +241,7 @@ www/
 8. pwa-local.js and update-checker.js are disabled in Android packaging.
 9. Compiled `PWAManager` is patched out when `window.__ISO_IS_ANDROID__` is true.
 10. Capacitor Network updates `window.__ISO_ANDROID_ONLINE__` and dispatches `isotope:network`.
-11. MainActivity exposes Focus PiP through `window.IsotopeAndroid.enterFocusPip()`.
+11. MainActivity exposes Floating Timer overlay methods through `window.IsotopeAndroid`; reduced system PiP remains fallback only.
 ```
 
 During Android login, `auth-bridge.js` writes the Supabase session into `localStorage`.
@@ -235,8 +271,10 @@ Android user back to `/auth`.
 | `window.__isoCancelFocusTimer()` | Cancels the focus-completion notification on pause/reset/complete. |
 | `window.__isoEnsureNotificationPermission(opts)` | Creates the channel and requests/checks Android notification permission. |
 | `window.__isoIsOnline()` | Returns Capacitor Network backed Android online state; patched `useOnlineStatus` consumes this. |
-| `window.__isoEnterFocusPip(payload)` | Delegates Focus Picture-in-Picture to the native `IsotopeAndroid` JavaScript interface. |
-| `window.__isoAndroidPipSupported()` | Reports native PiP support from `MainActivity`. |
+| `window.__isoOpenFloatingTimer(payload)` | Opens the Android Floating Timer overlay through `IsotopeAndroid.startFloatingTimer`. |
+| `window.__ISO_FLOATING_TIMER__.handleNativeAction(action)` | Replays queued native overlay actions into the real focus store. |
+| `window.__isoEnterFocusPip(payload)` | Reduced system-PiP fallback only when overlay permission is unavailable. |
+| `window.__isoAndroidPipSupported()` | Reports reduced native PiP fallback support from `MainActivity`. |
 
 ## Android Native Resource Contracts
 
@@ -244,12 +282,41 @@ The committed Android project is production code. CI must sync it, not recreate 
 
 | File | Contract |
 |---|---|
-| `android/app/src/main/java/in/isotopeai/app/MainActivity.java` | Installs `window.IsotopeAndroid`, supports Focus PiP, emits `isotope:pip-mode`. |
+| `android/app/src/main/java/in/isotopeai/app/MainActivity.java` | Installs `window.IsotopeAndroid`, supports Floating Timer overlay permission/service control/action replay, and reduced PiP fallback. |
 | `android/app/src/main/AndroidManifest.xml` | Activity has `supportsPictureInPicture`, `resizeableActivity`, and `windowSoftInputMode="adjustResize"`. |
 | `android/app/src/main/res/drawable/ic_notification.xml` | Small white notification icon used by LocalNotifications. |
 | `android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml` | Isotope logo foreground, not default Android asset. |
 | `android/app/src/main/res/values/ic_launcher_background.xml` | Dark isotope launcher background. |
 | `capacitor.config.json` | LocalNotifications `smallIcon` is `ic_notification`; no nonexistent custom sound. |
+
+## Android Sync / Supabase Contract
+
+The APK has no Node server. `android-bridge.js` replaces the server endpoints that the compiled UI expects.
+
+| Compiled call | Android bridge behavior |
+|---|---|
+| `/__supa/functions/v1/finish-session` or `${SUPA_URL}/functions/v1/finish-session` | Maps to `POST /rest/v1/rpc/finish_session_sync` with `p_session_id`, `p_action`, `p_duration_minutes`, `p_group_id`, `p_session_type`, `p_notes`, `p_ended_at`; then uploads a canonical local snapshot when the local adapter is available. |
+| `/__supa/functions/v1/get-leaderboard` or direct Supabase function URL | Maps to `POST /rest/v1/rpc/get_leaderboard` with `p_period`, `p_limit`, `p_offset`. |
+| `/__supa/functions/v1/get-daily-leaderboard` or direct Supabase function URL | Maps to `get_leaderboard` with `p_period:"daily"`; there is no `get_daily_leaderboard` SQL function in `isotope-complete.sql`. |
+| `/__supa/functions/v1/get-group-leaderboard` or direct Supabase function URL | Maps `groupId/group_id` to `get_group_leaderboard(p_group_id,p_limit)`. |
+| `/__supa/functions/v1/get-group-analytics` or direct Supabase function URL | Maps `groupId/group_id` and `days` to `get_group_analytics_from_snapshots(p_group_id,p_days)`. |
+| `/__auth/backup` | Writes canonical Supabase Storage objects and blocks empty local-over-rich cloud overwrite. |
+| `/__auth/backup/latest` / `/__auth/backup/best` / `/__auth/restore-best-backup` | Selects the richest valid cloud candidate and returns `backup_json`, `selected_backup`, candidates, counts, and restore metadata. |
+| `/__auth/import` | Archives the import under `userId/imports/`, promotes it to canonical backup/cloud snapshot, and returns browser restore metadata. |
+| `/__auth/snapshot` | Builds backup JSON from `window.IsotopeLocalDataAdapter` when available and uploads canonical backup/cloud snapshot; returns a visible 503 instead of fake success if the adapter is unavailable. |
+| `/__auth/storage/cleanup-preview` / `/__auth/storage/cleanup-apply` | Scans/deletes only current-user stale `.json` archive files using the user's JWT. |
+
+Storage canonical paths:
+
+| Path | Purpose |
+|---|---|
+| `userId/backups/latest.json` | Authoritative latest local backup payload. |
+| `userId/backups/history/*.json` | Timestamped backup history, keep latest 5. |
+| `userId/cloud-snapshot/latest.json` | Bootstrap/restore cloud snapshot mirror. |
+| `userId/imports/latest.json` and `userId/imports/*.json` | Manual import archive. |
+| `userId/exports/latest.json` and `userId/exports/*.json` | Legacy/export candidates scanned for restore. |
+
+All Supabase Storage calls use the user access token and anon/publishable key. The APK must never include a service-role key.
 
 ## Bootstrap Response Contract
 

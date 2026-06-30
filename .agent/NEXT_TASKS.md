@@ -4,136 +4,94 @@
 
 ## Task Queue
 
-### TASK ANDROID-005
+### TASK ANDROID-012
 **Priority:** P0
-**Status:** DONE
-**Objective:** Push `codex/android-production-repair` and trigger a GitHub Actions debug APK build.
+**Status:** ACTIVE
+**Objective:** Commit, push, and verify the combined Android Floating Timer + Supabase sync bridge repair through GitHub Actions.
 
-**Acceptance condition:**
-- `npm run agent:handoff` has been run.
-- Repair branch is committed and pushed to `origin/codex/android-production-repair`.
-- GitHub Actions starts for the pushed branch.
-- Debug APK build succeeds and uploads `app-debug.apk`.
-- Test evidence is recorded in `.agent/TEST_STATUS.md`.
+**Acceptance:**
+- Branch `codex/android-production-repair` is committed and pushed.
+- GitHub Actions debug APK build succeeds.
+- Artifact is downloaded/extracted and statically inspected.
+- OnePlus Pad Go install/runtime checks are recorded.
+- Device evidence distinguishes:
+  - code written
+  - unit tested
+  - CI built
+  - emulator tested
+  - physical-device tested
 
-**Commands already run locally:**
-- `node --check scripts/apply-android-patches.js`
-- `node --check scripts/prepare-www.js`
-- `npm test`
-- `npm run prepare-www`
-- `npm run apply-patches`
-- `npx cap sync android`
-- `npm run apply-patches`
+**Current evidence:**
+- `npm test`: PASS, 33 tests.
+- `npm run build`: PASS through `prepare-www`, `apply-patches`, `npx cap sync android`, and final idempotent patch pass.
+- `git diff --check`: PASS.
+- Local Gradle/APK build intentionally not run by user instruction; use GitHub Actions for APK assembly.
 
 **Exact next commands:**
 ```bash
 npm run agent:handoff
-git add .gitignore android-bridge.js package.json package-lock.json scripts/prepare-www.js scripts/apply-android-patches.js .github/workflows/android.yml test android .agent
-git commit -m "fix: repair Android auth bootstrap contract"
+git add .github/workflows/android.yml android-bridge.js android-floating-timer-bridge.js android-pip-bridge.js android/app android/build.gradle android/capacitor.settings.gradle android/gradle/wrapper/gradle-wrapper.properties capacitor.config.json package.json package-lock.json scripts/apply-android-patches.js scripts/prepare-www.js test .agent
+git commit -m "fix(android): repair sync bridge and floating timer"
 git push -u origin codex/android-production-repair
 ```
 
-**Notes:**
-- `gh` is not installed in this environment. If GitHub Actions monitoring is needed from the shell, install/authenticate `gh` or inspect the Actions tab in the browser.
-- The workflow now builds this repair branch and pins `isotope-code` to `fd39fad1384333ad774f19f35b754659a34dae60`.
-- Completed by run https://github.com/Suydev/isotope-apk/actions/runs/28374915430. Artifact: `IsotopeAI-debug-28`.
-
 ---
 
-### TASK ANDROID-006
-**Priority:** P0
-**Status:** ACTIVE
-**Objective:** Build and install the follow-up APK for the user-reported Android-native wiring failures after login.
-
-**Acceptance:**
-- APK contains the real IsotopeAI UI, not placeholder React UI.
-- Android package no longer exposes PWA manifest/mobile-web-app metadata or compiled PWA manager UI.
-- Existing account logs in and routes to `/dashboard` only when bootstrap says onboarding is complete.
-- New account logs in and routes to `/onboarding` when `user_onboarding.completed=false`.
-- Bootstrap network failure shows loading/retry behavior instead of assuming dashboard or onboarding.
-- Supabase auth storage reads the bridge-written Android session and does not reset the user to login/create-account after the splash.
-- Cloud sync/online status uses Capacitor Network and does not falsely show offline while Android is connected.
-- Android notification permission prompt is requested through Capacitor LocalNotifications.
-- Focus timer schedules/cancels native notifications using absolute timestamps.
-- Notification resources are valid and scheduled notifications use `ic_notification` with `allowWhileIdle`.
-- Focus Picture-in-Picture uses the native Android PiP bridge where available.
-- Android back button navigates/backs/minimizes without abruptly closing active app flows.
-- Keyboard inset behavior uses `adjustResize`.
-- Settings includes a matching Font Size control and persists/apply device text scale.
-- Launcher icon resources use isotope-code logo assets, not default Android assets.
-- WebView console and Logcat evidence are captured with tokens redacted.
-
-**Current evidence:**
-- Supabase Auth logs show the user-reported credential attempt returned HTTP 200 from `/token`.
-- Fresh root cause found after the user retested `ce73a3f`: the startup boot state could remain `readyLoggedOut` after native login and AppAccessGate redirected the now-authenticated user back to `/auth`.
-- Local regression tests cover auth-store routing, canonical bootstrap response handling, Android auth storage fallback, PWA stripping, PWA manager disablement, and native notification/focus hooks.
-- Local regression tests now also cover Auth writing a fresh Android boot state after login, AppAccessGate ignoring stale `readyLoggedOut` once authenticated, and preserving Android auth session keys during storage cleanup.
-- `npm run build` succeeds through `prepare-www`, required patching, Capacitor sync, and final idempotent patching.
-- Generated `www/` and synced `android/app/src/main/assets/public` contain `window.__ISO_BOOT_STATE__` login refresh, `readyDashboard` / `readyNeedsOnboarding` routing, and `Y === "readyLoggedOut" && !u`.
-- GitHub Actions passed for commit `ce73a3f` in push run `28415768373` and PR run `28415767170`.
-- Downloaded artifact `IsotopeAI-debug-35` (id `7969405842`) was extracted and statically inspected.
-- APK path for install testing: `/data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk`.
-- Current code-level Android-native wiring pass is implemented locally:
-  - `android-bridge.js` now exposes Capacitor Network backed `__isoIsOnline`, native PiP globals, Android back button handling, startup font-scale application, and corrected notification scheduling.
-  - `scripts/apply-android-patches.js` patches online status, Focus PiP, Settings Font Size, notification/focus scheduling, and verifies native resources.
-  - `MainActivity.java` exposes `IsotopeAndroid` JavaScript interface for Focus PiP.
-  - Manifest/resource/config changes cover PiP, keyboard resize, notification icon, launcher logo, and LocalNotifications config.
-- `npm test` passes 18 tests.
-- `npm run build` passes with first patch pass applying 23 targets and final patch pass applying 0.
-- Per user instruction, do not run local Gradle. Use GitHub Actions for APK assembly.
-- GitHub Actions for commit `868b889` failed at `Build Debug APK` after regression tests, prepare-www, patching, Capacitor sync, and re-patching all passed. Public logs are not downloadable without GitHub auth, but the local native diff showed `MainActivity.onStart()` was accidentally `protected` while `BridgeActivity.onStart()` is public. Local fix changes it back to `public` and adds a regression assertion.
-- `adb devices -l` currently shows no attached/authorized target.
-
-**Exact next commands:**
-```bash
-git add android/app/src/main/java/in/isotopeai/app/MainActivity.java test/prepare-patches.test.mjs .agent
-git commit -m "fix: restore MainActivity onStart access"
-git push
-```
-
----
-
-### TASK ANDROID-007
+### TASK ANDROID-013
 **Priority:** P0
 **Status:** TODO
-**Objective:** Verify backup safety and restore behavior in the packaged APK.
+**Objective:** Runtime test the newly built APK for Supabase connectivity beyond login.
 
 **Acceptance:**
-- Empty fresh install does not overwrite rich cloud backup.
-- Rich local data plus empty cloud is handled without data loss.
-- Both-changed and corrupt-cloud cases produce safe warnings.
-- `BLOCKED_EMPTY_OVERWRITE` evidence is recorded.
+- Login reaches the correct route and stays authenticated.
+- Settings/cloud sync does not falsely say offline while Android is online.
+- Manual backup uploads canonical objects:
+  - `userId/backups/latest.json`
+  - `userId/backups/history/*.json`
+  - `userId/cloud-snapshot/latest.json`
+- Empty fresh local state cannot overwrite rich cloud data (`BLOCKED_EMPTY_OVERWRITE`).
+- Restore returns and applies `backup_json`.
+- Import archives to `userId/imports/*` and promotes canonical backup.
+- Old stale archive files are cleaned only after verified upload/readback.
+- Community leaderboard/group analytics/session sync call real Supabase REST/RPC paths with useful errors on failure.
 
 ---
 
-### TASK ANDROID-008
+### TASK ANDROID-014
 **Priority:** P0
-**Status:** PARTIAL
-**Objective:** Implement real native focus timer notifications and process-death recovery.
+**Status:** TODO
+**Objective:** Runtime test Floating Timer and focus page stability on OnePlus Pad Go.
 
 **Acceptance:**
-- Timer schedules native notification from an absolute completion timestamp.
-- Pause/resume/reset/duration changes cancel or reschedule notification.
-- Notification survives WebView process death where Android permits.
-- Notification tap opens `/focus`.
-- Android 13+ notification permission denial is handled cleanly.
-
-**Current state:** Code-level bridge and bundle patches exist and are covered by regression tests. Device/process-death evidence is still required before marking done.
+- Lecture displays `🎓`.
+- Questions/Practice/Revision session opens Floating Timer.
+- Display-over-other-apps permission flow works.
+- Rounded floating card has no black outer rectangle.
+- Dragging over another app works.
+- Correct/Incorrect/Skip/Undo update the real store counts.
+- Target changes persist.
+- Timer continues while the main app is backgrounded.
+- Expand returns to `/focus`.
+- Close removes service/overlay.
+- No orphan overlay remains after session completion or app restart.
+- Focus page intermittent black-screen/open failure is reproduced with route, WebView console, and Logcat evidence.
 
 ---
 
-### TASK ANDROID-009
+### TASK ANDROID-015
 **Priority:** P1
 **Status:** TODO
-**Objective:** Verify local-only mode in the packaged APK.
+**Objective:** Repair remaining UI polish after runtime sync/focus evidence.
 
 **Acceptance:**
-- Dashboard, tasks, subjects, syllabus, focus timer, sessions, analytics, habits, exams/tests, preferences, and local import/export work while logged out or offline.
-- Expired-token offline startup does not destroy local state.
+- Dark-mode launcher/app logo appearance is corrected without replacing the IsotopeAI UI.
+- Keyboard flicker and Android back-button behavior are verified on device and fixed if still present.
+- Smoothness issues are profiled with runtime evidence before further changes.
+- Admin/server-only panels are confirmed absent from packaged APK; community role labels are not removed.
 
 ---
 
-### TASK ANDROID-010
+### TASK ANDROID-016
 **Priority:** P1
 **Status:** TODO
 **Objective:** Run responsive and orientation verification on Android.
@@ -141,3 +99,15 @@ git push
 **Acceptance:**
 - 360x800, 800x360, 412x915, 600x960, 800x1280, and 1280x800 layouts are checked.
 - Navigation, forms, modals, keyboard insets, safe areas, charts, focus timer, settings, onboarding, and community have no clipping or horizontal overflow.
+
+---
+
+### TASK ANDROID-017
+**Priority:** P2
+**Status:** TODO
+**Objective:** Plan Capacitor 8 migration to resolve dev dependency audit findings.
+
+**Acceptance:**
+- Run separately from the production sync/focus repair.
+- Validate native bridge, patch scripts, Capacitor plugins, Gradle, and GitHub Actions after migration.
+- Do not use `npm audit fix --force` inside the current repair checkpoint.

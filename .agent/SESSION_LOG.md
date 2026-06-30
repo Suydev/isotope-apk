@@ -221,6 +221,79 @@ git push
 
 ---
 
+## Session 2026-06-30 (Floating Timer + Emoji Repair)
+
+**Agent/account:** Codex
+**Branch:** codex/android-production-repair
+**Starting commit:** `b927582`
+**Ending state:** Floating Timer/emoji repair implemented locally; ready to commit and push.
+
+**User-reported APK result:**
+- System PiP minimized the app and did not behave like the desktop-equivalent interactive timer.
+- PiP should not be called PiP if it needs an overlay; it needs Display-over-other-apps permission and must remain interactive.
+- Focus-type emoji values are corrupted, especially Lecture showing `����`.
+
+**Investigation completed before code edits:**
+- Ran `npm run agent:resume`.
+- Read `AGENTS.md`, `.agent/`, recent commits around `add0425` and `b927582`.
+- Read `android-pip-bridge.js`, `android-bridge.js`, `MainActivity.java`, manifest, patch scripts, tests, and workflow.
+- Inspected pinned `isotope-code` commit `fd39fad1384333ad774f19f35b754659a34dae60`.
+- Inspected production bundles `Focus-BmgY-9vP.js`, `DashboardHeader-DNuRMna8.js`, `App-pJGjDiPw.js`, `useFocusStore-CX_Nyp1h.js`, and `backup.json`.
+
+**Root causes confirmed:**
+- Focus opened `documentPictureInPicture`; Android injected `android-pip-bridge.js`; that entered Android system PiP. Android system PiP cannot provide directly clickable app UI.
+- `App-pJGjDiPw.js` normalized focus icons with UTF-16 `.slice(0, 4)` and preserved corrupted replacement-character data.
+
+**Completed:**
+- Added `android-floating-timer-bridge.js`.
+- Removed `android-pip-bridge.js` from packaging.
+- Patched Focus bundle contract to call `window.__isoOpenFloatingTimer()` with real store-backed state/actions.
+- Added `FloatingTimerService.java` with `WindowManager`, `TYPE_APPLICATION_OVERLAY`, foreground notification, transparent outside window, rounded draggable card, timestamp-based timer display, and action buttons.
+- Reworked `MainActivity.java` to provide overlay permission flow, service start/update/stop, reduced system PiP fallback, and queued action replay.
+- Added manifest permissions/service declaration for overlay and foreground special-use service.
+- Patched App bundle icon normalization to call a grapheme-safe normalizer.
+- Added one-shot stored profile icon repair on Android.
+- Removed deprecated `bundledWebRuntime`.
+- Upgraded AGP to `8.6.1`, Gradle wrapper to `8.7`, and GitHub Actions major versions after verifying tags.
+- Added/updated tests for Floating Timer bridge/native contracts and emoji repair.
+- Updated `.agent/` handoff documentation.
+
+**Commands run:**
+- `node --check android-floating-timer-bridge.js`
+- `node --check scripts/prepare-www.js`
+- `node --check scripts/apply-android-patches.js`
+- `npm test`
+- `npm run build`
+- `git diff --check`
+- `npm audit`
+- `npm explain tar`
+- `npm explain glob`
+- `npm audit fix --dry-run`
+- `npm audit fix --package-lock-only --dry-run`
+
+**Tests passed:**
+- `npm test`: 25 tests passed.
+- `npm run build`: prepare real UI assets, apply required patches, `npx cap sync android`, final patch pass idempotent.
+- `git diff --check`: pass.
+
+**Not verified:**
+- GitHub Actions APK build for this commit.
+- New APK install.
+- OnePlus Pad Go Floating Timer acceptance.
+- Device login/cloud sync/backup/offline/import-export/responsive checks.
+
+**Important working-tree note:**
+- `android-bridge.js` has unrelated unstaged edits from an earlier abandoned path. Do not stage them with this Floating Timer/emoji commit.
+
+**Next exact action:**
+```bash
+git add .github/workflows/android.yml android-floating-timer-bridge.js android-pip-bridge.js android/app/src/main/AndroidManifest.xml android/app/src/main/java/in/isotopeai/app/MainActivity.java android/app/src/main/java/in/isotopeai/app/FloatingTimerService.java android/build.gradle android/gradle/wrapper/gradle-wrapper.properties capacitor.config.json scripts/apply-android-patches.js scripts/prepare-www.js test/android-bridge.test.mjs test/floating-timer-bridge.test.mjs test/floating-timer-native.test.mjs test/native-timer-pip-v2.test.mjs test/prepare-patches.test.mjs .agent
+git commit -m "fix(android): replace broken PiP with floating timer and repair emoji"
+git push
+```
+
+---
+
 ## Session 2026-06-30 (Post-Login Session Persistence Follow-Up)
 
 **Agent/account:** Codex
@@ -453,4 +526,84 @@ git push
 git add android/app/src/main/java/in/isotopeai/app/MainActivity.java test/prepare-patches.test.mjs .agent
 git commit -m "fix: restore MainActivity onStart access"
 git push
+```
+
+---
+
+## 2026-06-30 / 2026-07-01 IST — Android Supabase sync bridge repair after Floating Timer pass
+
+**Agent/account:** Codex
+**Branch:** codex/android-production-repair
+**Starting commit:** `b927582`
+**Ending state:** Floating Timer/emoji/LaTeX/native smoothness/Supabase sync bridge repair implemented locally; commit/push/GitHub APK build pending.
+
+**User-reported runtime state:**
+- App is still disconnected from Supabase beyond login/info.
+- Cloud sync/import/export/backup decision logic appears broken.
+- Supabase Storage old files are not deleted and are consuming free-tier space.
+- Focus page intermittently fails to open and sometimes shows a full black screen.
+- Dark-mode PNG logo looks wrong.
+
+**Supabase investigation:**
+- Read Supabase skill instructions and fetched Supabase changelog index.
+- Relevant current risk: user-JWT Storage/RLS/Data API permissions and exposed table/RPC access. No new client endpoint breaking change found for the Storage/RPC calls used here.
+- Source-side backup manager in `isotope-code/server/backup-manager.mjs` is the contract source for canonical backup writing, empty-over-rich blocking, restore selection, and cleanup.
+
+**Root causes found in Android bridge:**
+- Bridge intercepted `/__supa/functions/v1/*` but not absolute Supabase `${SUPA_URL}/functions/v1/*`, which Supabase JS client can call.
+- `finish-session` forwarded raw compiled payload to `finish_session_sync`.
+- Daily leaderboard called nonexistent `get_daily_leaderboard`.
+- Group leaderboard and analytics forwarded `groupId` instead of SQL parameter names.
+- `/__auth/import` returned a fake success acknowledgement.
+- `/__auth/snapshot` only updated `user_settings.last_snapshot_at`.
+- `/__auth/backup` wrote loose `userId/backup-*.json` files with no canonical latest/cloud snapshot and no cleanup.
+
+**Implemented:**
+- `android-bridge.js`:
+  - Intercepts both `/__supa/functions/v1/*` and direct `${SUPA_URL}/functions/v1/*`.
+  - Maps RPC payloads to exact SQL signatures.
+  - Returns visible `ok:false` on RPC/storage failure.
+  - Writes canonical `backups/latest.json`, `backups/history/*.json`, and `cloud-snapshot/latest.json`.
+  - Archives imports under `imports/` and promotes canonical backup.
+  - Returns restore-compatible `backup_json`, `selected_backup`, candidates, and counts.
+  - Preserves `BLOCKED_EMPTY_OVERWRITE`.
+  - Cleans only current-user stale `.json` archive files after verified upload/readback.
+  - Adds cleanup preview/apply endpoints.
+- Native Android:
+  - Manifest and MainActivity now use hardware acceleration and WebView renderer priority policy.
+  - Removed unused PiP RemoteAction icon XML files.
+- Packaging:
+  - KaTeX font asset repair added so offline LaTeX CSS font references resolve.
+  - Android packaging prunes browser/PWA-only artifacts.
+
+**Tests run:**
+- `node --check android-bridge.js`
+- `node --check android-floating-timer-bridge.js scripts/prepare-www.js scripts/apply-android-patches.js`
+- `npm test`
+- `npm run build`
+- `git diff --check`
+- `npm audit --omit=optional`
+- `npm explain tar`
+- `npm explain glob`
+
+**Tests passed:**
+- `npm test`: 33 tests passed.
+- `npm run build`: `prepare-www`, required patching, `npx cap sync android`, and final idempotent patch pass succeeded.
+- `git diff --check`: PASS.
+
+**Audit result:**
+- `npm audit --omit=optional` still reports dev-only `tar@6.2.1` and `glob@9.3.5` through `@capacitor/cli@6.2.1`.
+- Non-force fix is unavailable; forced fix upgrades Capacitor CLI to 8.4.1 and is deferred.
+
+**Not verified:**
+- No local Gradle/APK build by user instruction.
+- GitHub Actions APK build pending push.
+- No runtime evidence yet for Supabase sync, community, import/export, Focus black screen, dark-mode logo, or Floating Timer on OnePlus Pad Go.
+
+**Next exact action:**
+```bash
+npm run agent:handoff
+git add .github/workflows/android.yml android-bridge.js android-floating-timer-bridge.js android-pip-bridge.js android/app android/build.gradle android/capacitor.settings.gradle android/gradle/wrapper/gradle-wrapper.properties capacitor.config.json package.json package-lock.json scripts/apply-android-patches.js scripts/prepare-www.js test .agent
+git commit -m "fix(android): repair sync bridge and floating timer"
+git push -u origin codex/android-production-repair
 ```

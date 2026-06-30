@@ -12,7 +12,7 @@
  * 3. AppAccessGate-B975UtK7.js — enable cloud bootstrap download on empty local
  * 4. useOnlineStatus-BJOTUERN.js — route online state through Capacitor Network
  * 5. useInvites-D9RLFwf8.js — rename token_input → p_code for accept_invite RPC
- * 6. AndroidManifest.xml — add internet, notification, PiP, and file permissions
+ * 6. AndroidManifest.xml — add internet, notification, overlay, and file permissions
  */
 
 const fs   = require('fs');
@@ -196,6 +196,11 @@ patchFile(appBundle, [
       '        }',
       '    },'
     ].join('\n'),
+    true
+  ],
+  [
+    's = (a.icon ?.trim() || "📌").slice(0, ns),',
+    's = typeof window < "u" && typeof window.__isoNormalizeFocusIcon == "function" ? window.__isoNormalizeFocusIcon(a.icon, t, e) : (a.icon ?.trim() || "📌").slice(0, ns),',
     true
   ],
 ], 'App-pJGjDiPw.js');
@@ -677,9 +682,9 @@ patchFile(focusStoreBundle, [
   ],
 ], 'Focus store bundle');
 
-// ── 8. Focus bundle — PIP polyfill (optional, for video PiP) ─────────────────
+// ── 8. Focus bundle — Android Floating Timer overlay ────────────────────────
 
-console.log('\n=== Patching Focus bundle ===');
+console.log('\n=== Patching Focus bundle for Android Floating Timer ===');
 const focusBundle = findAsset('Focus-') || path.join(ASSETS_DIR, 'Focus-BmgY-9vP.js');
 
 patchFile(focusBundle, [
@@ -694,15 +699,60 @@ patchFile(focusBundle, [
     ].join('\n'),
     [
       '            Xe = async () => {',
-      '                if (typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoEnterFocusPip == "function") {',
-      '                    const __pip = await window.__isoEnterFocusPip({',
-      '                        route: "/focus"',
+      '                if (typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoOpenFloatingTimer == "function") {',
+      '                    const __floating = await window.__isoOpenFloatingTimer({',
+      '                        route: "/focus",',
+      '                        subscribe: __listener => typeof B.subscribe == "function" ? B.subscribe(__listener) : function () {},',
+      '                        getState: () => {',
+      '                            const Zt = B.getState(),',
+      '                                at = Y.getState().profile ?.focusSettings,',
+      '                                is = at ?.focusTypes,',
+      '                                os = at ?.showQuestionTrackingInTimerPip ?? !0,',
+      '                                he = yt(is, Zt.sessionType, Zt.taskType),',
+      '                                rt = os && !!he,',
+      '                                pe = Zt.mode === "pomodoro" || Zt.activePhase === "break" ? Zt.timeLeft : Zt.stopwatchTime,',
+      '                                __now = Date.now(),',
+      '                                __completion = (Zt.mode === "pomodoro" || Zt.activePhase === "break") && (Zt.timerState === "running" || Zt.timerState === "break") ? __now + Math.max(0, pe || 0) * 1e3 : null;',
+      '                            return {',
+      '                                mode: Zt.mode,',
+      '                                timerState: Zt.timerState,',
+      '                                activePhase: Zt.activePhase,',
+      '                                startedAt: Zt.sessionStartTime || null,',
+      '                                completionAtMs: __completion,',
+      '                                updatedAtMs: __now,',
+      '                                displayedSeconds: Math.max(0, pe || 0),',
+      '                                totalSeconds: Math.max(0, Zt.totalTime || pe || 0),',
+      '                                sessionType: Zt.sessionType || "",',
+      '                                taskType: Zt.taskType || "",',
+      '                                focusTypeId: he ?.id || Zt.taskType || Zt.sessionType || "other",',
+      '                                focusTypeLabel: he ?.label || Zt.taskType || Zt.sessionType || "Focus",',
+      '                                focusTypeIcon: he ?.icon || "📌",',
+      '                                questionTrackingEnabled: os,',
+      '                                trackQuestions: !!he,',
+      '                                showQuestionControls: rt,',
+      '                                questionsAttempted: Zt.questionsAttempted || 0,',
+      '                                questionsCorrect: Zt.questionsCorrect || 0,',
+      '                                questionsIncorrect: Zt.questionsIncorrect || 0,',
+      '                                questionsSkipped: Zt.questionsSkipped || 0,',
+      '                                targetQuestions: Zt.targetQuestions || 0,',
+      '                                undoAvailable: !!(Zt.questionActionHistory && Zt.questionActionHistory.length),',
+      '                                theme: s ? "dark" : "light",',
+      '                                route: "/focus"',
+      '                            }',
+      '                        },',
+      '                        dispatch: __action => {',
+      '                            const __state = B.getState(),',
+      '                                __type = __action && __action.type || __action;',
+      '                            if (__type === "correct" || __type === "incorrect" || __type === "skipped") return __state.recordQuestionResult(__type), !0;',
+      '                            if (__type === "undo") return __state.undoLastQuestionResult(), !0;',
+      '                            if (__type === "setTarget") return __state.setTargetQuestions(Math.min(9999, Math.max(0, parseInt(__action.value, 10) || 0))), !0;',
+      '                            if (__type === "close" || __type === "expand") return !0;',
+      '                            return !1',
+      '                        }',
       '                    });',
-      '                    if (__pip && __pip.ok) return;',
-      '                    if (!("documentPictureInPicture" in window)) {',
-      '                        alert(__pip && __pip.reason || "Picture-in-Picture is not available on this Android device.");',
-      '                        return',
-      '                    }',
+      '                    if (__floating && __floating.ok) return;',
+      '                    alert(__floating && __floating.reason || "Floating Timer could not be opened.");',
+      '                    return',
       '                } else if (!("documentPictureInPicture" in window)) {',
       '                    alert("Picture-in-Picture is not supported in this browser.");',
       '                    return',
@@ -717,7 +767,7 @@ patchFile(focusBundle, [
     '(typeof requestPictureInPicture==="function"?requestPictureInPicture():Promise.reject("no-pip"))',
     false
   ],
-], 'Focus bundle');
+], 'Focus bundle Floating Timer');
 
 // ── 8b. Settings bundle — Android font-size control ─────────────────────────
 
@@ -827,7 +877,9 @@ if (fs.existsSync(manifestPath)) {
     '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />',
     '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />',
     '    <uses-permission android:name="android.permission.WAKE_LOCK" />',
+    '    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />',
     '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
+    '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />',
     '    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />',
   ];
 
@@ -857,6 +909,22 @@ if (fs.existsSync(manifestPath)) {
       '<application',
       '<application\n        android:networkSecurityConfig="@xml/network_security_config"'
     );
+  }
+
+  if (!manifest.includes('android:name=".FloatingTimerService"')) {
+    const serviceBlock = [
+      '        <service',
+      '            android:name=".FloatingTimerService"',
+      '            android:exported="false"',
+      '            android:foregroundServiceType="specialUse">',
+      '            <property',
+      '                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"',
+      '                android:value="interactive_focus_timer_overlay" />',
+      '        </service>',
+      ''
+    ].join('\n');
+    manifest = manifest.replace(/\n\s*<provider\b/, '\n' + serviceBlock + '        <provider');
+    patchCount++;
   }
 
   const missingActivityAttributes = [
@@ -908,13 +976,15 @@ console.log('\n=== Verifying Android native resources ===');
 if (fs.existsSync(ANDROID_DIR)) {
   const notificationIconPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'res', 'drawable', 'ic_notification.xml');
   const mainActivityPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'java', 'in', 'isotopeai', 'app', 'MainActivity.java');
+  const floatingTimerServicePath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'java', 'in', 'isotopeai', 'app', 'FloatingTimerService.java');
   const launcherForegroundPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'res', 'drawable-v24', 'ic_launcher_foreground.xml');
   const launcherBackgroundPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'res', 'values', 'ic_launcher_background.xml');
 
   const resourceChecks = [
     [notificationIconPath, 'ic_notification.xml', /strokeColor="#FFFFFFFF"|fillColor="#FFFFFFFF"/],
-    [mainActivityPath, 'MainActivity.java PiP bridge', /enterPictureInPictureMode|JavascriptInterface/],
-    [launcherForegroundPath, 'launcher foreground isotope atom', /A78BFA|PictureInPicture/],
+    [mainActivityPath, 'MainActivity.java Floating Timer bridge', /startFloatingTimer|requestOverlayPermission|replayFloatingTimerActions/],
+    [floatingTimerServicePath, 'FloatingTimerService.java overlay renderer', /TYPE_APPLICATION_OVERLAY|WindowManager|startForeground/],
+    [launcherForegroundPath, 'launcher foreground isotope atom', /A78BFA/],
     [launcherBackgroundPath, 'launcher background color', /#111827/],
   ];
 

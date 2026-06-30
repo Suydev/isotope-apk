@@ -148,6 +148,75 @@ function defaultSupabaseHandler({ profileRow, onboardingRow, userRow, backupText
   };
 }
 
+function backupPayload(data = {}, exportedAt = '2026-06-30T00:00:00.000Z') {
+  return {
+    version: 1,
+    source: 'isotopeai',
+    exportedAt,
+    appVersion: 'test',
+    data: {
+      profile: data.profile ?? null,
+      timerState: data.timerState ?? null,
+      tasks: data.tasks ?? [],
+      sessions: data.sessions ?? [],
+      subjects: data.subjects ?? [],
+      habits: data.habits ?? [],
+      dailyLogs: data.dailyLogs ?? [],
+      tests: data.tests ?? [],
+      exams: data.exams ?? [],
+      mockTests: data.mockTests ?? [],
+    },
+  };
+}
+
+function createStorageSupabaseHandler(userId, initialObjects = {}, extraHandler = async () => null) {
+  const objects = new Map(Object.entries(initialObjects));
+  const deleted = [];
+  const uploaded = [];
+  const handler = async (url, init = {}) => {
+    const extra = await extraHandler(url, init, { objects, deleted, uploaded });
+    if (extra) return extra;
+    if (url.includes('/rest/v1/backup_manifests')) return jsonResponse([{ recorded: true }]);
+    if (url.includes('/rest/v1/user_profiles')) return jsonResponse([{ profile_data: {}, updated_at: '2026-06-30T00:00:00Z' }]);
+    if (url.includes('/storage/v1/object/list/user-content')) {
+      const body = init.body ? JSON.parse(init.body) : {};
+      const prefix = body.prefix || '';
+      const rows = Array.from(objects.keys())
+        .filter((key) => key.startsWith(prefix))
+        .map((key) => ({
+          name: key.slice(prefix.length),
+          updated_at: '2026-06-30T00:00:00Z',
+          metadata: { size: String(objects.get(key)).length },
+        }))
+        .filter((row) => row.name && !row.name.includes('/'));
+      return jsonResponse(rows);
+    }
+    if (url.includes('/storage/v1/object/user-content/')) {
+      const objectPath = decodeURIComponent(url.split('/storage/v1/object/user-content/')[1]);
+      if ((init.method || 'GET').toUpperCase() === 'POST') {
+        objects.set(objectPath, String(init.body || ''));
+        uploaded.push(objectPath);
+        return jsonResponse({ Key: objectPath });
+      }
+      if (!objects.has(objectPath)) return textResponse('not found', 404);
+      return textResponse(objects.get(objectPath));
+    }
+    if (url.endsWith('/storage/v1/object/user-content') && (init.method || '').toUpperCase() === 'DELETE') {
+      const body = init.body ? JSON.parse(init.body) : {};
+      for (const prefix of body.prefixes || []) {
+        if (objects.delete(prefix)) deleted.push(prefix);
+      }
+      return jsonResponse([]);
+    }
+    return jsonResponse([]);
+  };
+  handler.objects = objects;
+  handler.deleted = deleted;
+  handler.uploaded = uploaded;
+  handler.userId = userId;
+  return handler;
+}
+
 async function fetchJson(window, pathName, init = {}) {
   const response = await window.fetch(pathName, init);
   return { response, data: await response.json() };
@@ -271,12 +340,202 @@ test('RPC failure is propagated instead of returned as ok:true', async () => {
     }
     return jsonResponse([]);
   });
+  installSession(harness.localStorage);
 
   const { response, data } = await fetchJson(harness.window, '/__supa/functions/v1/get-leaderboard', { method: 'POST' });
 
   assert.equal(response.status, 400);
   assert.equal(data.ok, false);
   assert.match(data.error, /bad rpc/);
+});
+
+test('direct Supabase function URLs are intercepted and RPC payloads are mapped', async () => {
+  const userId = '77777777-7777-4777-8777-777777777777';
+  const rpcBodies = [];
+  const storageHandler = createStorageSupabaseHandler(userId, {}, async (url, init) => {
+    if (url.includes('/rest/v1/rpc/get_leaderboard')) {
+      rpcBodies.push({ rpc: 'leaderboard', body: JSON.parse(init.body) });
+      return jsonResponse([{ rank: 1, user_id: userId, name: 'Student', score: 4 }]);
+    }
+    if (url.includes('/rest/v1/rpc/get_group_leaderboard')) {
+      rpcBodies.push({ rpc: 'group_leaderboard', body: JSON.parse(init.body) });
+      return jsonResponse([{ rank: 1, user_id: userId, points: 12 }]);
+    }
+    if (url.includes('/rest/v1/rpc/get_group_analytics_from_snapshots')) {
+      rpcBodies.push({ rpc: 'group_analytics', body: JSON.parse(init.body) });
+      return jsonResponse([{ study_date: '2026-06-30', total_seconds: 3600, member_count: 2 }]);
+    }
+    return null;
+  });
+  const harness = createBridgeHarness(storageHandler);
+  installSession(harness.localStorage, makeSession(userId));
+
+  const daily = await fetchJson(harness.window, `${SUPA_URL}/functions/v1/get-daily-leaderboard`, {
+    method: 'POST',
+    body: JSON.stringify({ limit: 7 }),
+  });
+  const groupLeaderboard = await fetchJson(harness.window, `${SUPA_URL}/functions/v1/get-group-leaderboard`, {
+    method: 'POST',
+    body: JSON.stringify({ groupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', limit: 9 }),
+  });
+  const groupAnalytics = await fetchJson(harness.window, `${SUPA_URL}/functions/v1/get-group-analytics`, {
+    method: 'POST',
+    body: JSON.stringify({ groupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', days: 14 }),
+  });
+
+  assert.equal(daily.data.ok, true);
+  assert.equal(groupLeaderboard.data.ok, true);
+  assert.equal(groupAnalytics.data.ok, true);
+  assert.equal(harness.calls.some((call) => call.url.includes('/rest/v1/rpc/get_daily_leaderboard')), false);
+  assert.deepEqual(rpcBodies.find((row) => row.rpc === 'leaderboard').body, {
+    p_period: 'daily',
+    p_limit: 7,
+    p_offset: 0,
+  });
+  assert.deepEqual(rpcBodies.find((row) => row.rpc === 'group_leaderboard').body, {
+    p_group_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    p_limit: 9,
+  });
+  assert.deepEqual(rpcBodies.find((row) => row.rpc === 'group_analytics').body, {
+    p_group_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    p_days: 14,
+  });
+});
+
+test('finish-session maps compiled payload to finish_session_sync and snapshots local data', async () => {
+  const userId = '88888888-8888-4888-8888-888888888888';
+  let rpcBody;
+  const storageHandler = createStorageSupabaseHandler(userId, {}, async (url, init) => {
+    if (url.includes('/rest/v1/rpc/finish_session_sync')) {
+      rpcBody = JSON.parse(init.body);
+      return jsonResponse({ affected_group_ids: [], challenge_updates: [] });
+    }
+    return null;
+  });
+  const harness = createBridgeHarness(storageHandler);
+  installSession(harness.localStorage, makeSession(userId));
+  harness.window.IsotopeLocalDataAdapter = {
+    async buildBackupPayloadFromLocal() {
+      return backupPayload({ sessions: [{ id: 'local-session', duration: 25 }] });
+    },
+  };
+
+  const { data } = await fetchJson(harness.window, `${SUPA_URL}/functions/v1/finish-session`, {
+    method: 'POST',
+    body: JSON.stringify({
+      session_id: '99999999-9999-4999-8999-999999999999',
+      action: 'complete',
+      durationMinutes: 25,
+      groupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      sessionType: 'questions',
+      notes: 'done',
+      endedAt: '2026-06-30T01:00:00Z',
+    }),
+  });
+
+  assert.equal(data.ok, true);
+  assert.deepEqual(rpcBody, {
+    p_session_id: '99999999-9999-4999-8999-999999999999',
+    p_action: 'complete',
+    p_duration_minutes: 25,
+    p_group_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    p_session_type: 'questions',
+    p_notes: 'done',
+    p_ended_at: '2026-06-30T01:00:00Z',
+  });
+  assert.ok(storageHandler.uploaded.includes(`${userId}/backups/latest.json`));
+  assert.ok(storageHandler.uploaded.includes(`${userId}/cloud-snapshot/latest.json`));
+});
+
+test('backup upload blocks empty local overwrite of richer cloud backup', async () => {
+  const userId = '99999999-9999-4999-8999-999999999999';
+  const richCloud = JSON.stringify(backupPayload({ tasks: [{ id: 'cloud-task', title: 'Keep me' }] }));
+  const storageHandler = createStorageSupabaseHandler(userId, {
+    [`${userId}/backups/latest.json`]: richCloud,
+  });
+  const harness = createBridgeHarness(storageHandler);
+  installSession(harness.localStorage, makeSession(userId));
+
+  const { response, data } = await fetchJson(harness.window, '/__auth/backup', {
+    method: 'POST',
+    body: JSON.stringify({ backup_json: backupPayload({ profile: { display_name: 'Fresh install' } }) }),
+  });
+
+  assert.equal(response.status, 409);
+  assert.equal(data.code, 'BLOCKED_EMPTY_OVERWRITE');
+  assert.equal(data.selected_backup.rich, true);
+  assert.equal(storageHandler.uploaded.length, 0);
+});
+
+test('backup upload writes canonical latest/history/cloud snapshot and cleans stale user files', async () => {
+  const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const emptyOld = JSON.stringify(backupPayload({ profile: { display_name: 'old' } }, '2026-06-01T00:00:00.000Z'));
+  const storageHandler = createStorageSupabaseHandler(userId, {
+    [`${userId}/imports/old-empty.json`]: emptyOld,
+  });
+  const harness = createBridgeHarness(storageHandler);
+  installSession(harness.localStorage, makeSession(userId));
+
+  const localRich = backupPayload({
+    tasks: [{ id: 'task-1', title: 'Physics' }],
+    sessions: [{ id: 'session-1', duration: 40 }],
+  });
+  const { data } = await fetchJson(harness.window, '/__auth/backup', {
+    method: 'POST',
+    body: JSON.stringify({ backup_json: localRich }),
+  });
+
+  assert.equal(data.ok, true);
+  assert.equal(data.code, 'CANONICAL_BACKUP_WRITTEN');
+  assert.equal(data.collection_counts.tasks, 1);
+  assert.ok(storageHandler.uploaded.includes(`${userId}/backups/latest.json`));
+  assert.ok(storageHandler.uploaded.some((item) => item.startsWith(`${userId}/backups/history/`)));
+  assert.ok(storageHandler.uploaded.includes(`${userId}/cloud-snapshot/latest.json`));
+  assert.ok(storageHandler.deleted.includes(`${userId}/imports/old-empty.json`));
+  assert.equal(storageHandler.deleted.includes(`${userId}/backups/latest.json`), false);
+  assert.equal(storageHandler.deleted.includes(`${userId}/cloud-snapshot/latest.json`), false);
+});
+
+test('restore-best-backup returns browser restore payload with selected backup', async () => {
+  const userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const richCloud = JSON.stringify(backupPayload({ subjects: [{ id: 'sub-1', name: 'Chemistry' }] }));
+  const storageHandler = createStorageSupabaseHandler(userId, {
+    [`${userId}/exports/latest.json`]: richCloud,
+  });
+  const harness = createBridgeHarness(storageHandler);
+  installSession(harness.localStorage, makeSession(userId));
+
+  const { data } = await fetchJson(harness.window, '/__auth/restore-best-backup', {
+    method: 'POST',
+    body: JSON.stringify({ promote: false }),
+  });
+
+  assert.equal(data.ok, true);
+  assert.equal(data.restore_required_on_browser, true);
+  assert.equal(data.selected_backup.path, `${userId}/exports/latest.json`);
+  assert.equal(typeof data.backup_json, 'string');
+  assert.equal(data.collection_counts.subjects, 1);
+});
+
+test('import archives backup, promotes canonical copy, and returns restore metadata', async () => {
+  const userId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const storageHandler = createStorageSupabaseHandler(userId);
+  const harness = createBridgeHarness(storageHandler);
+  installSession(harness.localStorage, makeSession(userId));
+
+  const incoming = backupPayload({ habits: [{ id: 'habit-1', title: 'Read' }] });
+  const { data } = await fetchJson(harness.window, '/__auth/import', {
+    method: 'POST',
+    body: JSON.stringify({ backup_json: incoming }),
+  });
+
+  assert.equal(data.ok, true);
+  assert.equal(data.code, 'IMPORT_ARCHIVED_AND_PROMOTED');
+  assert.equal(data.restore_required_on_browser, true);
+  assert.equal(data.collection_counts.habits, 1);
+  assert.ok(storageHandler.uploaded.includes(`${userId}/imports/latest.json`));
+  assert.ok(storageHandler.uploaded.includes(`${userId}/backups/latest.json`));
+  assert.ok(storageHandler.uploaded.includes(`${userId}/cloud-snapshot/latest.json`));
 });
 
 test('Android bridge routes online state through Capacitor Network', async () => {
@@ -353,20 +612,4 @@ test('focus timer native scheduling cancels previous completion notification fir
   assert.equal(scheduled.length, 1);
   assert.equal(scheduled[0].notifications[0].extra.data.kind, 'focus-complete');
   assert.equal(scheduled[0].notifications[0].smallIcon, 'ic_notification');
-});
-
-test('Focus PiP bridge delegates to the Android JavaScript interface', async () => {
-  let entered = 0;
-  const harness = createBridgeHarness(defaultSupabaseHandler());
-  harness.window.IsotopeAndroid = {
-    isPipSupported() { return true; },
-    enterFocusPip() { entered += 1; },
-  };
-
-  assert.equal(harness.window.__isoAndroidPipSupported(), true);
-  const result = await harness.window.__isoEnterFocusPip({ route: '/focus' });
-
-  assert.equal(result.ok, true);
-  assert.equal(entered, 1);
-  assert.match(harness.localStorage.getItem('isotope-focus-pip-state'), /"route":"\/focus"/);
 });
