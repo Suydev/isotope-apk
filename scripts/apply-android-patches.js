@@ -776,6 +776,16 @@ patchFile(communityHubBundle, [
     true
   ],
   [
+    'A=p.useMemo(()=>{const r=o?.weekly_hours||0,s=o?.total_sessions||0;return[',
+    'A=p.useMemo(()=>{const r=Number.isFinite(Number(o?.weekly_hours))?Number(o?.weekly_hours):0,s=Number.isFinite(Number(o?.total_sessions))?Number(o?.total_sessions):0;return[',
+    true
+  ],
+  [
+    'W=(r,s,d)=>{if(d==="hours")return`${r.toFixed(1)}/${s}h`;',
+    'W=(r,s,d)=>{const __v=Number.isFinite(Number(r))?Number(r):0;if(d==="hours")return`${__v.toFixed(1)}/${s}h`;',
+    true
+  ],
+  [
     'dr=t=>e.jsx(pe,{featureName:"Community Hub",children:e.jsx(Ae,{...t})});',
     'dr=t=>e.jsx(Ae,{...t});',
     true
@@ -783,6 +793,21 @@ patchFile(communityHubBundle, [
 ], 'CommunityHub bundle');
 
 patchFile(singleGroupBundle, [
+  [
+    'function Ma({groupId:t,isOwner:r,isEnabled:s=!0}){const{hasSeenTour:a,setHasSeenTour:l}=Ut(),i=a[t]??!1,n=g.useCallback(()=>{',
+    'function Ma({groupId:t,isOwner:r,isEnabled:s=!0}){const{hasSeenTour:a,setHasSeenTour:l}=Ut(),__tourKey="isotope:group-tour-seen:"+(t||"global"),__tourSeen=typeof window<"u"&&window.localStorage&&window.localStorage.getItem(__tourKey)==="1",i=__tourSeen||!!(a[t]??!1),n=g.useCallback(()=>{',
+    true
+  ],
+  [
+    'onDestroyed:()=>{l(t,!0)}});return x.drive(),x},[t,r,l]);',
+    'onDestroyed:()=>{try{typeof window<"u"&&window.localStorage&&window.localStorage.setItem(__tourKey,"1")}catch{}l(t,!0)}});return x.drive(),x},[t,r,l,__tourKey]);',
+    true
+  ],
+  [
+    'const c=g.useCallback(()=>{l(t,!1)},[t,l]);return{startTour:n,hasSeen:i,resetTour:c}}',
+    'const c=g.useCallback(()=>{try{typeof window<"u"&&window.localStorage&&window.localStorage.removeItem(__tourKey)}catch{}l(t,!1)},[t,l,__tourKey]);return{startTour:n,hasSeen:i,resetTour:c}}',
+    true
+  ],
   [
     'function Vs(t){const r=q(s=>s.isPremium());return we({',
     'function Vs(t){const r=!0;return we({',
@@ -821,6 +846,11 @@ patchFile(singleGroupBundle, [
 ], 'SingleGroup bundle');
 
 patchFile(useLeaderboardBundle, [
+  [
+    'return e={...e,rankings:Array.isArray(e.rankings)?e.rankings.filter(w):[],currentUserRank:w(e.currentUserRank)?e.currentUserRank:void 0},',
+    'return e={...e,rankings:Array.isArray(e.rankings)?e.rankings.filter(w).map((a,o)=>({...a,rank:Number.isFinite(Number(a.rank))?Number(a.rank):o+1,hours:Number.isFinite(Number(a.hours))?Number(a.hours):0,total_hours:Number.isFinite(Number(a.total_hours))?Number(a.total_hours):Number.isFinite(Number(a.hours))?Number(a.hours):0,score:Number.isFinite(Number(a.score))?Number(a.score):0,total_sessions:Number.isFinite(Number(a.total_sessions))?Number(a.total_sessions):0})):[],currentUserRank:w(e.currentUserRank)?{...e.currentUserRank,rank:Number.isFinite(Number(e.currentUserRank.rank))?Number(e.currentUserRank.rank):void 0,hours:Number.isFinite(Number(e.currentUserRank.hours))?Number(e.currentUserRank.hours):0,total_hours:Number.isFinite(Number(e.currentUserRank.total_hours))?Number(e.currentUserRank.total_hours):Number.isFinite(Number(e.currentUserRank.hours))?Number(e.currentUserRank.hours):0,score:Number.isFinite(Number(e.currentUserRank.score))?Number(e.currentUserRank.score):0,total_sessions:Number.isFinite(Number(e.currentUserRank.total_sessions))?Number(e.currentUserRank.total_sessions):0}:void 0},',
+    true
+  ],
   [
     'function O({period:s,limit:r=50,groupId:t}){const c=k(e=>e.isPremium()),n=s==="daily";',
     'function O({period:s,limit:r=50,groupId:t}){const c=!0,n=s==="daily";',

@@ -245,9 +245,14 @@ test('apply-android-patches unlocks community group actions on Android', () => {
   assert.match(useGroups, /e = !0;/);
 
   assert.match(communityHub, /function ze\(\)\{const t=!0,n=E\(i=>i\.userId\);/);
+  assert.match(communityHub, /Number\.isFinite\(Number\(o\?\.weekly_hours\)\)/);
+  assert.match(communityHub, /const __v=Number\.isFinite\(Number\(r\)\)\?Number\(r\):0/);
   assert.match(communityHub, /dr=t=>e\.jsx\(Ae,\{\.\.\.t\}\);/);
   assert.doesNotMatch(communityHub, /featureName:"Community Hub"/);
 
+  assert.match(singleGroup, /isotope:group-tour-seen:/);
+  assert.match(singleGroup, /localStorage\.setItem\(__tourKey,"1"\)/);
+  assert.match(singleGroup, /localStorage\.removeItem\(__tourKey\)/);
   assert.match(singleGroup, /function Vs\(t\)\{const r=!0;return we\(\{/);
   assert.match(singleGroup, /function Qs\(t\)\{const r=!0;return we\(\{/);
   assert.match(singleGroup, /function Zs\(t\)\{const r=!0;return we\(\{/);
@@ -258,6 +263,8 @@ test('apply-android-patches unlocks community group actions on Android', () => {
   assert.doesNotMatch(singleGroup, /featureName:"Group Details"/);
 
   assert.match(leaderboard, /function O\(\{period:s,limit:r=50,groupId:t\}\)\{const c=!0,n=s==="daily";/);
+  assert.match(leaderboard, /Number\.isFinite\(Number\(a\.hours\)\)\?Number\(a\.hours\):0/);
+  assert.match(leaderboard, /Number\.isFinite\(Number\(e\.currentUserRank\.hours\)\)\?Number\(e\.currentUserRank\.hours\):0/);
   assert.match(leaderboard, /function U\(\)\{const s=!0,r=k\(t=>t\.userId\);/);
   assert.doesNotMatch(leaderboard, /isPremium\(\)/);
 });
