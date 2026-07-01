@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -17,11 +18,13 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -38,6 +41,8 @@ public class FloatingTimerService extends Service {
     private static final String CHANNEL_ID = "isotope-floating-timer";
     private static final String PREF_X = "overlay_x";
     private static final String PREF_Y = "overlay_y";
+    private static final String PREF_WIDTH = "overlay_width";
+    private static final String PREF_HEIGHT = "overlay_height";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WindowManager windowManager;
@@ -61,10 +66,13 @@ public class FloatingTimerService extends Service {
     private TimerState state = TimerState.idle();
     private boolean foregroundStarted = false;
     private boolean dragging = false;
+    private boolean resizing = false;
     private float touchStartX = 0;
     private float touchStartY = 0;
     private int windowStartX = 0;
     private int windowStartY = 0;
+    private int resizeStartWidth = 0;
+    private int resizeStartHeight = 0;
 
     private final Runnable tickRunnable = new Runnable() {
         @Override
@@ -183,9 +191,10 @@ public class FloatingTimerService extends Service {
             return;
         }
         buildOverlayView();
+        SharedPreferences prefs = getSharedPreferences(MainActivity.PREFS_FLOATING_TIMER, MODE_PRIVATE);
         layoutParams = new WindowManager.LayoutParams(
-            dp(340),
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            clampOverlayWidth(prefs.getInt(PREF_WIDTH, dp(340))),
+            clampOverlayHeight(prefs.getInt(PREF_HEIGHT, dp(390))),
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE,
@@ -195,7 +204,6 @@ public class FloatingTimerService extends Service {
             PixelFormat.TRANSLUCENT
         );
         layoutParams.gravity = Gravity.TOP | Gravity.START;
-        SharedPreferences prefs = getSharedPreferences(MainActivity.PREFS_FLOATING_TIMER, MODE_PRIVATE);
         layoutParams.x = prefs.getInt(PREF_X, dp(18));
         layoutParams.y = prefs.getInt(PREF_Y, dp(72));
         try {
@@ -223,8 +231,7 @@ public class FloatingTimerService extends Service {
 
         cardView = new LinearLayout(this);
         cardView.setOrientation(LinearLayout.VERTICAL);
-        cardView.setPadding(dp(18), dp(16), dp(18), dp(16));
-        cardView.setMinimumHeight(dp(390));
+        cardView.setPadding(dp(18), dp(16), dp(18), dp(20));
         cardView.setOnTouchListener(this::handleDragTouch);
 
         LinearLayout header = new LinearLayout(this);
@@ -269,7 +276,7 @@ public class FloatingTimerService extends Service {
         attemptRow.setOrientation(LinearLayout.HORIZONTAL);
         attemptedText = makeText(28, true);
         targetButton = makePillButton("Target");
-        targetButton.setOnClickListener(v -> toggleTargetEditor());
+        targetButton.setOnClickListener(v -> showTargetDialog());
         attemptRow.addView(attemptedText, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         attemptRow.addView(targetButton);
 
@@ -315,7 +322,14 @@ public class FloatingTimerService extends Service {
         cardView.addView(statusRow);
         cardView.addView(focusTypeText);
         cardView.addView(questionSection);
-        root.addView(cardView, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+        root.addView(cardView, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        TextView resizeHandle = makeText(20, true);
+        resizeHandle.setText("◢");
+        resizeHandle.setGravity(Gravity.CENTER);
+        resizeHandle.setTextColor(Color.argb(150, 255, 255, 255));
+        resizeHandle.setOnTouchListener(this::handleResizeTouch);
+        FrameLayout.LayoutParams resizeParams = new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM | Gravity.RIGHT);
+        root.addView(resizeHandle, resizeParams);
         rootView = root;
     }
 
@@ -360,6 +374,47 @@ public class FloatingTimerService extends Service {
         }
     }
 
+    private boolean handleResizeTouch(View view, MotionEvent event) {
+        if (layoutParams == null || windowManager == null) {
+            return false;
+        }
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                resizing = true;
+                touchStartX = event.getRawX();
+                touchStartY = event.getRawY();
+                resizeStartWidth = layoutParams.width;
+                resizeStartHeight = layoutParams.height;
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (!resizing) {
+                    return true;
+                }
+                int dx = Math.round(event.getRawX() - touchStartX);
+                int dy = Math.round(event.getRawY() - touchStartY);
+                layoutParams.width = clampOverlayWidth(resizeStartWidth + dx);
+                layoutParams.height = clampOverlayHeight(resizeStartHeight + dy);
+                try {
+                    windowManager.updateViewLayout(rootView, layoutParams);
+                } catch (Exception ignored) {
+                }
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                if (resizing) {
+                    getSharedPreferences(MainActivity.PREFS_FLOATING_TIMER, MODE_PRIVATE)
+                        .edit()
+                        .putInt(PREF_WIDTH, layoutParams.width)
+                        .putInt(PREF_HEIGHT, layoutParams.height)
+                        .apply();
+                }
+                resizing = false;
+                return true;
+            default:
+                return false;
+        }
+    }
+
     private void renderAll() {
         if (cardView == null || state == null) {
             return;
@@ -381,6 +436,11 @@ public class FloatingTimerService extends Service {
         targetValueText.setTextColor(mutedColor);
         headingText.setText(state.mode.equals("stopwatch") ? "Stopwatch" : "Pomodoro");
         questionSection.setVisibility(state.showQuestionControls ? View.VISIBLE : View.GONE);
+        styleButton(targetButton, dark ? Color.argb(18, 255, 255, 255) : Color.argb(205, 255, 255, 255), textColor, dark ? Color.argb(42, 255, 255, 255) : Color.argb(42, 24, 24, 27));
+        styleButton(correctButton, Color.rgb(5, 150, 105), Color.WHITE, Color.TRANSPARENT);
+        styleButton(incorrectButton, Color.rgb(225, 29, 72), Color.WHITE, Color.TRANSPARENT);
+        styleButton(skippedButton, Color.rgb(217, 119, 6), Color.WHITE, Color.TRANSPARENT);
+        styleButton(undoButton, Color.TRANSPARENT, mutedColor, dark ? Color.argb(36, 255, 255, 255) : Color.argb(36, 24, 24, 27));
         renderDynamicFields();
     }
 
@@ -406,14 +466,46 @@ public class FloatingTimerService extends Service {
         }
     }
 
-    private void toggleTargetEditor() {
-        if (targetEditorRow != null) {
-            targetEditorRow.setVisibility(targetEditorRow.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
-        }
-    }
-
     private void updateTargetBy(int delta) {
         setTarget(Math.max(0, Math.min(9999, state.targetQuestions + delta)));
+    }
+
+    private void showTargetDialog() {
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setSingleLine(true);
+        input.setText(state.targetQuestions > 0 ? String.valueOf(state.targetQuestions) : "");
+        input.setSelectAllOnFocus(true);
+        int padding = dp(20);
+        input.setPadding(padding, dp(12), padding, dp(12));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("Set target questions")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Set", (d, which) -> {
+                int value = 0;
+                try {
+                    value = Integer.parseInt(input.getText().toString().trim());
+                } catch (Exception ignored) {
+                }
+                setTarget(Math.max(0, Math.min(9999, value)));
+            })
+            .create();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && dialog.getWindow() != null) {
+            dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        }
+        dialog.setOnShowListener(d -> {
+            if (dialog.getWindow() != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+            }
+            input.requestFocus();
+        });
+        try {
+            dialog.show();
+        } catch (Exception ignored) {
+            updateTargetBy(5);
+        }
     }
 
     private void setTarget(int value) {
@@ -470,6 +562,20 @@ public class FloatingTimerService extends Service {
         return button;
     }
 
+    private void styleButton(Button button, int backgroundColor, int textColor, int strokeColor) {
+        if (button == null) {
+            return;
+        }
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(backgroundColor);
+        background.setCornerRadius(dp(999));
+        if (strokeColor != Color.TRANSPARENT) {
+            background.setStroke(dp(1), strokeColor);
+        }
+        button.setTextColor(textColor);
+        button.setBackground(background);
+    }
+
     private void applyTextColor(View view, int color) {
         if (view instanceof TextView) {
             ((TextView) view).setTextColor(color);
@@ -511,6 +617,18 @@ public class FloatingTimerService extends Service {
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private int clampOverlayWidth(int value) {
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int max = Math.max(dp(320), Math.min(dp(560), screenWidth - dp(24)));
+        return Math.max(dp(280), Math.min(max, value));
+    }
+
+    private int clampOverlayHeight(int value) {
+        int screenHeight = getResources().getDisplayMetrics().heightPixels;
+        int max = Math.max(dp(360), Math.min(dp(720), screenHeight - dp(24)));
+        return Math.max(dp(300), Math.min(max, value));
     }
 
     private static class TimerState {
