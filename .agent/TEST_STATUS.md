@@ -62,11 +62,13 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 | Capacitor sync | PASS | 2026-07-01 | local branch | `npm run build` includes `npx cap sync android` |
 | Npm audit non-force fix | BLOCKED | 2026-06-30 | local branch | `npm audit --omit=optional`; fix requires forced Capacitor 8.4.1 upgrade |
 | GitHub Actions debug APK build for previous repair | PASS | 2026-06-30 | `a99d575` | Run `28483486050`, artifact `IsotopeAI-debug-45` id `7996534384` |
-| GitHub Actions debug APK build for latest local changes | UNTESTED | — | — | Requires commit and push |
-| Artifact download/extract from local shell | BLOCKED | 2026-06-30 | `a99d575` | GitHub API artifact ZIP returned HTTP 401; no `GITHUB_PAT`, `GH_TOKEN`, or `gh` auth available |
+| GitHub Actions debug APK build for latest changes | PASS | 2026-07-01 | `8f5cb1f` | Run `28516820643`, artifact `IsotopeAI-debug-46` id `8009649602` |
+| Artifact download/extract from local shell | PASS | 2026-07-01 | `8f5cb1f` | Used `GITHUB_PAT` from `.env`; `app-debug.apk` extracted and inspected, then local artifact files deleted |
+| Static APK inspection for latest artifact | PASS | 2026-07-01 | `8f5cb1f` | Real UI chunks and Android patch markers found in `app-debug.apk`; package `in.isotopeai.app`, targetSdk 35 |
 | Local Termux Gradle debug APK build | SKIPPED | 2026-06-30 | local branch | User instructed to use GitHub Actions only |
-| App launch in packaged APK | UNTESTED | — | — | Requires GitHub-built APK |
-| Login with real credentials in new APK | UNTESTED | — | — | Requires GitHub-built APK |
+| ADB device availability | BLOCKED | 2026-07-01 | local shell | `adb devices` showed no connected devices |
+| App launch in packaged APK | UNTESTED | — | — | Requires connected device/emulator |
+| Login with real credentials in new APK | UNTESTED | — | — | Requires connected device/emulator |
 | Cloud sync online/backup restore | UNTESTED | — | — | Requires runtime evidence |
 | Community/leaderboards/session sync | UNTESTED | — | — | Requires runtime evidence |
 | Floating Timer on OnePlus Pad Go | UNTESTED | — | — | Requires device evidence |

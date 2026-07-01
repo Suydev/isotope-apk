@@ -667,6 +667,15 @@ git push -u origin codex/android-production-repair
 
 **Not verified:**
 - No local Gradle/APK assembly by user instruction; use GitHub Actions only.
-- Latest changes are not yet committed/pushed at the time of this log entry.
-- GitHub Actions APK build for this checkpoint is pending.
+- Latest changes were committed and pushed as `8f5cb1f` with message `fix(android): stabilize analytics and cloud profile sync`.
+- GitHub Actions APK build passed: run `28516820643`.
+- Artifact downloaded with `GITHUB_PAT` from `.env`: `IsotopeAI-debug-46`, artifact id `8009649602`.
+- Extracted `app-debug.apk` size: 56,024,656 bytes.
+- Static APK inspection passed:
+  - Real UI chunks present.
+  - `android-bridge.js`, `android-floating-timer-bridge.js`, `backup-normalizer.js`, and `local-data-adapter.js` present.
+  - Patch markers found: `__isoAndroidForceRepaint`, `persistCompletedOnboardingIfNeeded`, `__androidStable`, `h.slice(0,120)`, Headway `7eeYY7`, new Featurebase URL, Android Sentry skip.
+  - `aapt dump badging` shows package `in.isotopeai.app`, compile/target SDK 35, and notification/overlay/foreground-service permissions.
+- Temporary `.artifact-tmp/` files were deleted after inspection.
+- `adb devices` showed no connected devices, so install/runtime testing could not run from this shell.
 - OnePlus Pad Go runtime verification is pending for Analytics Monthly switching, Focus reopen, login persistence, cloud sync, storage cleanup, Floating Timer, and notifications.

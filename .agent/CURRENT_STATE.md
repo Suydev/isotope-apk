@@ -1,6 +1,6 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-07-01T10:20:00+05:30
+**Updated:** 2026-07-01T17:58:00+05:30
 **Branch:** codex/android-production-repair
 **Current phase:** ANDROID-012 — Android Supabase sync/Floating Timer/Analytics stability repair awaiting new GitHub APK + device tests
 
@@ -58,6 +58,17 @@
 - [x] `npm test` passes 40 Node tests.
 - [x] `npm run build` passes: `prepare-www`, required patching, `npx cap sync android`, final idempotent patch pass.
 - [x] `git diff --check` passes.
+- [x] GitHub Actions build for commit `8f5cb1f` passed.
+- [x] Downloaded and extracted artifact `IsotopeAI-debug-46` using `GITHUB_PAT` from `.env`.
+- [x] Statically inspected the APK:
+  - `app-debug.apk` size: 56,024,656 bytes.
+  - Package: `in.isotopeai.app`.
+  - compileSdk/targetSdk: 35.
+  - Real UI assets present: `App-pJGjDiPw.js`, `Analytics-D74gQMjN.js`, `AnalyticsPeriod-CGXbfYQB.js`, `DashboardHeader-DNuRMna8.js`, `HeadwayUpdatesButton-DUh668tJ.js`.
+  - Bridge assets present: `android-bridge.js`, `android-floating-timer-bridge.js`, `sync/backup-normalizer.js`, `sync/local-data-adapter.js`.
+  - Markers found in APK: `__isoAndroidForceRepaint`, `persistCompletedOnboardingIfNeeded`, `__androidStable`, `h.slice(0,120)`, Headway account `7eeYY7`, Featurebase app link, Android Sentry startup skip.
+  - Permissions found: notification, overlay, foreground service, exact alarm, network state.
+  - Temporary artifact directory `.artifact-tmp/` deleted after inspection.
 
 ## Important Test Scope
 
@@ -65,9 +76,9 @@
 - Unit/patch-contract tested: YES, 40 Node tests.
 - Local Capacitor sync/build script: YES, `npm run build`.
 - Local Gradle/APK build: SKIPPED by user instruction. Use GitHub Actions only.
-- CI APK build: PASS for older commit `a99d575`, GitHub Actions run `28483486050`. New local changes are not CI-built yet until committed/pushed.
-- Debug artifact: `IsotopeAI-debug-45`, artifact id `7996534384`.
-- Artifact ZIP download from this shell: BLOCKED, GitHub API returned HTTP 401 because `GITHUB_PAT`/`GH_TOKEN`/`gh` auth is unavailable.
+- CI APK build: PASS for commit `8f5cb1f`, GitHub Actions run `28516820643`.
+- Debug artifact: `IsotopeAI-debug-46`, artifact id `8009649602`.
+- Artifact ZIP download from this shell: PASS using `GITHUB_PAT` from `.env`; extracted and statically inspected, then deleted from local storage.
 - Emulator tested: NOT YET.
 - Physical-device tested: NOT YET.
 
@@ -88,7 +99,6 @@
 
 ## Not Yet Verified
 
-- Download/extract static inspection of the new APK artifact from this shell.
 - Runtime login/dashboard/onboarding with the next APK.
 - Runtime cloud sync, import/export, backup restore, and storage cleanup.
 - Empty local state cannot overwrite rich cloud data in the packaged APK.

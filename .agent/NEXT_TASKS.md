@@ -7,10 +7,10 @@
 ### TASK ANDROID-012
 **Priority:** P0
 **Status:** ACTIVE
-**Objective:** Commit/push the latest Android Analytics stability + Supabase sync bridge checkpoint, then download/extract and runtime-test the GitHub-built APK.
+**Objective:** Runtime-test the GitHub-built Android Analytics stability + Supabase sync bridge checkpoint on device.
 
 **Acceptance:**
-- New checkpoint is committed and pushed to `codex/android-production-repair`.
+- Checkpoint is committed and pushed to `codex/android-production-repair`.
 - GitHub Actions completes for the new commit and artifact is downloaded/extracted and statically inspected.
 - OnePlus Pad Go install/runtime checks are recorded.
 - Device evidence distinguishes:
@@ -24,18 +24,21 @@
 - `npm test`: PASS, 40 tests.
 - `npm run build`: PASS through `prepare-www`, `apply-patches`, `npx cap sync android`, and final idempotent patch pass.
 - `git diff --check`: PASS.
-- Previous commit `a99d575` pushed to `origin/codex/android-production-repair`.
-- Previous GitHub Actions run `28483486050`: PASS.
-- Previous debug artifact: `IsotopeAI-debug-45`, artifact id `7996534384`.
-- Latest local changes add Android Analytics black-screen mitigation, profile/onboarding merge repair, storage bucket upload helpers, Headway/feedback link patches, and native WebView resume recovery. They still need commit/push/CI evidence.
+- Commit `8f5cb1f` pushed to `origin/codex/android-production-repair`.
+- GitHub Actions run `28516820643`: PASS.
+- Debug artifact: `IsotopeAI-debug-46`, artifact id `8009649602`.
+- Artifact was downloaded with `GITHUB_PAT` from `.env`, extracted, statically inspected, and deleted locally.
+- Latest checkpoint adds Android Analytics black-screen mitigation, profile/onboarding merge repair, storage bucket upload helpers, Headway/feedback link patches, and native WebView resume recovery.
 - Local artifact download from the GitHub API is blocked by HTTP 401 because no `GITHUB_PAT`/`GH_TOKEN`/`gh` auth exists in this shell.
 - Local Gradle/APK build intentionally not run by user instruction; use GitHub Actions for APK assembly.
 
 **Exact next commands:**
 ```bash
-git add android-bridge.js android/app/src/main/java/in/isotopeai/app/MainActivity.java android/app/src/main/res/values/styles.xml scripts/apply-android-patches.js test/android-bridge.test.mjs test/prepare-patches.test.mjs supabase .agent
-git commit -m "fix(android): stabilize analytics and cloud profile sync"
-git push -u origin codex/android-production-repair
+set -a; . ./.env; set +a
+curl -fL -H "Authorization: Bearer $GITHUB_PAT" -H "Accept: application/vnd.github+json" -o .artifact-tmp/isotope-8f5cb1f.zip https://api.github.com/repos/Suydev/isotope-apk/actions/artifacts/8009649602/zip
+unzip .artifact-tmp/isotope-8f5cb1f.zip -d .artifact-tmp/isotope-8f5cb1f
+adb devices
+adb install -r .artifact-tmp/isotope-8f5cb1f/app-debug.apk
 ```
 
 ---
