@@ -1,6 +1,6 @@
 # IsotopeAI Android — Architecture
 
-Last updated: 2026-06-30
+Last updated: 2026-07-01
 
 ---
 
@@ -114,7 +114,7 @@ System Picture-in-Picture is not the primary timer implementation. It remains on
 | `/__auth/check` | Auth signup pre-check | Neutral non-destructive response; never calls signup | ✅ DONE |
 | `/__auth/bootstrap` | restore-and-launch.js | android-bridge.js `handleBootstrap()` → Supabase REST | ✅ DONE |
 | `/__auth/profile` GET | auth-bridge.js, SettingsLayout | android-bridge.js `handleGetProfile()` → Supabase REST | ✅ DONE |
-| `/__auth/profile` POST | `__isoPostProfile()` | android-bridge.js `handlePostProfile()` → Supabase PATCH | ✅ DONE |
+| `/__auth/profile` POST | `__isoPostProfile()` | android-bridge.js `handlePostProfile()` → read existing `profile_data`, deep-merge, verified upsert; persist completed onboarding when applicable | ✅ UNIT TESTED |
 | `/__auth/backup` POST | `__isoUploadBackupJSON()` | Canonical Supabase Storage upload + empty-over-rich block + cleanup | ✅ UNIT TESTED |
 | `/__auth/backup/latest` GET | `downloadBackupPayload()` | Best valid Storage candidate returned as `backup_json` | ✅ UNIT TESTED |
 | `/__auth/backup/best` GET | auth-bridge.js | Storage scan across canonical/import/export candidates | ✅ UNIT TESTED |
@@ -182,6 +182,31 @@ canonical backup JSON:
            if local is empty AND cloud is "rich" → block upload
            force restore first
 ```
+
+---
+
+## Android WebView Render Recovery
+
+```
+Android activity resumes / app returns foreground
+     │
+     ▼
+MainActivity.onResume()
+  ├─ installIsotopeAndroidBridge()
+  ├─ webView.onResume()
+  ├─ webView.resumeTimers()
+  ├─ webView.invalidate()
+  └─ evaluateJavascript("__isoAndroidForceRepaint(...)")
+     │
+     ▼
+android-bridge.js
+  ├─ dispatches isotope:android-resume
+  ├─ temporarily forces a body repaint
+  ├─ installs Android-only stable render CSS
+  └─ reloads only if #root is truly blank after resume
+```
+
+The Analytics compatibility patch also disables Android Sentry/replay startup, disables chart animations on Android, and caps rendered Session Log rows to reduce WebView compositor pressure. This is code/unit tested only; device evidence is still required.
 
 ---
 

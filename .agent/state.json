@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
   "branch": "codex/android-production-repair",
-  "commit": "",
-  "phase": "ANDROID-012: Floating Timer plus Android Supabase sync bridge repair",
+  "commit": "current local commit",
+  "phase": "ANDROID-012: Floating Timer, Supabase sync bridge, and Analytics WebView stability repair",
   "activeTaskId": "ANDROID-012",
   "lastSuccessfulBuild": "GitHub Actions run 28483486050 for commit a99d575",
   "lastSuccessfulApk": "IsotopeAI-debug-45 artifact id 7996534384",
   "lastSuccessfulAab": "",
-  "blockingIssue": "GitHub Actions APK build passed for a99d575, but artifact ZIP download returned HTTP 401 because no GITHUB_PAT/GH_TOKEN/gh auth is available locally. OnePlus Pad Go runtime tests are pending.",
+  "blockingIssue": "Current local commit passes 40 tests and npm run build locally, but still needs push, GitHub Actions APK build, and OnePlus Pad Go runtime tests.",
   "workingTreeClean": true,
-  "pushed": true,
-  "updatedAt": "2026-06-30T23:42:36Z",
-  "nextCommand": "Provide GitHub auth to download artifact or install from Actions UI, then run OnePlus Pad Go runtime tests",
+  "pushed": false,
+  "updatedAt": "2026-07-01T10:20:00+05:30",
+  "nextCommand": "Commit and push latest Android Analytics/Supabase sync checkpoint, then use GitHub Actions artifact for OnePlus Pad Go runtime tests",
   "githubActionsRun": "https://github.com/Suydev/isotope-apk/actions/runs/28483486050",
   "pullRequest": "https://github.com/Suydev/isotope-apk/pull/1",
   "supabaseProjectRef": "vteqquoqvksshmfhuepu",
@@ -26,7 +26,7 @@
     "targetSdk": 35
   },
   "lastLocalTests": {
-    "npmTest": "PASS: 33 tests",
+    "npmTest": "PASS: 40 tests",
     "npmRunBuild": "PASS: prepare-www, apply-patches, cap sync, idempotent apply-patches",
     "gitDiffCheck": "PASS",
     "npmAudit": "BLOCKED: dev-only @capacitor/cli tar/glob issues require forced Capacitor 8.4.1 upgrade"
@@ -44,7 +44,9 @@
     "ISSUE-017",
     "ISSUE-018",
     "ISSUE-019",
-    "ISSUE-020"
+    "ISSUE-020",
+    "ISSUE-021",
+    "ISSUE-022"
   ],
   "completedTasks": [
     "ANDROID-001",

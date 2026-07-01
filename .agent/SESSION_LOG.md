@@ -616,3 +616,57 @@ git push -u origin codex/android-production-repair
 - Artifact: `IsotopeAI-debug-45`
 - Artifact id: `7996534384`
 - Artifact ZIP download from local shell: BLOCKED. `curl` to the artifact ZIP returned HTTP 401 because no `GITHUB_PAT`, `GH_TOKEN`, or authenticated `gh` is available.
+
+---
+
+## 2026-07-01 — Analytics black-screen + profile/sync follow-up checkpoint
+
+**User-reported runtime state:**
+- Analytics tab can black-screen when switching Monthly to view past sessions.
+- Focus black-screen issue is still considered related/unverified on device.
+- Cloud sync/profile/community work remains high priority, but latest runtime crash needed immediate stabilization.
+
+**Implemented:**
+- `android-bridge.js`
+  - Added Android render recovery: `window.__isoAndroidForceRepaint`, Android resume/focus listeners, `isotope:android-resume`, Android stable-render CSS, and guarded blank-root reload.
+  - Changed profile POST to read existing `profile_data`, deep-merge partial updates, upsert the merged row, and persist completed onboarding via verified `user_onboarding` upsert only when appropriate.
+  - Preserved previous cloud sync, storage upload, and backup/import/cleanup bridge work.
+- `MainActivity.java`
+  - Added `public void onResume()` to reinstall bridge, resume WebView timers, invalidate the WebView, call `__isoAndroidForceRepaint`, and replay queued Floating Timer actions.
+- `styles.xml`
+  - Added stable app dark background and `postSplashScreenTheme`.
+- `scripts/apply-android-patches.js`
+  - Added content-based startup `index-*` selection for Sentry patching.
+  - Suppresses Sentry/replay startup on Android.
+  - Forces Android Analytics reduce-motion/performance behavior.
+  - Disables AnalyticsPeriod chart animation on Android.
+  - Caps Android Session Log rendered rows to 120 while preserving source data.
+  - Clamps Monthly/Weekly next navigation at the current period.
+  - Updates Dashboard feedback link to `https://isotopeaiapp.featurebase.app/`.
+  - Bounds notification popover height with scrolling.
+  - Changes Headway account to `7eeYY7`.
+  - Suppresses browser-storage warning in Android.
+- `test/android-bridge.test.mjs`
+  - Added regression for deep-merged profile saves and exactly-once completed onboarding persistence.
+- `test/prepare-patches.test.mjs`
+  - Added regression coverage for Analytics render-stability patches, Sentry Android skip, bounded notifications, Headway account/link patches, and native WebView resume contract.
+- `supabase/`
+  - Migration files for Android storage buckets and community API grants remain staged for commit.
+
+**Tests run:**
+- `node --check android-bridge.js`
+- `node --check scripts/apply-android-patches.js`
+- `npm test`
+- `npm run build`
+- `git diff --check`
+
+**Results:**
+- `npm test`: PASS, 40 tests.
+- `npm run build`: PASS through `prepare-www`, required patching, `npx cap sync android`, and final idempotent patch pass.
+- `git diff --check`: PASS.
+
+**Not verified:**
+- No local Gradle/APK assembly by user instruction; use GitHub Actions only.
+- Latest changes are not yet committed/pushed at the time of this log entry.
+- GitHub Actions APK build for this checkpoint is pending.
+- OnePlus Pad Go runtime verification is pending for Analytics Monthly switching, Focus reopen, login persistence, cloud sync, storage cleanup, Floating Timer, and notifications.

@@ -1,8 +1,8 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-06-30T23:42:36Z
+**Updated:** 2026-07-01T10:20:00+05:30
 **Branch:** codex/android-production-repair
-**Current phase:** ANDROID-012 — GitHub-built Android Supabase sync/Floating Timer repair awaiting device tests
+**Current phase:** ANDROID-012 — Android Supabase sync/Floating Timer/Analytics stability repair awaiting new GitHub APK + device tests
 
 ---
 
@@ -35,17 +35,37 @@
   - `BLOCKED_EMPTY_OVERWRITE` blocks empty local state overwriting rich cloud state
   - cleanup deletes only current-user stale `.json` archive paths after verified upload/readback
   - explicit `/__auth/storage/cleanup-preview` and `/__auth/storage/cleanup-apply` routes exist
-- [x] `npm test` passes 33 Node tests.
+- [x] Added Android runtime render recovery for intermittent black/white screens:
+  - `MainActivity.onResume()` resumes WebView timers, invalidates the WebView, and calls `window.__isoAndroidForceRepaint`.
+  - `android-bridge.js` dispatches `isotope:android-resume`, installs Android-gated render recovery CSS, and reloads only if the React root is truly blank.
+  - `AppTheme.NoActionBarLaunch` now declares `postSplashScreenTheme`; app theme uses a stable dark `windowBackground`.
+- [x] Added Android-gated Analytics stability patches:
+  - disables Sentry/replay startup on Android
+  - forces chart reduce-motion/performance mode on Android
+  - disables AnalyticsPeriod chart animation on Android
+  - caps rendered Session Log rows to 120 on Android while preserving source data
+  - prevents Monthly/Weekly next navigation from going past the current period
+- [x] Repaired profile/onboarding cloud merge:
+  - `handlePostProfile()` reads existing `profile_data`, deep-merges partial updates, and upserts the merged row.
+  - Completed profile saves persist `user_onboarding.completed=true` via verified upsert without wiping academics.
+- [x] Added Android Storage bucket bridge helpers for `group-icons` and `study-material`.
+- [x] Applied live Supabase migration files for Android storage buckets and community API grants in project `vteqquoqvksshmfhuepu`.
+- [x] Updated app-only UX patches:
+  - Headway account changed to `7eeYY7`.
+  - Android browser-storage warning is suppressed.
+  - Dashboard feedback link targets `https://isotopeaiapp.featurebase.app/`.
+  - Notification panel is bounded and scrollable on Android.
+- [x] `npm test` passes 40 Node tests.
 - [x] `npm run build` passes: `prepare-www`, required patching, `npx cap sync android`, final idempotent patch pass.
 - [x] `git diff --check` passes.
 
 ## Important Test Scope
 
 - Code written: YES.
-- Unit/patch-contract tested: YES, 33 Node tests.
+- Unit/patch-contract tested: YES, 40 Node tests.
 - Local Capacitor sync/build script: YES, `npm run build`.
 - Local Gradle/APK build: SKIPPED by user instruction. Use GitHub Actions only.
-- CI APK build: PASS for commit `a99d575`, GitHub Actions run `28483486050`.
+- CI APK build: PASS for older commit `a99d575`, GitHub Actions run `28483486050`. New local changes are not CI-built yet until committed/pushed.
 - Debug artifact: `IsotopeAI-debug-45`, artifact id `7996534384`.
 - Artifact ZIP download from this shell: BLOCKED, GitHub API returned HTTP 401 because `GITHUB_PAT`/`GH_TOKEN`/`gh` auth is unavailable.
 - Emulator tested: NOT YET.
@@ -55,7 +75,7 @@
 
 - App appears disconnected from Supabase beyond login/info.
 - Cloud sync/import/export/backup decisions may still fail at runtime until the new bridge is in a GitHub-built APK.
-- Focus page intermittently does not open and sometimes shows a full black screen.
+- Focus/Analytics pages intermittently show a full black screen; code-level Android render recovery is written and locally tested, but not device-verified.
 - PNG logo looks wrong in dark mode.
 
 ## Npm Audit
@@ -69,11 +89,11 @@
 ## Not Yet Verified
 
 - Download/extract static inspection of the new APK artifact from this shell.
-- Runtime login/dashboard/onboarding with the new APK.
+- Runtime login/dashboard/onboarding with the next APK.
 - Runtime cloud sync, import/export, backup restore, and storage cleanup.
 - Empty local state cannot overwrite rich cloud data in the packaged APK.
 - Community/leaderboards/session sync in the packaged APK.
-- Focus page intermittent black-screen bug.
+- Focus/Analytics intermittent black-screen bug.
 - Dark-mode logo appearance.
 - OnePlus Pad Go Floating Timer acceptance list.
 - Responsive phone/tablet/orientation matrix.

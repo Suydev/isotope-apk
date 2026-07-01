@@ -11,8 +11,9 @@
  * 2. sessionSync-mloIEnTd.js — 5 patches to prevent false "sync success" when offline
  * 3. AppAccessGate-B975UtK7.js — enable cloud bootstrap download on empty local
  * 4. useOnlineStatus-BJOTUERN.js — route online state through Capacitor Network
- * 5. useInvites-D9RLFwf8.js — rename token_input → p_code for accept_invite RPC
- * 6. AndroidManifest.xml — add internet, notification, overlay, and file permissions
+ * 5. useSyncStore-vWs_TdIc.js — route manual cloud sync/download through Android Storage helpers
+ * 6. useInvites-D9RLFwf8.js — rename token_input → p_code for accept_invite RPC
+ * 7. AndroidManifest.xml — add internet, notification, overlay, and file permissions
  */
 
 const fs   = require('fs');
@@ -88,6 +89,21 @@ function findAsset(pattern) {
     console.log(`  (found ${matches.length} candidates for "${pattern}", chose largest: ${chosen})`);
   }
   return path.join(ASSETS_DIR, chosen);
+}
+
+function findAssetContaining(pattern, requiredText) {
+  if (!fs.existsSync(ASSETS_DIR)) return null;
+  const files = fs.readdirSync(ASSETS_DIR)
+    .filter(f => f.includes(pattern) && f.endsWith('.js'))
+    .map(f => path.join(ASSETS_DIR, f));
+  const matches = files.filter(file => fs.readFileSync(file, 'utf8').includes(requiredText));
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    console.error(`  ERROR: Asset content selector for "${pattern}" matched ${matches.length} files; expected 1`);
+    failureCount++;
+    return matches[0];
+  }
+  return matches[0];
 }
 
 function normalizeManifestPermissions(manifest, desiredPermissionLines) {
@@ -460,7 +476,171 @@ patchFile(onlineStatusBundle, [
   ],
 ], 'useOnlineStatus bundle');
 
-// ── 5. useInvites — fix RPC parameter name ───────────────────────────────────
+// ── 5. useSyncStore — manual sync/download must use Android backup helpers ───
+
+console.log('\n=== Patching useSyncStore bundle ===');
+const syncStoreBundle = findAsset('useSyncStore-');
+
+patchFile(syncStoreBundle, [
+  [
+    [
+      '        triggerSync: async () => {',
+      '            const t = u.getState(),',
+      '                {',
+      '                    userId: r,',
+      '                    isAuthenticated: s',
+      '                } = t,',
+      '                a = t.isPremium();',
+      '            if (!s || !r || !a) return;',
+      '            const o = await n();',
+      '            await o.fullManualSync(r, a), await l(), o.getState().status === "success" && e({',
+      '                needsCloudBootstrap: !1,',
+      '                bootstrapChecked: !0',
+      '            })',
+      '        },'
+    ].join('\n'),
+    [
+      '        triggerSync: async () => {',
+      '            const t = u.getState(),',
+      '                {',
+      '                    userId: r,',
+      '                    isAuthenticated: s',
+      '                } = t,',
+      '                a = t.isPremium();',
+      '            if (!s || !r || String(r).startsWith("local-")) {',
+      '                const o = new Error("Cloud session missing. Log in again before syncing.");',
+      '                e({',
+      '                    status: "error",',
+      '                    error: o.message',
+      '                });',
+      '                throw o',
+      '            }',
+      '            if (!a) {',
+      '                const o = new Error("Cloud sync requires premium access.");',
+      '                e({',
+      '                    status: "error",',
+      '                    error: o.message',
+      '                });',
+      '                throw o',
+      '            }',
+      '            if (typeof window < "u" && typeof window.__isoGetValidJwt == "function") {',
+      '                const o = await window.__isoGetValidJwt();',
+      '                if (!o) {',
+      '                    const c = new Error("Cloud session missing. Log in again before syncing.");',
+      '                    typeof window.__isoSyncAuthBlock == "function" && window.__isoSyncAuthBlock(c.message);',
+      '                    e({',
+      '                        status: "error",',
+      '                        error: c.message',
+      '                    });',
+      '                    throw c',
+      '                }',
+      '            }',
+      '            e({',
+      '                status: "syncing",',
+      '                error: null',
+      '            });',
+      '            try {',
+      '                typeof window < "u" && typeof window.__isoRunManualCloudSync == "function" ? await window.__isoRunManualCloudSync(null, null, "header_manual_sync") : await (await n()).fullManualSync(r, a);',
+      '                await l(), e({',
+      '                    status: "success",',
+      '                    lastSyncAt: new Date().toISOString(),',
+      '                    error: null,',
+      '                    needsCloudBootstrap: !1,',
+      '                    bootstrapChecked: !0',
+      '                })',
+      '            } catch (c) {',
+      '                const b = c && c.message ? c.message : "Sync failed";',
+      '                e({',
+      '                    status: "error",',
+      '                    error: b',
+      '                });',
+      '                throw c',
+      '            }',
+      '        },'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '        downloadCloudSnapshot: async () => {',
+      '            const t = u.getState(),',
+      '                {',
+      '                    userId: r,',
+      '                    isAuthenticated: s',
+      '                } = t,',
+      '                a = t.isPremium();',
+      '            if (!s || !r || !a) return;',
+      '            const o = await n();',
+      '            await o.downloadCloudSnapshot(r, a), await l(), o.getState().status === "success" && e({',
+      '                needsCloudBootstrap: !1,',
+      '                bootstrapChecked: !0',
+      '            })',
+      '        },'
+    ].join('\n'),
+    [
+      '        downloadCloudSnapshot: async () => {',
+      '            const t = u.getState(),',
+      '                {',
+      '                    userId: r,',
+      '                    isAuthenticated: s',
+      '                } = t,',
+      '                a = t.isPremium();',
+      '            if (!s || !r || String(r).startsWith("local-")) {',
+      '                const o = new Error("Cloud session missing. Log in again before downloading cloud data.");',
+      '                e({',
+      '                    status: "error",',
+      '                    error: o.message',
+      '                });',
+      '                throw o',
+      '            }',
+      '            if (!a) {',
+      '                const o = new Error("Cloud restore requires premium access.");',
+      '                e({',
+      '                    status: "error",',
+      '                    error: o.message',
+      '                });',
+      '                throw o',
+      '            }',
+      '            if (typeof window < "u" && typeof window.__isoGetValidJwt == "function") {',
+      '                const o = await window.__isoGetValidJwt();',
+      '                if (!o) {',
+      '                    const c = new Error("Cloud session missing. Log in again before downloading cloud data.");',
+      '                    typeof window.__isoSyncAuthBlock == "function" && window.__isoSyncAuthBlock(c.message);',
+      '                    e({',
+      '                        status: "error",',
+      '                        error: c.message',
+      '                    });',
+      '                    throw c',
+      '                }',
+      '            }',
+      '            e({',
+      '                status: "syncing",',
+      '                error: null',
+      '            });',
+      '            try {',
+      '                typeof window < "u" && typeof window.__isoDownloadAndImportBackup == "function" ? await window.__isoDownloadAndImportBackup(null, "header_download_cloud_data") : await (await n()).downloadCloudSnapshot(r, a);',
+      '                await l(), e({',
+      '                    status: "success",',
+      '                    lastSyncAt: new Date().toISOString(),',
+      '                    error: null,',
+      '                    needsCloudBootstrap: !1,',
+      '                    bootstrapChecked: !0',
+      '                })',
+      '            } catch (c) {',
+      '                const b = c && c.message ? c.message : "Cloud data download failed";',
+      '                e({',
+      '                    status: "error",',
+      '                    error: b',
+      '                });',
+      '                throw c',
+      '            }',
+      '        },'
+    ].join('\n'),
+    true
+  ],
+], 'useSyncStore bundle');
+
+// ── 6. useInvites — fix RPC parameter name ───────────────────────────────────
 
 console.log('\n=== Patching useInvites bundle ===');
 const invitesBundle = findAsset('useInvites-') || path.join(ASSETS_DIR, 'useInvites-D9RLFwf8.js');
@@ -859,6 +1039,87 @@ patchFile(settingsBundle, [
     true
   ],
 ], 'Settings bundle');
+
+// ── 8c. Android render stability and app-only UX patches ───────────────────
+
+console.log('\n=== Patching Android render stability bundles ===');
+const indexBundle = findAssetContaining('index-', 'vendor-sentry-VzeXdCeF.js') || findAsset('index-');
+const analyticsBundle = findAsset('Analytics-');
+const analyticsPeriodBundle = findAsset('AnalyticsPeriod-');
+const sessionLogBundle = findAsset('SessionLogTable-');
+const dashboardHeaderBundle = findAsset('DashboardHeader-');
+const headwayBundle = findAsset('HeadwayUpdatesButton-');
+
+patchFile(indexBundle, [
+  [
+    [
+      '    F = async (e = () => S(() =>',
+      '        import ("./vendor-sentry-VzeXdCeF.js"), __vite__mapDeps([0, 1]))) => {',
+      '        try {'
+    ].join('\n'),
+    [
+      '    F = async (e = () => S(() =>',
+      '        import ("./vendor-sentry-VzeXdCeF.js"), __vite__mapDeps([0, 1]))) => {',
+      '        if (typeof window < "u" && window.__ISO_IS_ANDROID__) return !1;',
+      '        try {'
+    ].join('\n'),
+    true
+  ],
+], 'index bundle Sentry startup');
+
+patchFile(analyticsBundle, [
+  [
+    'const{isPerformanceMode:s,shouldReduceMotion:i}=yn(),[r,c]=A.useState("Today")',
+    'const __androidStable=typeof window<"u"&&window.__ISO_IS_ANDROID__,{isPerformanceMode:__pm,shouldReduceMotion:__rm}=yn(),s=__androidStable||__pm,i=__androidStable||__rm,[r,c]=A.useState("Today")',
+    true
+  ],
+  [
+    'Ue=()=>{r==="Weekly"?y(x=>x+1):r==="Monthly"&&v(x=>x+1)},st=()=>{',
+    'Ue=()=>{if(Ct())return;r==="Weekly"?y(x=>Math.min(0,x+1)):r==="Monthly"&&v(x=>Math.min(0,x+1))},st=()=>{',
+    true
+  ],
+], 'Analytics bundle Android stability');
+
+patchFile(analyticsPeriodBundle, [
+  ['const r=ie(),', 'const r=typeof window<"u"&&window.__ISO_IS_ANDROID__?!1:ie(),', false],
+  ['const m=ie();', 'const m=typeof window<"u"&&window.__ISO_IS_ANDROID__?!1:ie();', false],
+], 'AnalyticsPeriod chart animation');
+
+patchFile(sessionLogBundle, [
+  [
+    'children:h.map(t=>e.jsxs(B.tr,{layout:!0,initial:u?!1:{opacity:0},animate:{opacity:1}',
+    'children:(typeof window<"u"&&window.__ISO_IS_ANDROID__?h.slice(0,120):h).map(t=>e.jsxs(B.tr,{layout:typeof window<"u"&&window.__ISO_IS_ANDROID__?!1:!0,initial:u||typeof window<"u"&&window.__ISO_IS_ANDROID__?!1:{opacity:0},animate:{opacity:1}',
+    true
+  ],
+], 'SessionLogTable Android row cap');
+
+patchFile(dashboardHeaderBundle, [
+  ['window.open("https://isotope.featurebase.app", "_blank")', 'window.open("https://isotopeaiapp.featurebase.app/", "_blank")', false],
+  [
+    'className: "absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"',
+    'className: "fixed right-[max(0.75rem,env(safe-area-inset-right))] top-[calc(env(safe-area-inset-top)+4.5rem)] w-[min(22rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-6rem)] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[90]"',
+    false
+  ],
+  [
+    'className: "max-h-[min(24rem,calc(100dvh-9rem))] overflow-y-auto"',
+    'className: "max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain touch-pan-y custom-scrollbar"',
+    false
+  ],
+], 'DashboardHeader app links and notifications');
+
+patchFile(headwayBundle, [
+  ['account: "JRVAXJ"', 'account: "7eeYY7"', true],
+  [
+    '} : a.persistentStorageGranted === !1 ? {',
+    '} : typeof window < "u" && window.__ISO_IS_ANDROID__ ? null : a.persistentStorageGranted === !1 ? {',
+    true
+  ],
+  [
+    'a.persistentStorageGranted === !1 && e.jsxs("button", {',
+    '!(typeof window < "u" && window.__ISO_IS_ANDROID__) && a.persistentStorageGranted === !1 && e.jsxs("button", {',
+    true
+  ],
+], 'Headway app changelog and Android storage warning');
 
 // ── 9. AndroidManifest.xml — add required permissions ───────────────────────
 

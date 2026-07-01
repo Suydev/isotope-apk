@@ -333,6 +333,46 @@ test('onboarding completion uses verified upsert and returns persisted row', asy
   assert.deepEqual(data.onboarding.data, { goal: 'rank' });
 });
 
+test('profile save deep-merges existing profile_data and persists completed onboarding once', async () => {
+  const userId = '66666666-7777-4666-8666-666666666666';
+  const writes = [];
+  const harness = createBridgeHarness(async (url, init = {}) => {
+    if (url.includes('/rest/v1/user_profiles?select=profile_data')) {
+      return jsonResponse([{ profile_data: { academic: { exam: 'JEE', subjects: ['Physics'] }, settings: { theme: 'dark' } } }]);
+    }
+    if (url.includes('/rest/v1/user_profiles?on_conflict=user_id')) {
+      const body = JSON.parse(init.body);
+      writes.push({ table: 'user_profiles', body });
+      assert.equal(body.user_id, userId);
+      assert.deepEqual(body.profile_data.academic, { exam: 'JEE', subjects: ['Physics'] });
+      assert.deepEqual(body.profile_data.settings, { theme: 'dark' });
+      assert.equal(body.profile_data.isOnboarded, true);
+      assert.equal(body.profile_data.display_name, 'Asha');
+      return jsonResponse([{ user_id: userId, profile_data: body.profile_data }]);
+    }
+    if (url.includes('/rest/v1/user_onboarding?on_conflict=user_id')) {
+      const body = JSON.parse(init.body);
+      writes.push({ table: 'user_onboarding', body });
+      assert.equal(body.user_id, userId);
+      assert.equal(body.completed, true);
+      assert.deepEqual(body.data.academic, { exam: 'JEE', subjects: ['Physics'] });
+      return jsonResponse([{ user_id: userId, completed: true, completed_at: body.completed_at, data: body.data }]);
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage, makeSession(userId));
+
+  const { data } = await fetchJson(harness.window, '/__auth/profile', {
+    method: 'POST',
+    body: JSON.stringify({ profile_data: { display_name: 'Asha', isOnboarded: true } }),
+  });
+
+  assert.equal(data.ok, true);
+  assert.equal(data.profile_data.display_name, 'Asha');
+  assert.equal(writes.filter((write) => write.table === 'user_profiles').length, 1);
+  assert.equal(writes.filter((write) => write.table === 'user_onboarding').length, 1);
+});
+
 test('RPC failure is propagated instead of returned as ok:true', async () => {
   const harness = createBridgeHarness(async (url) => {
     if (url.includes('/rest/v1/rpc/get_leaderboard')) {
@@ -536,6 +576,198 @@ test('import archives backup, promotes canonical copy, and returns restore metad
   assert.ok(storageHandler.uploaded.includes(`${userId}/imports/latest.json`));
   assert.ok(storageHandler.uploaded.includes(`${userId}/backups/latest.json`));
   assert.ok(storageHandler.uploaded.includes(`${userId}/cloud-snapshot/latest.json`));
+});
+
+test('Android storage helper uploads group icons to public user-scoped bucket path', async () => {
+  const userId = 'c1111111-1111-4111-8111-111111111111';
+  const uploads = [];
+  const harness = createBridgeHarness(async (url, init = {}) => {
+    if (url.includes('/storage/v1/object/group-icons/')) {
+      const objectPath = decodeURIComponent(url.split('/storage/v1/object/group-icons/')[1]);
+      uploads.push({
+        path: objectPath,
+        contentType: init.headers['Content-Type'],
+        upsert: init.headers['x-upsert'],
+        body: init.body,
+      });
+      return jsonResponse({ Key: objectPath });
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage, makeSession(userId));
+
+  assert.equal(typeof harness.window.__isoUploadGroupIcon, 'function');
+  assert.equal(harness.window.__isoAndroidStorageBuckets.groupIcons.bucket, 'group-icons');
+
+  const { data } = await fetchJson(harness.window, '/__auth/storage/group-icon', {
+    method: 'POST',
+    body: JSON.stringify({
+      data_url: 'data:image/png,icon-data',
+      group_id: 'Physics Group',
+      file_name: 'class logo.png',
+    }),
+  });
+
+  assert.equal(data.ok, true);
+  assert.equal(data.bucket, 'group-icons');
+  assert.match(data.path, new RegExp(`^${userId}/groups/Physics-Group/`));
+  assert.match(data.path, /\.png$/);
+  assert.match(data.public_url, /\/storage\/v1\/object\/public\/group-icons\//);
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].contentType, 'image/png');
+  assert.equal(uploads[0].upsert, 'false');
+});
+
+test('Android storage helper uploads study material to private user-scoped bucket path', async () => {
+  const userId = 'c2222222-2222-4222-8222-222222222222';
+  const uploads = [];
+  const harness = createBridgeHarness(async (url, init = {}) => {
+    if (url.includes('/storage/v1/object/study-material/')) {
+      const objectPath = decodeURIComponent(url.split('/storage/v1/object/study-material/')[1]);
+      uploads.push({
+        path: objectPath,
+        contentType: init.headers['Content-Type'],
+        body: init.body,
+      });
+      return jsonResponse({ Key: objectPath });
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage, makeSession(userId));
+
+  assert.equal(typeof harness.window.__isoUploadStudyMaterial, 'function');
+  assert.equal(harness.window.__isoAndroidStorageBuckets.studyMaterial.public, false);
+
+  const result = await harness.window.__isoUploadStudyMaterial('pdf-body', {
+    folder: 'Physics Notes',
+    fileName: 'rotational dynamics.pdf',
+    contentType: 'application/pdf',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.bucket, 'study-material');
+  assert.match(result.path, new RegExp(`^${userId}/study-material/Physics-Notes/`));
+  assert.match(result.path, /rotational-dynamics\.pdf$/);
+  assert.equal('public_url' in result, false);
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].contentType, 'application/pdf');
+});
+
+test('Android storage helper rejects non-image group icon payloads', async () => {
+  const harness = createBridgeHarness(async () => jsonResponse([]));
+  installSession(harness.localStorage);
+
+  const { response, data } = await fetchJson(harness.window, '/__auth/storage/group-icon', {
+    method: 'POST',
+    body: JSON.stringify({
+      content: 'not an image',
+      content_type: 'text/plain',
+      file_name: 'icon.txt',
+    }),
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(data.ok, false);
+  assert.equal(data.code, 'UNSUPPORTED_GROUP_ICON_TYPE');
+});
+
+test('Android runtime cloud sync restores rich cloud backup before empty local upload', async () => {
+  const userId = 'd1111111-1111-4111-8111-111111111111';
+  const richCloud = JSON.stringify(backupPayload({
+    tasks: [{ id: 'cloud-task', title: 'Keep me' }],
+    subjects: [{ id: 'cloud-subject', name: 'Physics' }],
+  }));
+  const storageHandler = createStorageSupabaseHandler(userId, {
+    [`${userId}/backups/latest.json`]: richCloud,
+  });
+  const harness = createBridgeHarness(storageHandler);
+  installSession(harness.localStorage, makeSession(userId));
+
+  let localData = backupPayload({ profile: { display_name: 'Fresh install' } }).data;
+  let applyCalls = 0;
+  harness.window.IsotopeLocalDataAdapter = {
+    async buildBackupPayloadFromLocal() {
+      return backupPayload(localData);
+    },
+    async countLocalData() {
+      return {
+        profile: localData.profile ? 1 : 0,
+        timerState: localData.timerState ? 1 : 0,
+        tasks: localData.tasks.length,
+        sessions: localData.sessions.length,
+        subjects: localData.subjects.length,
+        habits: localData.habits.length,
+        dailyLogs: localData.dailyLogs.length,
+        tests: localData.tests.length,
+        exams: localData.exams.length,
+        mockTests: localData.mockTests.length,
+      };
+    },
+    async isLocalWorkspaceEmpty() {
+      return localData.tasks.length === 0 && localData.sessions.length === 0 && localData.subjects.length === 0;
+    },
+    async applyBackupToLocal(text) {
+      applyCalls += 1;
+      localData = JSON.parse(text).data;
+      return { ok: true, message: 'restored cloud backup' };
+    },
+  };
+
+  assert.equal(typeof harness.window.__isoRunManualCloudSync, 'function');
+  assert.equal(typeof harness.window.__isoDownloadAndImportBackup, 'function');
+  assert.equal(typeof harness.window.__isoUploadBackupJSON, 'function');
+  assert.equal(typeof harness.window.__isoRefreshCloudSnapshot, 'function');
+
+  const result = await harness.window.__isoRunManualCloudSync(null, null, 'unit_manual_sync');
+  const meta = JSON.parse(harness.localStorage.getItem('isotope_sync_metadata'));
+  const history = JSON.parse(harness.localStorage.getItem('isotope_sync_history'));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.downloaded, true);
+  assert.equal(result.imported, true);
+  assert.equal(applyCalls, 1);
+  assert.equal(localData.tasks.length, 1);
+  assert.equal(localData.subjects.length, 1);
+  assert.equal(meta.last_sync_status, 'synced');
+  assert.equal(meta.last_error, null);
+  assert.equal(history.some((row) => row.op === 'restore_best_cloud_backup' && row.status === 'ok'), true);
+  assert.ok(storageHandler.uploaded.includes(`${userId}/backups/latest.json`));
+  assert.ok(storageHandler.uploaded.includes(`${userId}/cloud-snapshot/latest.json`));
+});
+
+test('Android runtime download/import helper applies backup_json to local stores once', async () => {
+  const userId = 'd2222222-2222-4222-8222-222222222222';
+  const richCloud = JSON.stringify(backupPayload({
+    sessions: [{ id: 'cloud-session', duration: 45 }],
+  }));
+  const storageHandler = createStorageSupabaseHandler(userId, {
+    [`${userId}/exports/latest.json`]: richCloud,
+  });
+  const harness = createBridgeHarness(storageHandler);
+  installSession(harness.localStorage, makeSession(userId));
+
+  let applied = 0;
+  harness.window.IsotopeLocalDataAdapter = {
+    async applyBackupToLocal(text, meta) {
+      applied += 1;
+      assert.match(meta.source_path, /exports\/latest\.json/);
+      assert.equal(JSON.parse(text).data.sessions.length, 1);
+      return { ok: true, message: 'downloaded' };
+    },
+  };
+
+  const first = await harness.window.__isoDownloadAndImportBackup(null, 'unit_download');
+  const second = await harness.window.__isoDownloadAndImportBackup(null, 'unit_download');
+  const meta = JSON.parse(harness.localStorage.getItem('isotope_sync_metadata'));
+
+  assert.equal(first.ok, true);
+  assert.equal(first.downloaded, true);
+  assert.equal(first.imported, true);
+  assert.equal(second.downloaded, true);
+  assert.equal(second.imported, false);
+  assert.equal(applied, 1);
+  assert.equal(meta.last_sync_status, 'synced');
+  assert.equal(meta.last_error, null);
 });
 
 test('Android bridge routes online state through Capacitor Network', async () => {

@@ -7,10 +7,11 @@
 ### TASK ANDROID-012
 **Priority:** P0
 **Status:** ACTIVE
-**Objective:** Download/extract and runtime-test the GitHub-built combined Android Floating Timer + Supabase sync bridge repair.
+**Objective:** Commit/push the latest Android Analytics stability + Supabase sync bridge checkpoint, then download/extract and runtime-test the GitHub-built APK.
 
 **Acceptance:**
-- Artifact is downloaded/extracted and statically inspected.
+- New checkpoint is committed and pushed to `codex/android-production-repair`.
+- GitHub Actions completes for the new commit and artifact is downloaded/extracted and statically inspected.
 - OnePlus Pad Go install/runtime checks are recorded.
 - Device evidence distinguishes:
   - code written
@@ -20,21 +21,21 @@
   - physical-device tested
 
 **Current evidence:**
-- `npm test`: PASS, 33 tests.
+- `npm test`: PASS, 40 tests.
 - `npm run build`: PASS through `prepare-www`, `apply-patches`, `npx cap sync android`, and final idempotent patch pass.
 - `git diff --check`: PASS.
-- Commit `a99d575` pushed to `origin/codex/android-production-repair`.
-- GitHub Actions run `28483486050`: PASS.
-- Debug artifact: `IsotopeAI-debug-45`, artifact id `7996534384`.
+- Previous commit `a99d575` pushed to `origin/codex/android-production-repair`.
+- Previous GitHub Actions run `28483486050`: PASS.
+- Previous debug artifact: `IsotopeAI-debug-45`, artifact id `7996534384`.
+- Latest local changes add Android Analytics black-screen mitigation, profile/onboarding merge repair, storage bucket upload helpers, Headway/feedback link patches, and native WebView resume recovery. They still need commit/push/CI evidence.
 - Local artifact download from the GitHub API is blocked by HTTP 401 because no `GITHUB_PAT`/`GH_TOKEN`/`gh` auth exists in this shell.
 - Local Gradle/APK build intentionally not run by user instruction; use GitHub Actions for APK assembly.
 
 **Exact next commands:**
 ```bash
-export GITHUB_PAT=...
-curl -L -H "Authorization: Bearer $GITHUB_PAT" -o /tmp/isotope-a99d575.zip https://api.github.com/repos/Suydev/isotope-apk/actions/artifacts/7996534384/zip
-unzip /tmp/isotope-a99d575.zip -d /tmp/isotope-a99d575
-adb install -r /tmp/isotope-a99d575/app-debug.apk
+git add android-bridge.js android/app/src/main/java/in/isotopeai/app/MainActivity.java android/app/src/main/res/values/styles.xml scripts/apply-android-patches.js test/android-bridge.test.mjs test/prepare-patches.test.mjs supabase .agent
+git commit -m "fix(android): stabilize analytics and cloud profile sync"
+git push -u origin codex/android-production-repair
 ```
 
 ---
@@ -56,6 +57,8 @@ adb install -r /tmp/isotope-a99d575/app-debug.apk
 - Import archives to `userId/imports/*` and promotes canonical backup.
 - Old stale archive files are cleaned only after verified upload/readback.
 - Community leaderboard/group analytics/session sync call real Supabase REST/RPC paths with useful errors on failure.
+- Group icon uploads use `group-icons`; study material uploads use `study-material`.
+- Supabase Storage old archive cleanup is verified against only current-user stale JSON archive paths.
 
 ---
 
@@ -76,7 +79,8 @@ adb install -r /tmp/isotope-a99d575/app-debug.apk
 - Expand returns to `/focus`.
 - Close removes service/overlay.
 - No orphan overlay remains after session completion or app restart.
-- Focus page intermittent black-screen/open failure is reproduced with route, WebView console, and Logcat evidence.
+- Focus/Analytics intermittent black-screen/open failure is retested with route, WebView console, and Logcat evidence.
+- Analytics Monthly past-session switching does not blank the WebView.
 
 ---
 

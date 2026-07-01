@@ -54,6 +54,25 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        installIsotopeAndroidBridge();
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView != null) {
+            webView.onResume();
+            webView.resumeTimers();
+            webView.post(() -> {
+                webView.invalidate();
+                webView.evaluateJavascript(
+                    "window.__isoAndroidForceRepaint&&window.__isoAndroidForceRepaint('main-activity:onResume');",
+                    null
+                );
+            });
+        }
+        replayFloatingTimerActions();
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);

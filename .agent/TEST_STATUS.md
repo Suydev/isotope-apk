@@ -11,7 +11,8 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 | Script syntax: `apply-android-patches.js` | PASS | 2026-06-30 | local branch | `node --check scripts/apply-android-patches.js` |
 | Script syntax: `prepare-www.js` | PASS | 2026-06-30 | local branch | `node --check scripts/prepare-www.js` |
 | `git diff --check` | PASS | 2026-06-30 | local branch | `git diff --check` |
-| Regression tests | PASS | 2026-06-30 | local branch | `npm test`: 33 tests passed |
+| `git diff --check` | PASS | 2026-07-01 | local branch | `git diff --check` |
+| Regression tests | PASS | 2026-07-01 | local branch | `npm test`: 40 tests passed |
 | `/__auth/check` causes zero signup requests | PASS | 2026-06-30 | local branch | `npm test` |
 | Bootstrap canonical onboarding/profile contract | PASS | 2026-06-30 | local branch | `npm test` |
 | Bootstrap network failure does not assume onboarded | PASS | 2026-06-30 | local branch | `npm test` |
@@ -49,13 +50,19 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 | Repaired stored profile persists exactly once | PASS | 2026-06-30 | local branch | `npm test` |
 | Canonical and custom focus types remain intact | PASS | 2026-06-30 | local branch | `npm test` |
 | Settings Font Size bundle patch | PASS | 2026-06-30 | local branch | `npm test` |
+| Profile save deep-merges cloud `profile_data` and persists completed onboarding once | PASS | 2026-07-01 | local branch | `npm test` |
+| Android Analytics render-stability bundle patches | PASS | 2026-07-01 | local branch | `npm test` |
+| Android native WebView resume/repaint contract | PASS | 2026-07-01 | local branch | `npm test` |
+| Headway account `7eeYY7`, Featurebase app link, and Android storage-warning suppression | PASS | 2026-07-01 | local branch | `npm test` |
+| Notification panel bounded scroll patch | PASS | 2026-07-01 | local branch | `npm test` |
 | PWA manager disabled and Android metadata stripped | PASS | 2026-06-30 | local branch | `npm test` |
 | Android native resources for overlay/keyboard/notification/logo | PASS | 2026-06-30 | local branch | `npm test` |
 | Offline LaTeX/KaTeX font packaging | PASS | 2026-06-30 | local branch | `npm test` |
-| www asset preparation and patch idempotence | PASS | 2026-06-30 | local branch | `npm run build` |
-| Capacitor sync | PASS | 2026-06-30 | local branch | `npm run build` includes `npx cap sync android` |
+| www asset preparation and patch idempotence | PASS | 2026-07-01 | local branch | `npm run build` |
+| Capacitor sync | PASS | 2026-07-01 | local branch | `npm run build` includes `npx cap sync android` |
 | Npm audit non-force fix | BLOCKED | 2026-06-30 | local branch | `npm audit --omit=optional`; fix requires forced Capacitor 8.4.1 upgrade |
-| GitHub Actions debug APK build for current repair | PASS | 2026-06-30 | `a99d575` | Run `28483486050`, artifact `IsotopeAI-debug-45` id `7996534384` |
+| GitHub Actions debug APK build for previous repair | PASS | 2026-06-30 | `a99d575` | Run `28483486050`, artifact `IsotopeAI-debug-45` id `7996534384` |
+| GitHub Actions debug APK build for latest local changes | UNTESTED | — | — | Requires commit and push |
 | Artifact download/extract from local shell | BLOCKED | 2026-06-30 | `a99d575` | GitHub API artifact ZIP returned HTTP 401; no `GITHUB_PAT`, `GH_TOKEN`, or `gh` auth available |
 | Local Termux Gradle debug APK build | SKIPPED | 2026-06-30 | local branch | User instructed to use GitHub Actions only |
 | App launch in packaged APK | UNTESTED | — | — | Requires GitHub-built APK |
@@ -63,7 +70,7 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 | Cloud sync online/backup restore | UNTESTED | — | — | Requires runtime evidence |
 | Community/leaderboards/session sync | UNTESTED | — | — | Requires runtime evidence |
 | Floating Timer on OnePlus Pad Go | UNTESTED | — | — | Requires device evidence |
-| Focus page intermittent black screen | UNTESTED | — | — | Requires device/WebView evidence |
+| Focus/Analytics intermittent black screen | UNTESTED | — | — | Requires new GitHub-built APK and device/WebView evidence |
 | Dark-mode logo appearance | UNTESTED | — | — | Requires UI/device evidence |
 | Android process-death/reboot notification reliability | UNTESTED | — | — | Requires device evidence |
 | Import/export in packaged APK | UNTESTED | — | — | Requires device evidence |
@@ -75,8 +82,8 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 
 ```text
 npm test
-tests 33
-pass 33
+tests 40
+pass 40
 fail 0
 ```
 
@@ -85,7 +92,7 @@ fail 0
 ```text
 npm run build
 prepare-www: copied real isotope-code public assets, repaired 8 KaTeX font assets, pruned 10 browser/PWA artifacts
-apply-patches first pass: 24 patches, 0 skipped, 0 required failures
+apply-patches first pass: 38 patches, 0 skipped, 0 required failures
 npx cap sync android: PASS
 apply-patches final pass: 0 bundle changes, 0 skipped, 0 required failures
 ```

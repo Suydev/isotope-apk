@@ -218,6 +218,32 @@ The production profile normalizer used `(icon.trim() || "📌").slice(0, 4)`, wh
 
 **Current finding:** `npm audit fix --dry-run` and `npm audit fix --package-lock-only --dry-run` have no non-force fix. The available fix forces `@capacitor/cli@8.4.1`, a major Capacitor migration that can break native bridge and patch-script behavior.
 
+---
+
+## ISSUE-021 — Analytics Monthly switch can black-screen Android WebView
+**Severity:** CRITICAL
+**Status:** CODE FIX WRITTEN + UNIT TESTED; APK RUNTIME UNVERIFIED (2026-07-01)
+
+User reported the same black-screen class on Analytics when switching month to view past sessions.
+
+**Current fix:** Android now has a native/WebView resume repaint path, stable dark post-splash theme, Android-gated render recovery CSS, Android Sentry/replay startup suppression, Android chart animation disablement for AnalyticsPeriod, Android Session Log row render cap, and Monthly/Weekly next navigation clamping at the current period.
+
+**Evidence:** `npm test` includes Android Analytics render-stability patch-contract coverage and native WebView resume/repaint contract coverage. `npm run build` passed with idempotent patching.
+
+**Remaining risk:** Needs a GitHub-built APK and OnePlus Pad Go runtime test for Analytics Monthly switching, Focus page open/reopen, app resume, rotation, and WebView console/Logcat evidence.
+
+---
+
+## ISSUE-022 — Profile/onboarding partial updates can wipe academics
+**Severity:** HIGH
+**Status:** CODE FIX WRITTEN + UNIT TESTED; APK RUNTIME UNVERIFIED (2026-07-01)
+
+The compiled onboarding/profile flow can save academics and then later send a smaller profile payload. A replace-style profile write can erase exam/subject selections from cloud `profile_data`.
+
+**Current fix:** Android profile POST reads existing `profile_data`, deep-merges partial updates, upserts the merged row, and persists completed onboarding with a verified `user_onboarding` upsert only when the merged profile is complete.
+
+**Evidence:** `npm test` includes `profile save deep-merges existing profile_data and persists completed onboarding once`.
+
 **Decision:** Do not run `npm audit fix --force` in this repair. Track a separate Capacitor 8 migration after the Floating Timer/auth/sync runtime issues are stabilized.
 
 ---

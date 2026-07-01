@@ -218,6 +218,38 @@
 - Stored corrupted Android profile data is rewritten once, only when a repair is needed.
 
 **Files affected:** `android-floating-timer-bridge.js`, `scripts/apply-android-patches.js`
+
+---
+
+## DEC-021 — Android WebView render recovery and Android-only Analytics stabilization
+
+**Date:** 2026-07-01
+**Context:** User testing reported the Focus page still sometimes opens to a full black screen, and Analytics also black-screens when switching Monthly views to inspect past sessions.
+
+**Chosen:** Add Android-gated native/WebView recovery and reduce heavy Android-only chart/render pressure without changing the IsotopeAI UI source.
+
+**Why:** The black screen pattern matches Android WebView compositor/activity resume failure under heavy animated chart/blur/table rendering. The APK packages pinned compiled production assets, so the wrapper must stabilize those assets through native lifecycle hooks and exact patch-contract tests.
+
+**Consequences:**
+- `MainActivity.onResume()` resumes WebView timers, invalidates the surface, and invokes `window.__isoAndroidForceRepaint`.
+- `android-bridge.js` dispatches `isotope:android-resume`, installs Android render recovery CSS, and reloads only when the React root is blank.
+- Analytics patches disable Android Sentry/replay startup, force reduce-motion/performance behavior on Android, disable chart animation on Android, and cap rendered Session Log rows to 120 while preserving source data.
+- Runtime proof still requires a GitHub-built APK and device/WebView evidence.
+
+**Files affected:** `MainActivity.java`, `styles.xml`, `android-bridge.js`, `scripts/apply-android-patches.js`, `test/prepare-patches.test.mjs`
+
+---
+
+## DEC-022 — Profile saves must deep-merge cloud profile_data
+
+**Date:** 2026-07-01
+**Context:** Onboarding academics/exam/subjects could be saved first and then overwritten by later partial profile updates from the Android bridge.
+
+**Chosen:** `handlePostProfile()` reads the existing row, deep-merges incoming `profile_data`, upserts the merged row, and persists `user_onboarding.completed=true` only when the merged profile says onboarding is complete.
+
+**Why:** PostgREST partial profile writes from multiple compiled bundles must not destroy unrelated profile settings or create sync loops. Onboarding completion must be a verified upsert, not inferred from row existence.
+
+**Files affected:** `android-bridge.js`, `test/android-bridge.test.mjs`
 **Reversible:** Yes, once isotope-code authored source ships a safe normalizer and the Android patch can be removed.
 
 ---

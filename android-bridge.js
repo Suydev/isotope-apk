@@ -125,6 +125,89 @@
     try { document.addEventListener('DOMContentLoaded', install); } catch (e) {}
   })();
 
+  (function setupAndroidRenderRecovery() {
+    var reloadAttempted = false;
+
+    function forceRepaint(source) {
+      try {
+        var root = document.documentElement;
+        if (root) root.classList.add('iso-android-repaint');
+        if (document.body) {
+          document.body.style.webkitTransform = 'translateZ(0)';
+          document.body.style.transform = 'translateZ(0)';
+          void document.body.offsetHeight;
+        }
+        setTimeout(function () {
+          try {
+            if (document.body) {
+              document.body.style.webkitTransform = '';
+              document.body.style.transform = '';
+            }
+            if (root) root.classList.remove('iso-android-repaint');
+          } catch (e) {}
+        }, 120);
+      } catch (e) {}
+      dispatchAndroidEvent('isotope:android-resume', { source: source || 'android-bridge' });
+    }
+
+    function checkBlankRoot() {
+      setTimeout(function () {
+        try {
+          var root = document.getElementById && document.getElementById('root');
+          var blank = root && root.children && root.children.length === 0;
+          if (blank && !reloadAttempted) {
+            reloadAttempted = true;
+            window.location.reload();
+          }
+        } catch (e) {}
+      }, 1200);
+    }
+
+    function installStyles() {
+      if (!document.head || document.getElementById && document.getElementById('iso-android-render-style')) return;
+      try {
+        var style = document.createElement('style');
+        style.id = 'iso-android-render-style';
+        style.textContent = [
+          'html.iso-android-stable-render .app-ambient { display: none !important; }',
+          'html.iso-android-stable-render .recharts-wrapper, html.iso-android-stable-render .recharts-surface { transform: translateZ(0); backface-visibility: hidden; }',
+          'html.iso-android-stable-render [class*="blur-[100px]"], html.iso-android-stable-render [class*="blur-[120px]"] { filter: none !important; }',
+          'html.iso-android-stable-render [data-framer-name], html.iso-android-stable-render .recharts-wrapper * { transition-duration: 0s !important; }',
+          'html.iso-android-repaint body { min-height: calc(100% + 1px); }'
+        ].join('\n');
+        document.head.appendChild(style);
+        document.documentElement.classList.add('iso-android-stable-render');
+      } catch (e) {}
+    }
+
+    window.__isoAndroidForceRepaint = forceRepaint;
+    try { document.addEventListener('DOMContentLoaded', installStyles); } catch (e) {}
+    try { document.addEventListener('visibilitychange', function () { if (!document.hidden) { forceRepaint('visibilitychange'); checkBlankRoot(); } }); } catch (e) {}
+    try { window.addEventListener('focus', function () { forceRepaint('focus'); checkBlankRoot(); }); } catch (e) {}
+
+    (function installCapacitorResume() {
+      var attempts = 0;
+      function install() {
+        attempts++;
+        var app = getCapacitorPlugin('App');
+        if (app && typeof app.addListener === 'function') {
+          try {
+            app.addListener('resume', function () { forceRepaint('capacitor:resume'); checkBlankRoot(); });
+            app.addListener('appStateChange', function (state) {
+              if (!state || state.isActive !== false) {
+                forceRepaint('capacitor:appStateChange');
+                checkBlankRoot();
+              }
+            });
+            return;
+          } catch (e) {}
+        }
+        if (attempts < 30) setTimeout(install, 100);
+      }
+      install();
+    })();
+  })();
+
   // ── Inject __IK__ global (mirrors server-side injection) ───────────────────
   // The AI store reads window.__IK__.supa / .anon / .gemini / .groq
   // Without this, all AI features are broken on Android.
@@ -477,6 +560,41 @@
     return out;
   }
 
+  function persistCompletedOnboardingIfNeeded(userId, profileData) {
+    if (!userId || !isObject(profileData)) return Promise.resolve(null);
+    var completed = profileData.isOnboarded === true || profileData.onboarding_completed === true;
+    if (!completed) return Promise.resolve(null);
+    var now = new Date().toISOString();
+    var completedAt = profileData.onboardingCompletedAt || profileData.onboarding_completed_at || now;
+    var onboardingData = compactObject({
+      academic: isObject(profileData.academic) ? profileData.academic : undefined,
+      studyPreferences: isObject(profileData.studyPreferences) ? profileData.studyPreferences : undefined,
+      workflowPreferences: isObject(profileData.workflowPreferences) ? profileData.workflowPreferences : undefined,
+      communityPreferences: isObject(profileData.communityPreferences) ? profileData.communityPreferences : undefined,
+      personalization: isObject(profileData.personalization) ? profileData.personalization : undefined,
+      settings: isObject(profileData.settings) ? profileData.settings : undefined,
+      onboarding: isObject(profileData.onboarding) ? profileData.onboarding : undefined
+    });
+    return supaJson('/rest/v1/user_onboarding?on_conflict=user_id', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify({
+        user_id: userId,
+        completed: true,
+        completed_at: completedAt,
+        data: onboardingData,
+        updated_at: now
+      })
+    }).then(function (result) {
+      if (!result.ok) return { ok: false, warning: result.body && (result.body.message || result.body.error) || 'Onboarding completion upsert failed' };
+      var row = Array.isArray(result.body) ? result.body[0] : result.body;
+      if (!row || row.completed !== true) return { ok: false, warning: 'Onboarding completion was not verified' };
+      return row;
+    }).catch(function (e) {
+      return { ok: false, warning: e && e.message || 'Onboarding completion upsert failed' };
+    });
+  }
+
   function mergeBackupData(localBackup, cloudBackup) {
     var localData = getBackupData(localBackup && (localBackup.raw || { data: localBackup.data }) || {});
     var cloudData = getBackupData(cloudBackup && (cloudBackup.raw || { data: cloudBackup.data }) || {});
@@ -737,6 +855,199 @@
       body: text,
       credentials: 'omit'
     }).then(storageResultBody);
+  }
+
+  function encodeStoragePath(pathValue) {
+    return String(pathValue || '').split('/').map(encodeURIComponent).join('/');
+  }
+
+  function publicStorageUrl(bucket, objectPath) {
+    return SUPA_URL + '/storage/v1/object/public/' + encodeURIComponent(bucket) + '/' + encodeStoragePath(objectPath);
+  }
+
+  function sanitizeStorageSegment(value, fallback) {
+    var text = String(value || fallback || 'file')
+      .split(/[\\/]/).pop()
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 96);
+    if (!text || text === '.' || text === '..') return fallback || 'file';
+    return text;
+  }
+
+  function extensionForContentType(contentType) {
+    var type = String(contentType || '').toLowerCase().split(';')[0].trim();
+    if (type === 'image/jpeg') return 'jpg';
+    if (type === 'image/png') return 'png';
+    if (type === 'image/webp') return 'webp';
+    if (type === 'image/gif') return 'gif';
+    if (type === 'image/svg+xml') return 'svg';
+    if (type === 'application/pdf') return 'pdf';
+    if (type === 'text/plain') return 'txt';
+    if (type === 'text/markdown') return 'md';
+    if (type === 'application/json') return 'json';
+    return 'bin';
+  }
+
+  function extensionFromName(fileName) {
+    var match = String(fileName || '').match(/\.([a-zA-Z0-9]{1,12})$/);
+    return match ? match[1].toLowerCase() : null;
+  }
+
+  function bytesFromBase64(value) {
+    if (typeof atob !== 'function' || typeof Uint8Array === 'undefined') return null;
+    var binary = atob(String(value || ''));
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  function resolveUploadBody(input, options) {
+    options = options || {};
+    var optionContentType = options.contentType || options.content_type;
+    var optionFileName = options.fileName || options.file_name;
+    if (typeof Blob !== 'undefined' && input instanceof Blob) {
+      return Promise.resolve({
+        body: input,
+        content_type: optionContentType || input.type || 'application/octet-stream',
+        size_bytes: Number(input.size || 0),
+        file_name: sanitizeStorageSegment(optionFileName || input.name || 'upload.bin', 'upload.bin')
+      });
+    }
+    if (input && typeof ArrayBuffer !== 'undefined' && input instanceof ArrayBuffer) {
+      return Promise.resolve({
+        body: input,
+        content_type: optionContentType || 'application/octet-stream',
+        size_bytes: input.byteLength || 0,
+        file_name: sanitizeStorageSegment(optionFileName || 'upload.bin', 'upload.bin')
+      });
+    }
+    if (input && typeof ArrayBuffer !== 'undefined' && input.buffer instanceof ArrayBuffer && input.byteLength !== undefined) {
+      return Promise.resolve({
+        body: input,
+        content_type: optionContentType || 'application/octet-stream',
+        size_bytes: input.byteLength || 0,
+        file_name: sanitizeStorageSegment(optionFileName || 'upload.bin', 'upload.bin')
+      });
+    }
+    if (isObject(input) && (input.data_url || input.dataUrl || input.content || input.text || input.body)) {
+      return resolveUploadBody(input.data_url || input.dataUrl || input.content || input.text || input.body, Object.assign({}, options, {
+        contentType: optionContentType || input.content_type || input.contentType,
+        fileName: optionFileName || input.file_name || input.fileName || input.name
+      }));
+    }
+    var text = String(input === undefined || input === null ? '' : input);
+    var dataUrl = text.match(/^data:([^;,]+)?(;base64)?,([\s\S]*)$/);
+    if (dataUrl) {
+      var dataType = optionContentType || dataUrl[1] || 'application/octet-stream';
+      var encoded = dataUrl[3] || '';
+      var body = dataUrl[2] ? bytesFromBase64(encoded) : decodeURIComponent(encoded);
+      if (body && typeof Blob !== 'undefined' && body instanceof Uint8Array) {
+        body = new Blob([body], { type: dataType });
+      }
+      if (!body) body = encoded;
+      return Promise.resolve({
+        body: body,
+        content_type: dataType,
+        size_bytes: body && typeof body.size === 'number' ? body.size : (body.byteLength || body.length || 0),
+        file_name: sanitizeStorageSegment(optionFileName || 'upload.' + extensionForContentType(dataType), 'upload.bin')
+      });
+    }
+    return Promise.resolve({
+      body: text,
+      content_type: optionContentType || 'text/plain',
+      size_bytes: byteSize(text),
+      file_name: sanitizeStorageSegment(optionFileName || 'upload.txt', 'upload.txt')
+    });
+  }
+
+  function storageUploadObject(bucket, objectPath, body, contentType, upsert) {
+    var session = getSession();
+    if (!session || !session.access_token) return Promise.reject(new Error('no_session'));
+    return fetch(SUPA_URL + '/storage/v1/object/' + encodeURIComponent(bucket) + '/' + encodeStoragePath(objectPath), {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + session.access_token,
+        'apikey': SUPA_ANON_KEY,
+        'Content-Type': contentType || 'application/octet-stream',
+        'x-upsert': upsert ? 'true' : 'false'
+      },
+      body: body,
+      credentials: 'omit'
+    }).then(storageResultBody);
+  }
+
+  function uploadGroupIconCompat(input, options) {
+    options = options || {};
+    var session = getSession();
+    var userId = session && session.user && session.user.id;
+    if (!session || !session.access_token) return Promise.reject(new Error('no_session'));
+    if (!userId) return Promise.reject(new Error('no_user_id'));
+    return resolveUploadBody(input, options).then(function (resolved) {
+      var contentType = String(resolved.content_type || '').toLowerCase().split(';')[0].trim();
+      if (!/^image\/(png|jpe?g|webp|gif|svg\+xml)$/.test(contentType)) {
+        var typeErr = new Error('Group icon must be a PNG, JPEG, WebP, GIF, or SVG image.');
+        typeErr.status = 400;
+        typeErr.code = 'UNSUPPORTED_GROUP_ICON_TYPE';
+        throw typeErr;
+      }
+      if (resolved.size_bytes > 10 * 1024 * 1024) {
+        var sizeErr = new Error('Group icon exceeds the 10 MB bucket limit.');
+        sizeErr.status = 413;
+        sizeErr.code = 'GROUP_ICON_TOO_LARGE';
+        throw sizeErr;
+      }
+      var groupId = sanitizeStorageSegment(options.groupId || options.group_id || 'unassigned', 'unassigned');
+      var baseName = sanitizeStorageSegment(options.fileName || options.file_name || resolved.file_name || 'group-icon', 'group-icon');
+      var ext = extensionFromName(baseName) || extensionForContentType(contentType);
+      var nameWithoutExt = baseName.replace(/\.[a-zA-Z0-9]{1,12}$/, '') || 'group-icon';
+      var objectPath = userId + '/groups/' + groupId + '/' + safeIsoStamp(new Date().toISOString()) + '-' + hashText(nameWithoutExt).slice(0, 10) + '.' + ext;
+      return storageUploadObject('group-icons', objectPath, resolved.body, contentType, options.upsert === true)
+        .then(function (result) {
+          assertStorageOk(result, 'Group icon upload');
+          return {
+            ok: true,
+            bucket: 'group-icons',
+            path: objectPath,
+            public_url: publicStorageUrl('group-icons', objectPath),
+            content_type: contentType,
+            size_bytes: resolved.size_bytes,
+            uploaded_at: new Date().toISOString()
+          };
+        });
+    });
+  }
+
+  function uploadStudyMaterialCompat(input, options) {
+    options = options || {};
+    var session = getSession();
+    var userId = session && session.user && session.user.id;
+    if (!session || !session.access_token) return Promise.reject(new Error('no_session'));
+    if (!userId) return Promise.reject(new Error('no_user_id'));
+    return resolveUploadBody(input, options).then(function (resolved) {
+      if (resolved.size_bytes > 100 * 1024 * 1024) {
+        var sizeErr = new Error('Study material exceeds the 100 MB bucket limit.');
+        sizeErr.status = 413;
+        sizeErr.code = 'STUDY_MATERIAL_TOO_LARGE';
+        throw sizeErr;
+      }
+      var folder = sanitizeStorageSegment(options.folder || options.subjectId || options.subject_id || 'general', 'general');
+      var fileName = sanitizeStorageSegment(options.fileName || options.file_name || resolved.file_name || 'study-material.bin', 'study-material.bin');
+      if (!extensionFromName(fileName)) fileName += '.' + extensionForContentType(resolved.content_type);
+      var objectPath = userId + '/study-material/' + folder + '/' + safeIsoStamp(new Date().toISOString()) + '-' + fileName;
+      return storageUploadObject('study-material', objectPath, resolved.body, resolved.content_type, options.upsert === true)
+        .then(function (result) {
+          assertStorageOk(result, 'Study material upload');
+          return {
+            ok: true,
+            bucket: 'study-material',
+            path: objectPath,
+            content_type: resolved.content_type,
+            size_bytes: resolved.size_bytes,
+            uploaded_at: new Date().toISOString()
+          };
+        });
+    });
   }
 
   function isStorageAlreadyExists(result) {
@@ -1092,12 +1403,28 @@
     return fetch(SUPA_URL + '/auth/v1/signup', {
       method: 'POST',
       headers: { 'apikey': SUPA_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: body.email, password: body.password }),
+      body: JSON.stringify({
+        email: body.email,
+        password: body.password,
+        data: compactObject({ name: body.name || body.full_name || body.fullName })
+      }),
       credentials: 'omit'
     }).then(function (r) {
       return r.json().then(function (d) {
         if (r.ok) {
-          return jsonResponse({ ok: true, data: d, email_confirmation_required: !d.session });
+          var hasSession = !!(d && d.session && d.session.access_token);
+          return jsonResponse({
+            ok: hasSession,
+            success: hasSession,
+            data: d,
+            session: d && d.session || null,
+            user: d && d.user || null,
+            email_confirmation_required: !hasSession,
+            code: hasSession ? 'SIGNED_UP' : 'EMAIL_CONFIRMATION_REQUIRED',
+            message: hasSession
+              ? 'Account created.'
+              : 'Confirmation email sent. Check your inbox and confirm your email before logging in.'
+          }, hasSession ? 200 : 202);
         }
         return jsonResponse({ ok: false, error: d.error_description || d.msg || d.message || 'Signup failed' }, r.status || 400);
       });
@@ -1264,22 +1591,38 @@
     var userId = session.user && session.user.id;
     if (!userId) return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id' }, 401));
 
-    var profileData = body.profile_data || body;
-    return supaFetch('/rest/v1/user_profiles?user_id=eq.' + userId, {
-      method: 'PATCH',
-      headers: { 'Prefer': 'return=representation' },
-      body: JSON.stringify({ profile_data: profileData, updated_at: new Date().toISOString() })
-    }).then(function (r) {
-      return r.json().then(function (d) {
-        if (r.ok) return jsonResponse({ ok: true, profile: Array.isArray(d) ? d[0] : d });
-        // Try upsert if no rows updated
-        return supaFetch('/rest/v1/user_profiles', {
-          method: 'POST',
-          headers: { 'Prefer': 'return=representation,resolution=merge-duplicates' },
-          body: JSON.stringify({ user_id: userId, profile_data: profileData })
-        }).then(function (r2) {
-          return r2.json().then(function (d2) {
-            return jsonResponse({ ok: r2.ok, profile: Array.isArray(d2) ? d2[0] : d2 });
+    var incomingProfileData = isObject(body && body.profile_data)
+      ? body.profile_data
+      : (isObject(body && body.profile) ? body.profile : (isObject(body) ? body : {}));
+    return supaJson('/rest/v1/user_profiles?select=profile_data&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', {
+      method: 'GET'
+    }).then(function (existingResult) {
+      var existingRow = existingResult.ok ? firstRow(existingResult) : null;
+      var existingProfileData = isObject(existingRow && existingRow.profile_data) ? existingRow.profile_data : {};
+      var mergedProfileData = mergeObjects(existingProfileData, incomingProfileData);
+      return supaJson('/rest/v1/user_profiles?on_conflict=user_id', {
+        method: 'POST',
+        headers: { 'Prefer': 'return=representation,resolution=merge-duplicates' },
+        body: JSON.stringify({
+          user_id: userId,
+          profile_data: mergedProfileData,
+          updated_at: new Date().toISOString()
+        })
+      }).then(function (result) {
+        if (!result.ok) {
+          return jsonResponse({
+            ok: false,
+            error: result.body && (result.body.message || result.body.error) || 'Profile upsert failed',
+            detail: result.body || null
+          }, result.status || 500);
+        }
+        var row = Array.isArray(result.body) ? result.body[0] : result.body;
+        return persistCompletedOnboardingIfNeeded(userId, mergedProfileData).then(function (onboardingResult) {
+          return jsonResponse({
+            ok: true,
+            profile: row,
+            profile_data: row && row.profile_data || mergedProfileData,
+            onboarding: onboardingResult || null
           });
         });
       });
@@ -1962,6 +2305,476 @@
     });
   }
 
+  // ── Browser sync helper compatibility ─────────────────────────────────────
+  // The compiled web app expects server.mjs to install these helpers. Android
+  // does not run server.mjs, so the bridge owns the same local restore/upload
+  // state machine.
+  var syncLocks = {};
+
+  function readSyncMetadata() {
+    return safeJsonParse(localStorage.getItem('isotope_sync_metadata') || '{}', {}) || {};
+  }
+
+  function writeSyncMetadata(patch) {
+    var next = Object.assign({}, readSyncMetadata(), patch || {});
+    localStorage.setItem('isotope_sync_metadata', JSON.stringify(next));
+    try {
+      window.dispatchEvent(new CustomEvent('isotope:sync_metadata', { detail: next }));
+    } catch (e) {}
+    return next;
+  }
+
+  function writeSyncHistory(entry) {
+    var rows = safeJsonParse(localStorage.getItem('isotope_sync_history') || '[]', []);
+    if (!Array.isArray(rows)) rows = [];
+    rows.unshift(Object.assign({ at: new Date().toISOString() }, entry || {}));
+    localStorage.setItem('isotope_sync_history', JSON.stringify(rows.slice(0, 80)));
+  }
+
+  function yieldToWebView() {
+    return new Promise(function (resolve) { setTimeout(resolve, 0); });
+  }
+
+  function responseJson(response, fallback) {
+    return response.json().catch(function () { return {}; }).then(function (data) {
+      if (response.ok && data && data.ok !== false) return data;
+      var err = new Error(data && (data.message || data.error) || fallback || 'Request failed');
+      err.status = response.status;
+      err.code = data && data.code || (response.status === 401 ? 'AUTH_REQUIRED' : 'REQUEST_FAILED');
+      err.payload = data || {};
+      throw err;
+    });
+  }
+
+  function isAuthError(error) {
+    return !!error && (error.status === 401 || error.code === 'AUTH_REQUIRED' || /no_session|auth|log in|session missing/i.test(error.message || ''));
+  }
+
+  function isEmptyOverwriteBlocked(error) {
+    return !!error && (error.code === 'BLOCKED_EMPTY_OVERWRITE' || error.__isEmptyOverwriteBlocked || /richer backup|empty overwrite/i.test(error.message || ''));
+  }
+
+  function isPermissionError(error) {
+    return !!error && (error.code === 'STORAGE_PERMISSION_DENIED' || error.status === 403 || /permission|policy|forbidden|rls/i.test(error.message || ''));
+  }
+
+  function syncAuthBlock(reason) {
+    window.__isoSyncAuthBlocked = true;
+    writeSyncMetadata({
+      last_sync_status: 'paused_auth',
+      last_error: reason || 'Authentication required. Log in again to sync.'
+    });
+  }
+
+  function withSyncLock(name, fn) {
+    if (syncLocks[name]) {
+      var locked = new Error('Cloud sync is already running.');
+      locked.code = 'SYNC_ALREADY_RUNNING';
+      return Promise.reject(locked);
+    }
+    syncLocks[name] = true;
+    writeSyncMetadata({
+      last_sync_status: 'syncing',
+      last_error: null,
+      active_operation: name,
+      active_started_at: new Date().toISOString()
+    });
+    return Promise.resolve()
+      .then(fn)
+      .finally(function () {
+        syncLocks[name] = false;
+        writeSyncMetadata({ active_operation: null, active_started_at: null });
+      });
+  }
+
+  function buildLocalBackupText(buildBackup) {
+    var adapter = window.IsotopeLocalDataAdapter || null;
+    if (adapter && typeof adapter.buildBackupPayloadFromLocal === 'function') {
+      return Promise.resolve(adapter.buildBackupPayloadFromLocal()).then(function (payload) {
+        return JSON.stringify(payload || {});
+      });
+    }
+    if (typeof buildBackup === 'function') {
+      return Promise.resolve(buildBackup()).then(function (payload) {
+        return typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+      });
+    }
+    return Promise.resolve('');
+  }
+
+  function countLocalData(backupText) {
+    var adapter = window.IsotopeLocalDataAdapter || null;
+    if (adapter && typeof adapter.countLocalData === 'function') {
+      return Promise.resolve(adapter.countLocalData());
+    }
+    return Promise.resolve(getCollectionCounts(backupText || '{}'));
+  }
+
+  function isLocalWorkspaceEmpty(backupText) {
+    var adapter = window.IsotopeLocalDataAdapter || null;
+    if (adapter && typeof adapter.isLocalWorkspaceEmpty === 'function') {
+      return Promise.resolve(adapter.isLocalWorkspaceEmpty());
+    }
+    return Promise.resolve(normalizeBackup(backupText || '{}').empty);
+  }
+
+  function applyCloudBackupToLocal(backupText, meta, applyBackup) {
+    var adapter = window.IsotopeLocalDataAdapter || null;
+    if (adapter && typeof adapter.applyBackupToLocal === 'function') {
+      return Promise.resolve(adapter.applyBackupToLocal(backupText, meta || {}));
+    }
+    if (typeof applyBackup === 'function') {
+      return Promise.resolve(applyBackup(backupText)).then(function () {
+        try {
+          window.dispatchEvent(new CustomEvent('isotope:sync_refresh', { detail: { source: 'cloud_restore' } }));
+        } catch (e) {}
+        return { ok: true, fallback_apply: true };
+      });
+    }
+    var err = new Error('No local restore adapter is available.');
+    err.code = 'LOCAL_RESTORE_ADAPTER_UNAVAILABLE';
+    throw err;
+  }
+
+  function didCountsGrow(before, after) {
+    before = before || {};
+    after = after || {};
+    return ['tasks', 'sessions', 'subjects', 'habits', 'exams', 'tests', 'mockTests'].some(function (key) {
+      return Number(after[key] || 0) > Number(before[key] || 0);
+    });
+  }
+
+  function uploadBackupJsonCompat(backupJson, options) {
+    options = options || {};
+    var text = typeof backupJson === 'string' ? backupJson : JSON.stringify(backupJson || {});
+    var hash = hashText(text);
+    return withSyncLock('upload', function () {
+      return yieldToWebView()
+        .then(function () {
+          return handleUploadBackup({
+            backup_json: text,
+            source: options.source || options.reason || 'android_manual_export',
+            source_path: options.source_path || 'android_runtime_helper',
+            cleanup: options.cleanup
+          });
+        })
+        .then(function (response) { return responseJson(response, 'Backup upload failed'); })
+        .then(function (data) {
+          writeSyncMetadata({
+            last_sync_status: 'synced',
+            last_backup_hash: data.hash || hash,
+            last_uploaded_hash: data.hash || hash,
+            last_uploaded_data_hash: data.data_hash || null,
+            last_uploaded_bytes: text.length,
+            last_snapshot_at: data.synced_at || new Date().toISOString(),
+            pending_count: 0,
+            last_error: null
+          });
+          writeSyncHistory({
+            op: 'upload',
+            status: data.skipped ? 'skipped' : 'ok',
+            source: options.source || 'android_upload',
+            bytes: text.length,
+            hash: data.hash || hash
+          });
+          return data;
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      else if (isEmptyOverwriteBlocked(error)) writeSyncMetadata({ last_sync_status: 'blocked_empty_overwrite', last_error: error.message });
+      else writeSyncMetadata({ last_sync_status: isPermissionError(error) ? 'failed_permission' : 'failed', last_error: error.message || 'Backup upload failed' });
+      writeSyncHistory({ op: 'upload', status: 'failed', source: options.source || 'android_upload', error: error.message || 'Backup upload failed' });
+      throw error;
+    });
+  }
+
+  function downloadBackupJsonCompat(options) {
+    options = options || {};
+    return withSyncLock('download', function () {
+      return handleGetLatestBackup()
+        .then(function (response) { return responseJson(response, 'Download failed'); })
+        .then(function (data) {
+          var text = data.backup_json || '';
+          if (!text) return null;
+          var hash = data.backup_hash || hashText(text);
+          writeSyncMetadata({
+            last_sync_status: 'synced',
+            last_downloaded_hash: hash,
+            last_downloaded_bytes: text.length,
+            last_snapshot_at: data.synced_at || data.snapshot_at || new Date().toISOString(),
+            last_error: null
+          });
+          writeSyncHistory({
+            op: 'download',
+            status: 'ok',
+            source: options.source || 'android_download',
+            bytes: text.length,
+            hash: hash
+          });
+          return text;
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      writeSyncMetadata({ last_sync_status: 'failed', last_error: error.message || 'Download failed' });
+      writeSyncHistory({ op: 'download', status: 'failed', source: options.source || 'android_download', error: error.message || 'Download failed' });
+      throw error;
+    });
+  }
+
+  function importBackupJsonCompat(backupJson, mode, options) {
+    options = options || {};
+    var text = typeof backupJson === 'string' ? backupJson : JSON.stringify(backupJson || {});
+    var hash = options.hash || hashText(text);
+    return withSyncLock('import', function () {
+      return yieldToWebView()
+        .then(function () {
+          return handleImport({ backup_json: text, mode: mode || 'merge' });
+        })
+        .then(function (response) { return responseJson(response, 'Backup import failed'); })
+        .then(function (data) {
+          return applyCloudBackupToLocal(text, {
+            hash: hash,
+            source_path: data.import_storage && (data.import_storage.latest_path || data.import_storage.path) || 'android_import'
+          }, null).then(function (restoreResult) {
+            writeSyncMetadata({
+              last_sync_status: 'synced',
+              last_imported_hash: hash,
+              last_imported_bytes: text.length,
+              last_snapshot_at: new Date().toISOString(),
+              pending_count: 0,
+              last_error: null
+            });
+            writeSyncHistory({
+              op: 'import',
+              status: 'ok',
+              mode: mode || 'merge',
+              source: options.source || 'android_import',
+              bytes: text.length,
+              hash: hash
+            });
+            return Object.assign({}, data, { restore_result: restoreResult });
+          });
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      else if (isEmptyOverwriteBlocked(error)) writeSyncMetadata({ last_sync_status: 'blocked_empty_overwrite', last_error: error.message });
+      else writeSyncMetadata({ last_sync_status: isPermissionError(error) ? 'failed_permission' : 'failed', last_error: error.message || 'Backup import failed' });
+      writeSyncHistory({ op: 'import', status: 'failed', source: options.source || 'android_import', error: error.message || 'Backup import failed' });
+      throw error;
+    });
+  }
+
+  function refreshCloudSnapshotCompat(source) {
+    var src = source || 'android_snapshot';
+    return withSyncLock('snapshot', function () {
+      return handleSnapshot({ source: src })
+        .then(function (response) { return responseJson(response, 'Cloud snapshot upload failed'); })
+        .then(function (data) {
+          writeSyncMetadata({
+            last_sync_status: 'synced',
+            last_snapshot_at: data.synced_at || new Date().toISOString(),
+            pending_count: 0,
+            last_error: null
+          });
+          writeSyncHistory({ op: 'snapshot', status: 'ok', source: src });
+          return data;
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      else if (isEmptyOverwriteBlocked(error)) writeSyncMetadata({ last_sync_status: 'blocked_empty_overwrite', last_error: error.message });
+      else writeSyncMetadata({ last_sync_status: isPermissionError(error) ? 'failed_permission' : 'failed', last_error: error.message || 'Cloud snapshot upload failed' });
+      writeSyncHistory({ op: 'snapshot', status: 'failed', source: src, error: error.message || 'Cloud snapshot upload failed' });
+      throw error;
+    });
+  }
+
+  function runManualCloudSyncCompat(buildBackup, applyBackup, source) {
+    var src = source || 'manual_full_sync';
+    return withSyncLock('manual_sync', function () {
+      var bytes = 0;
+      var hash = null;
+      var uploaded = false;
+      var uploadSkipped = false;
+      var downloaded = false;
+      var imported = false;
+      var selected = null;
+      var backupJson = '';
+      return yieldToWebView()
+        .then(function () {
+          writeSyncMetadata({ last_sync_status: 'selecting_backup', last_error: null });
+          return buildLocalBackupText(buildBackup);
+        })
+        .then(function (text) {
+          backupJson = String(text || '');
+          bytes = backupJson.length;
+          hash = hashText(stableStringify(getBackupData(backupJson || '{}')));
+          return Promise.all([
+            countLocalData(backupJson),
+            isLocalWorkspaceEmpty(backupJson),
+            handleGetBestBackup().then(function (response) { return responseJson(response, 'Best backup scan failed'); })
+          ]);
+        })
+        .then(function (parts) {
+          var beforeCounts = parts[0] || {};
+          var emptyLocal = parts[1] === true;
+          var best = parts[2] || {};
+          selected = best.selected || best.selected_backup || null;
+          var cloudRich = !!(selected && selected.rich === true && selected.empty !== true);
+          if (!emptyLocal || !cloudRich) return null;
+          writeSyncMetadata({ last_sync_status: 'restoring_cloud', last_error: null });
+          return handleRestoreBestBackup({ promote: true })
+            .then(function (response) { return responseJson(response, 'Restore best backup failed'); })
+            .then(function (restore) {
+              var cloudBackup = restore.backup_json || '';
+              var cloudHash = restore.backup_hash || hashText(cloudBackup);
+              if (!cloudBackup) throw new Error('Selected cloud backup did not include backup_json.');
+              return yieldToWebView()
+                .then(function () { return applyCloudBackupToLocal(cloudBackup, { source_path: selected && selected.path || null, hash: cloudHash }, applyBackup); })
+                .then(function (restoreResult) {
+                  imported = true;
+                  downloaded = true;
+                  return countLocalData(cloudBackup).then(function (afterCounts) {
+                    if (!didCountsGrow(beforeCounts, afterCounts) && selected && selected.collection_counts) {
+                      throw new Error('Cloud restore did not increase local data counts; upload blocked.');
+                    }
+                    writeSyncMetadata({
+                      last_imported_hash: cloudHash,
+                      last_imported_bytes: cloudBackup.length,
+                      last_restore_message: restoreResult && restoreResult.message || null,
+                      last_sync_status: 'verifying_restore'
+                    });
+                    writeSyncHistory({
+                      op: 'restore_best_cloud_backup',
+                      status: 'ok',
+                      source: src,
+                      bytes: cloudBackup.length,
+                      hash: cloudHash,
+                      selected_path: selected && selected.path || null,
+                      counts: afterCounts
+                    });
+                    return buildLocalBackupText(buildBackup).then(function (rebuilt) {
+                      backupJson = String(rebuilt || '');
+                      bytes = backupJson.length;
+                      hash = hashText(stableStringify(getBackupData(backupJson || '{}')));
+                    });
+                  });
+                });
+            });
+        })
+        .then(function () {
+          writeSyncMetadata({ last_sync_status: 'uploading_local', last_error: null });
+          return handleUploadBackup({
+            backup_json: backupJson,
+            source: src,
+            source_path: 'android_manual_sync'
+          });
+        })
+        .then(function (response) { return responseJson(response, 'Cloud sync failed'); })
+        .then(function (uploadResult) {
+          uploaded = uploadResult.skipped !== true;
+          uploadSkipped = uploadResult.skipped === true;
+          writeSyncMetadata({
+            last_sync_status: 'synced',
+            last_error: null,
+            pending_count: 0,
+            last_snapshot_at: uploadResult.synced_at || new Date().toISOString()
+          });
+          writeSyncHistory({
+            op: 'manual_sync',
+            status: 'ok',
+            source: src,
+            bytes: bytes,
+            hash: hash,
+            uploaded: uploaded,
+            upload_skipped: uploadSkipped,
+            downloaded: downloaded,
+            imported: imported,
+            selected_path: selected && selected.path || null
+          });
+          return {
+            ok: true,
+            uploaded: uploaded,
+            upload_skipped: uploadSkipped,
+            downloaded: downloaded,
+            imported: imported,
+            hash: hash,
+            bytes: bytes,
+            selected_backup: selected,
+            upload: uploadResult
+          };
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      else if (isEmptyOverwriteBlocked(error)) writeSyncMetadata({ last_sync_status: 'blocked_empty_overwrite', last_error: error.message || 'Cloud has richer backup. Restore it before uploading this empty device.' });
+      else if (isPermissionError(error)) writeSyncMetadata({ last_sync_status: 'failed_permission', last_error: error.message || 'Storage permission error' });
+      else writeSyncMetadata({ last_sync_status: 'failed', last_error: error.message || 'Cloud sync failed' });
+      writeSyncHistory({
+        op: 'manual_sync',
+        status: isAuthError(error) ? 'paused_auth' : (isPermissionError(error) ? 'failed_permission' : 'failed'),
+        source: src,
+        error: error.message || 'Cloud sync failed'
+      });
+      throw error;
+    });
+  }
+
+  function downloadAndImportBackupCompat(applyBackup, source) {
+    var src = source || 'cloud_download';
+    return withSyncLock('download_import', function () {
+      var result = null;
+      var imported = false;
+      return handleGetLatestBackup()
+        .then(function (response) { return responseJson(response, 'Download/import failed'); })
+        .then(function (data) {
+          result = data;
+          if (!data.backup_json) return null;
+          var hash = data.backup_hash || hashText(data.backup_json);
+          var meta = readSyncMetadata();
+          if (meta.last_imported_hash === hash) return null;
+          return yieldToWebView()
+            .then(function () {
+              return applyCloudBackupToLocal(data.backup_json, {
+                hash: hash,
+                source_path: data.selected_backup && data.selected_backup.path || null
+              }, applyBackup);
+            })
+            .then(function () {
+              imported = true;
+              writeSyncMetadata({ last_imported_hash: hash, last_imported_bytes: data.backup_json.length });
+            });
+        })
+        .then(function () {
+          var snapshotAt = result && (result.synced_at || result.snapshot_at)
+            || result && result.cloud_snapshot && (result.cloud_snapshot.exported_at || result.cloud_snapshot.downloaded_at)
+            || result && result.selected_backup && (result.selected_backup.exported_at || result.selected_backup.updated_at || result.selected_backup.created_at)
+            || (result && result.backup_json ? new Date().toISOString() : null);
+          var patch = { last_sync_status: 'synced', last_error: null, pending_count: 0 };
+          if (snapshotAt) patch.last_snapshot_at = snapshotAt;
+          writeSyncMetadata(patch);
+          writeSyncHistory({
+            op: 'download_import',
+            status: result && result.backup_json ? 'ok' : 'skipped',
+            source: src,
+            bytes: result && result.backup_json ? result.backup_json.length : 0,
+            hash: result && (result.backup_hash || (result.backup_json ? hashText(result.backup_json) : null)) || null,
+            imported: imported
+          });
+          return {
+            ok: true,
+            imported: imported,
+            downloaded: !!(result && result.backup_json),
+            hash: result && (result.backup_hash || (result.backup_json ? hashText(result.backup_json) : null)) || null,
+            selected_backup: result && result.selected_backup || null
+          };
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      else writeSyncMetadata({ last_sync_status: 'failed', last_error: error.message || 'Download/import failed' });
+      writeSyncHistory({ op: 'download_import', status: 'failed', source: src, error: error.message || 'Download/import failed' });
+      throw error;
+    });
+  }
+
   // /__supa/* — proxy to Supabase directly
   function handleSupaProxy(url, opts, body) {
     var supaPath = url.replace(/^[^/]*\/\/[^/]*/, '').replace(/^\/__supa/, '');
@@ -2038,6 +2851,28 @@
         if (pathname === '/__auth/import')              return handleImport(body);
         if (pathname === '/__auth/snapshot')            return handleSnapshot(body);
         if (pathname === '/__auth/restore-best-backup') return handleRestoreBestBackup(body);
+        if (pathname === '/__auth/storage/group-icon') {
+          return uploadGroupIconCompat(body && (body.data_url || body.dataUrl || body.content || body.body || body.file), body || {})
+            .then(function (result) { return jsonResponse(result); })
+            .catch(function (e) {
+              return jsonResponse({
+                ok: false,
+                error: e && e.message || 'Group icon upload failed',
+                code: e && e.code || 'GROUP_ICON_UPLOAD_FAILED'
+              }, e && e.status || 500);
+            });
+        }
+        if (pathname === '/__auth/storage/study-material') {
+          return uploadStudyMaterialCompat(body && (body.data_url || body.dataUrl || body.content || body.body || body.file), body || {})
+            .then(function (result) { return jsonResponse(result); })
+            .catch(function (e) {
+              return jsonResponse({
+                ok: false,
+                error: e && e.message || 'Study material upload failed',
+                code: e && e.code || 'STUDY_MATERIAL_UPLOAD_FAILED'
+              }, e && e.status || 500);
+            });
+        }
         if (pathname === '/__auth/storage/cleanup-preview') {
           var session = getSession();
           var userId = session && session.user && session.user.id;
@@ -2180,6 +3015,20 @@
   window.__isoGetValidJwt = function () {
     return getAccessToken();
   };
+  window.__isoSyncAuthBlocked = false;
+  window.__isoSyncAuthBlock = syncAuthBlock;
+  window.__isoRefreshCloudSnapshot = refreshCloudSnapshotCompat;
+  window.__isoUploadBackupJSON = uploadBackupJsonCompat;
+  window.__isoDownloadBackupJSON = downloadBackupJsonCompat;
+  window.__isoImportBackupJSON = importBackupJsonCompat;
+  window.__isoRunManualCloudSync = runManualCloudSyncCompat;
+  window.__isoDownloadAndImportBackup = downloadAndImportBackupCompat;
+  window.__isoAndroidStorageBuckets = {
+    groupIcons: { bucket: 'group-icons', public: true, user_scoped: true },
+    studyMaterial: { bucket: 'study-material', public: false, user_scoped: true }
+  };
+  window.__isoUploadGroupIcon = uploadGroupIconCompat;
+  window.__isoUploadStudyMaterial = uploadStudyMaterialCompat;
 
   window.__isoAndroidPipSupported = function () {
     try {

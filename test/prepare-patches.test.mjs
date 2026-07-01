@@ -147,20 +147,24 @@ test('apply-android-patches wires Android online status, Floating Timer, emoji r
   const output = runApplyPatches(wwwDir);
 
   assert.match(output, /Patching online status hook/);
+  assert.match(output, /Patching useSyncStore bundle/);
   assert.match(output, /Patching Focus bundle for Android Floating Timer/);
   assert.match(output, /Patching Settings bundle/);
 
   const assetsDir = path.join(wwwDir, 'assets');
   const onlineFile = fs.readdirSync(assetsDir).find((name) => /^useOnlineStatus-.*\.js$/.test(name));
+  const syncStoreFile = fs.readdirSync(assetsDir).find((name) => /^useSyncStore-.*\.js$/.test(name));
   const appFile = fs.readdirSync(assetsDir).find((name) => /^App-.*\.js$/.test(name) && fs.statSync(path.join(assetsDir, name)).size > 100_000);
   const focusFile = fs.readdirSync(assetsDir).find((name) => /^Focus-.*\.js$/.test(name));
   const settingsFile = fs.readdirSync(assetsDir).find((name) => /^SettingsLayout-.*\.js$/.test(name));
   assert.ok(onlineFile, 'online status chunk should exist');
+  assert.ok(syncStoreFile, 'sync store chunk should exist');
   assert.ok(appFile, 'App chunk should exist');
   assert.ok(focusFile, 'Focus chunk should exist');
   assert.ok(settingsFile, 'Settings chunk should exist');
 
   const online = fs.readFileSync(path.join(assetsDir, onlineFile), 'utf8');
+  const syncStore = fs.readFileSync(path.join(assetsDir, syncStoreFile), 'utf8');
   const app = fs.readFileSync(path.join(assetsDir, appFile), 'utf8');
   const focus = fs.readFileSync(path.join(assetsDir, focusFile), 'utf8');
   const settings = fs.readFileSync(path.join(assetsDir, settingsFile), 'utf8');
@@ -168,6 +172,13 @@ test('apply-android-patches wires Android online status, Floating Timer, emoji r
   assert.match(online, /__isoIsOnline/);
   assert.match(online, /isotope:network/);
   assert.doesNotMatch(online, /useState\(navigator\.onLine\)/);
+  assert.match(syncStore, /__isoRunManualCloudSync/);
+  assert.match(syncStore, /__isoDownloadAndImportBackup/);
+  assert.match(syncStore, /__isoGetValidJwt/);
+  assert.match(syncStore, /header_manual_sync/);
+  assert.match(syncStore, /header_download_cloud_data/);
+  assert.doesNotMatch(syncStore, /if \(!s \|\| !r \|\| !a\) return;\s+const o = await n\(\);\s+await o\.fullManualSync/);
+  assert.doesNotMatch(syncStore, /if \(!s \|\| !r \|\| !a\) return;\s+const o = await n\(\);\s+await o\.downloadCloudSnapshot/);
   assert.match(app, /__isoNormalizeFocusIcon/);
   assert.match(focus, /__isoOpenFloatingTimer/);
   assert.match(focus, /getState: \(\) =>/);
@@ -180,6 +191,45 @@ test('apply-android-patches wires Android online status, Floating Timer, emoji r
   assert.match(settings, /isotope-font-scale/);
 });
 
+test('apply-android-patches adds Android analytics render stability and app-only links', () => {
+  const wwwDir = runPrepareWww();
+  runApplyPatches(wwwDir);
+
+  const assetsDir = path.join(wwwDir, 'assets');
+  const indexFile = fs.readdirSync(assetsDir).find((name) => /^index-.*\.js$/.test(name) && fs.readFileSync(path.join(assetsDir, name), 'utf8').includes('vendor-sentry-VzeXdCeF.js'));
+  const analyticsFile = fs.readdirSync(assetsDir).find((name) => /^Analytics-.*\.js$/.test(name));
+  const analyticsPeriodFile = fs.readdirSync(assetsDir).find((name) => /^AnalyticsPeriod-.*\.js$/.test(name));
+  const sessionLogFile = fs.readdirSync(assetsDir).find((name) => /^SessionLogTable-.*\.js$/.test(name));
+  const dashboardHeaderFile = fs.readdirSync(assetsDir).find((name) => /^DashboardHeader-.*\.js$/.test(name));
+  const headwayFile = fs.readdirSync(assetsDir).find((name) => /^HeadwayUpdatesButton-.*\.js$/.test(name));
+  assert.ok(indexFile, 'index chunk should exist');
+  assert.ok(analyticsFile, 'Analytics chunk should exist');
+  assert.ok(analyticsPeriodFile, 'AnalyticsPeriod chunk should exist');
+  assert.ok(sessionLogFile, 'SessionLogTable chunk should exist');
+  assert.ok(dashboardHeaderFile, 'DashboardHeader chunk should exist');
+  assert.ok(headwayFile, 'Headway chunk should exist');
+
+  const index = fs.readFileSync(path.join(assetsDir, indexFile), 'utf8');
+  const analytics = fs.readFileSync(path.join(assetsDir, analyticsFile), 'utf8');
+  const analyticsPeriod = fs.readFileSync(path.join(assetsDir, analyticsPeriodFile), 'utf8');
+  const sessionLog = fs.readFileSync(path.join(assetsDir, sessionLogFile), 'utf8');
+  const dashboardHeader = fs.readFileSync(path.join(assetsDir, dashboardHeaderFile), 'utf8');
+  const headway = fs.readFileSync(path.join(assetsDir, headwayFile), 'utf8');
+
+  assert.match(index, /__ISO_IS_ANDROID__\) return !1/);
+  assert.match(analytics, /__androidStable/);
+  assert.match(analytics, /Math\.min\(0,x\+1\)/);
+  assert.match(analyticsPeriod, /__ISO_IS_ANDROID__\?!1:ie\(\)/);
+  assert.match(sessionLog, /h\.slice\(0,120\)/);
+  assert.match(sessionLog, /layout:typeof window<"u"&&window\.__ISO_IS_ANDROID__\?!1:!0/);
+  assert.match(dashboardHeader, /https:\/\/isotopeaiapp\.featurebase\.app\//);
+  assert.match(dashboardHeader, /max-h-\[calc\(100dvh-12rem\)\]/);
+  assert.doesNotMatch(dashboardHeader, /https:\/\/isotope\.featurebase\.app/);
+  assert.match(headway, /account: "7eeYY7"/);
+  assert.match(headway, /__ISO_IS_ANDROID__ \? null : a\.persistentStorageGranted/);
+  assert.doesNotMatch(headway, /account: "JRVAXJ"/);
+});
+
 test('Android native project exposes notification icon, launcher logo, Floating Timer, and keyboard contracts', () => {
   const manifest = fs.readFileSync(path.join(ROOT, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
   const activity = fs.readFileSync(path.join(ROOT, 'android/app/src/main/java/in/isotopeai/app/MainActivity.java'), 'utf8');
@@ -188,6 +238,7 @@ test('Android native project exposes notification icon, launcher logo, Floating 
   const launcherForeground = fs.readFileSync(path.join(ROOT, 'android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml'), 'utf8');
   const launcherBackground = fs.readFileSync(path.join(ROOT, 'android/app/src/main/res/values/ic_launcher_background.xml'), 'utf8');
   const capacitorConfig = fs.readFileSync(path.join(ROOT, 'capacitor.config.json'), 'utf8');
+  const styles = fs.readFileSync(path.join(ROOT, 'android/app/src/main/res/values/styles.xml'), 'utf8');
 
   assert.match(manifest, /android:resizeableActivity="true"/);
   assert.match(manifest, /android:windowSoftInputMode="adjustResize"/);
@@ -198,12 +249,17 @@ test('Android native project exposes notification icon, launcher logo, Floating 
   assert.match(activity, /requestOverlayPermission/);
   assert.match(activity, /replayFloatingTimerActions/);
   assert.match(activity, /public void onStart\(\)/);
+  assert.match(activity, /public void onResume\(\)/);
+  assert.match(activity, /webView\.resumeTimers\(\)/);
+  assert.match(activity, /__isoAndroidForceRepaint/);
   assert.doesNotMatch(activity, /protected void onStart\(\)/);
   assert.match(service, /TYPE_APPLICATION_OVERLAY/);
   assert.match(service, /startForeground/);
   assert.match(notificationIcon, /strokeColor="#FFFFFFFF"/);
   assert.match(launcherForeground, /A78BFA/);
   assert.match(launcherBackground, /#111827/);
+  assert.match(styles, /postSplashScreenTheme/);
+  assert.match(styles, /android:windowBackground">#09090B/);
   assert.match(capacitorConfig, /"smallIcon": "ic_notification"/);
   assert.doesNotMatch(capacitorConfig, /"sound": "beep"/);
 });
