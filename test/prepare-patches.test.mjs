@@ -245,6 +245,10 @@ test('apply-android-patches unlocks community group actions on Android', () => {
   assert.match(useGroups, /e = !0;/);
 
   assert.match(communityHub, /function ze\(\)\{const t=!0,n=E\(i=>i\.userId\);/);
+  assert.match(communityHub, /Join with Code/);
+  assert.match(communityHub, /Create Group/);
+  assert.match(communityHub, /window\.prompt\("Enter invite code or invite link"\)/);
+  assert.match(communityHub, /window\.location\.href="\/invite\/"\+encodeURIComponent\(s\)/);
   assert.match(communityHub, /Number\.isFinite\(Number\(o\?\.weekly_hours\)\)/);
   assert.match(communityHub, /const __v=Number\.isFinite\(Number\(r\)\)\?Number\(r\):0/);
   assert.match(communityHub, /dr=t=>e\.jsx\(Ae,\{\.\.\.t\}\);/);
