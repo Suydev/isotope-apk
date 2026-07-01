@@ -2792,8 +2792,55 @@
     });
   }
 
+  function fetchGroupSlugForInvite(groupId) {
+    if (!groupId) return Promise.resolve(null);
+    return supaJson('/rest/v1/groups?select=slug&id=eq.' + encodeURIComponent(groupId) + '&limit=1', {
+      method: 'GET'
+    }).then(function (result) {
+      var row = result.ok ? firstRow(result) : null;
+      return row && row.slug || null;
+    }).catch(function () {
+      return null;
+    });
+  }
+
+  function normalizeInviteRpcPayload(payload) {
+    var item = Array.isArray(payload) ? payload[0] : payload;
+    if (!isObject(item)) return Promise.resolve(payload);
+    var normalized = Object.assign({}, item);
+    if (typeof normalized.success !== 'boolean' && typeof normalized.ok === 'boolean') normalized.success = normalized.ok;
+    if (typeof normalized.success !== 'boolean' && (normalized.group_id || normalized.group_slug || normalized.slug)) normalized.success = true;
+    var groupId = normalized.group_id || normalized.groupId || null;
+    if (normalized.group_slug || normalized.slug || !groupId) {
+      if (!normalized.group_slug && normalized.slug) normalized.group_slug = normalized.slug;
+      if (!normalized.slug && normalized.group_slug) normalized.slug = normalized.group_slug;
+      return Promise.resolve(Array.isArray(payload) ? [normalized] : normalized);
+    }
+    return fetchGroupSlugForInvite(groupId).then(function (slug) {
+      normalized.group_slug = slug || groupId;
+      normalized.slug = normalized.group_slug;
+      return Array.isArray(payload) ? [normalized] : normalized;
+    });
+  }
+
+  function handleDirectInviteRpc(url, init) {
+    return _originalFetch.call(window, url, init || {}).then(function (response) {
+      return response.text().then(function (text) {
+        var payload = safeJsonParse(text, text ? { raw: text } : null);
+        if (!response.ok) {
+          return jsonResponse(payload || { ok: false, error: 'Invite RPC failed' }, response.status || 500);
+        }
+        return normalizeInviteRpcPayload(payload).then(function (normalized) {
+          return jsonResponse(normalized, response.status || 200);
+        });
+      });
+    }).catch(function (e) {
+      return jsonResponse({ ok: false, success: false, error: e && e.message || 'Invite RPC failed' }, 503);
+    });
+  }
+
   // ── Main fetch interceptor ──────────────────────────────────────────────────
-  var _originalFetch = window.fetch;
+  var _originalFetch = window.fetch || fetch;
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
     var method = (init && init.method ? init.method : 'GET').toUpperCase();
@@ -2980,6 +3027,17 @@
         return handleSupaProxy(url, init || {}, init && init.body);
       });
     }
+
+    // ── Direct Supabase RPC compatibility for community invites ──────────────
+    try {
+      var parsedRestUrl = new URL(url);
+      if (
+        parsedRestUrl.origin === SUPA_URL &&
+        (pathname === '/rest/v1/rpc/accept_invite' || pathname === '/rest/v1/rpc/get_invite_details')
+      ) {
+        return handleDirectInviteRpc(url, init || {});
+      }
+    } catch (e) {}
 
     // ── Supabase proxy (__supa/*) ─────────────────────────────────────────────
     if (pathname.startsWith('/__supa/')) {

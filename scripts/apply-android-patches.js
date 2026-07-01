@@ -651,6 +651,17 @@ patchFile(invitesBundle, [
   ['token_input:', 'p_code:', false],
 ], 'useInvites bundle');
 
+console.log('\n=== Patching invite route bundle ===');
+const inviteRouteBundle = findAsset('InviteOnlineOnlyRoute-');
+
+patchFile(inviteRouteBundle, [
+  [
+    'm.success&&o(`/community/group/${m.group_slug}`)',
+    'm.success&&o(`/community/group/${m.group_slug||m.slug||m.group_id}`)',
+    true
+  ],
+], 'InviteOnlineOnlyRoute bundle');
+
 // ── 6. Notification store — native scheduled notifications ──────────────────
 
 console.log('\n=== Patching Notification store bundle ===');

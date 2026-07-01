@@ -191,6 +191,19 @@ test('apply-android-patches wires Android online status, Floating Timer, emoji r
   assert.match(settings, /isotope-font-scale/);
 });
 
+test('apply-android-patches fixes invite route slug fallback', () => {
+  const wwwDir = runPrepareWww();
+  runApplyPatches(wwwDir);
+
+  const assetsDir = path.join(wwwDir, 'assets');
+  const inviteRouteFile = fs.readdirSync(assetsDir).find((name) => /^InviteOnlineOnlyRoute-.*\.js$/.test(name));
+  assert.ok(inviteRouteFile, 'InviteOnlineOnlyRoute chunk should exist');
+  const inviteRoute = fs.readFileSync(path.join(assetsDir, inviteRouteFile), 'utf8');
+
+  assert.match(inviteRoute, /m\.group_slug\|\|m\.slug\|\|m\.group_id/);
+  assert.doesNotMatch(inviteRoute, /m\.success&&o\(`\/community\/group\/\\$\\{m\.group_slug\\}`\)/);
+});
+
 test('apply-android-patches adds Android analytics render stability and app-only links', () => {
   const wwwDir = runPrepareWww();
   runApplyPatches(wwwDir);

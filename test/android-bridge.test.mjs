@@ -442,6 +442,34 @@ test('direct Supabase function URLs are intercepted and RPC payloads are mapped'
   });
 });
 
+test('direct accept_invite RPC normalizes ok payload and enriches group slug', async () => {
+  const userId = '77777777-aaaa-4777-8777-777777777777';
+  const groupId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const harness = createBridgeHarness(async (url, init = {}) => {
+    if (url.includes('/rest/v1/rpc/accept_invite')) {
+      assert.equal(init.method, 'POST');
+      assert.deepEqual(JSON.parse(init.body), { p_code: 'ABC123' });
+      return jsonResponse({ ok: true, group_id: groupId });
+    }
+    if (url.includes('/rest/v1/groups?select=slug')) {
+      return jsonResponse([{ slug: 'physics-rankers' }]);
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage, makeSession(userId));
+
+  const { data } = await fetchJson(harness.window, `${SUPA_URL}/rest/v1/rpc/accept_invite`, {
+    method: 'POST',
+    body: JSON.stringify({ p_code: 'ABC123' }),
+  });
+
+  assert.equal(data.ok, true);
+  assert.equal(data.success, true);
+  assert.equal(data.group_id, groupId);
+  assert.equal(data.group_slug, 'physics-rankers');
+  assert.equal(data.slug, 'physics-rankers');
+});
+
 test('finish-session maps compiled payload to finish_session_sync and snapshots local data', async () => {
   const userId = '88888888-8888-4888-8888-888888888888';
   let rpcBody;
