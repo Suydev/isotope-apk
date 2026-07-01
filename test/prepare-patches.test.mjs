@@ -273,12 +273,14 @@ test('apply-android-patches adds Android analytics render stability and app-only
   const sessionLogFile = fs.readdirSync(assetsDir).find((name) => /^SessionLogTable-.*\.js$/.test(name));
   const dashboardHeaderFile = fs.readdirSync(assetsDir).find((name) => /^DashboardHeader-.*\.js$/.test(name));
   const headwayFile = fs.readdirSync(assetsDir).find((name) => /^HeadwayUpdatesButton-.*\.js$/.test(name));
+  const settingsFile = fs.readdirSync(assetsDir).find((name) => /^SettingsLayout-.*\.js$/.test(name));
   assert.ok(indexFile, 'index chunk should exist');
   assert.ok(analyticsFile, 'Analytics chunk should exist');
   assert.ok(analyticsPeriodFile, 'AnalyticsPeriod chunk should exist');
   assert.ok(sessionLogFile, 'SessionLogTable chunk should exist');
   assert.ok(dashboardHeaderFile, 'DashboardHeader chunk should exist');
   assert.ok(headwayFile, 'Headway chunk should exist');
+  assert.ok(settingsFile, 'Settings chunk should exist');
 
   const index = fs.readFileSync(path.join(assetsDir, indexFile), 'utf8');
   const analytics = fs.readFileSync(path.join(assetsDir, analyticsFile), 'utf8');
@@ -286,6 +288,8 @@ test('apply-android-patches adds Android analytics render stability and app-only
   const sessionLog = fs.readFileSync(path.join(assetsDir, sessionLogFile), 'utf8');
   const dashboardHeader = fs.readFileSync(path.join(assetsDir, dashboardHeaderFile), 'utf8');
   const headway = fs.readFileSync(path.join(assetsDir, headwayFile), 'utf8');
+  const settings = fs.readFileSync(path.join(assetsDir, settingsFile), 'utf8');
+  const focusBgImport = fs.readFileSync(path.join(wwwDir, 'focus-bg-import.js'), 'utf8');
 
   assert.match(index, /__ISO_IS_ANDROID__\) return !1/);
   assert.match(analytics, /__androidStable/);
@@ -294,15 +298,23 @@ test('apply-android-patches adds Android analytics render stability and app-only
   assert.match(sessionLog, /h\.slice\(0,120\)/);
   assert.match(sessionLog, /layout:typeof window<"u"&&window\.__ISO_IS_ANDROID__\?!1:!0/);
   assert.match(dashboardHeader, /https:\/\/isotopeaiapp\.featurebase\.app\//);
-  assert.match(dashboardHeader, /max-h-\[calc\(100dvh-12rem\)\]/);
+  assert.match(dashboardHeader, /left-\[max\(0\.75rem,env\(safe-area-inset-left\)\)\]/);
+  assert.match(dashboardHeader, /max-h-\[min\(18rem,calc\(100dvh-16rem\)\)\]/);
+  assert.match(dashboardHeader, /r\.slice\(0,8\)/);
   assert.match(dashboardHeader, /items-start justify-between gap-3/);
   assert.match(dashboardHeader, /className: "min-w-0"/);
   assert.match(dashboardHeader, /max-w-\[6\.5rem\]/);
-  assert.match(dashboardHeader, /Scroll for more/);
+  assert.match(dashboardHeader, /Latest 8 shown/);
   assert.doesNotMatch(dashboardHeader, /https:\/\/isotope\.featurebase\.app/);
   assert.match(headway, /account: "7eeYY7"/);
   assert.match(headway, /__ISO_IS_ANDROID__ \? null : a\.persistentStorageGranted/);
   assert.doesNotMatch(headway, /account: "JRVAXJ"/);
+  assert.match(settings, /children: "Notifications"/);
+  assert.doesNotMatch(settings, /Browser Notifications/);
+  assert.match(settings, /Grant permission to receive alerts/);
+  assert.match(focusBgImport, /FileReader/);
+  assert.match(focusBgImport, /readAsDataURL\(file\)/);
+  assert.match(focusBgImport, /window\.__ISO_IS_ANDROID__/);
 });
 
 test('Android native project exposes notification icon, launcher logo, Floating Timer, and keyboard contracts', () => {

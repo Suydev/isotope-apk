@@ -931,6 +931,53 @@ patchFile(notificationBundle, [
   ],
 ], 'Notification store bundle');
 
+// ── 6d. Focus background importer — Android device file fallback ─────────────
+
+console.log('\n=== Patching focus background importer ===');
+const focusBgImport = path.join(WWW_DIR, 'focus-bg-import.js');
+
+patchFile(focusBgImport, [
+  [
+    [
+      '    imgInput.onchange = function () {',
+      '      var file = imgInput.files && imgInput.files[0];',
+      '      if (!file) return;',
+      '      idbPut(CUSTOM_KEY, mediaRecord(\'image\', file)).catch(function () {});',
+      '      var url = URL.createObjectURL(file);',
+      '      closeModal();',
+      '      applyBackground(url, false, true);',
+      '      toast(\'Image background applied.\');',
+      '    };'
+    ].join('\n'),
+    [
+      '    imgInput.onchange = function () {',
+      '      var file = imgInput.files && imgInput.files[0];',
+      '      if (!file) return;',
+      '      if (window.__ISO_IS_ANDROID__ && typeof FileReader !== "undefined") {',
+      '        var reader = new FileReader();',
+      '        reader.onload = function () {',
+      '          var dataUrl = String(reader.result || "");',
+      '          if (!/^data:image\\//i.test(dataUrl)) { toast("This image could not be opened.", "error"); return; }',
+      '          idbPut(CUSTOM_KEY, { type: "url", kind: "image", url: dataUrl, name: file.name || "", mime: file.type || "", size: file.size || 0, savedAt: new Date().toISOString() }).catch(function () {});',
+      '          closeModal();',
+      '          applyBackground(dataUrl, false, false);',
+      '          toast("Image background applied.");',
+      '        };',
+      '        reader.onerror = function () { toast("This image could not be opened.", "error"); };',
+      '        reader.readAsDataURL(file);',
+      '        return;',
+      '      }',
+      '      idbPut(CUSTOM_KEY, mediaRecord(\'image\', file)).catch(function () {});',
+      '      var url = URL.createObjectURL(file);',
+      '      closeModal();',
+      '      applyBackground(url, false, true);',
+      '      toast(\'Image background applied.\');',
+      '    };'
+    ].join('\n'),
+    true
+  ],
+], 'focus-bg-import.js');
+
 // ── 7. Focus store — native completion alarm scheduling ─────────────────────
 
 console.log('\n=== Patching Focus store bundle ===');
@@ -1137,6 +1184,9 @@ console.log('\n=== Patching Settings bundle ===');
 const settingsBundle = findAsset('SettingsLayout-');
 
 patchFile(settingsBundle, [
+  ['children: "Browser Notifications"', 'children: "Notifications"', true],
+  ['"Notifications are blocked by your browser"', '"Notifications are blocked on this device"', true],
+  ['"Grand permission to receive alerts"', '"Grant permission to receive alerts"', true],
   [
     [
       '        } = Z(), [g, y] = s.useState("system"), [h, r] = s.useState("#f97316"), [m, b] = s.useState(!1), [f, v] = s.useState("standard"), [l, z] = s.useState("comfortable");',
@@ -1279,12 +1329,17 @@ patchFile(dashboardHeaderBundle, [
   ['window.open("https://isotope.featurebase.app", "_blank")', 'window.open("https://isotopeaiapp.featurebase.app/", "_blank")', false],
   [
     'className: "absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"',
-    'className: "fixed right-[max(0.75rem,env(safe-area-inset-right))] top-[calc(env(safe-area-inset-top)+4.5rem)] w-[min(22rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-6rem)] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[90]"',
+    'className: "fixed left-[max(0.75rem,env(safe-area-inset-left))] right-auto top-[calc(env(safe-area-inset-top)+4.5rem)] w-[min(19rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-9rem)] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[90]"',
     false
   ],
   [
     'className: "max-h-[min(24rem,calc(100dvh-9rem))] overflow-y-auto"',
-    'className: "max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain touch-pan-y custom-scrollbar"',
+    'className: "max-h-[min(18rem,calc(100dvh-16rem))] overflow-y-auto overscroll-contain touch-pan-y custom-scrollbar"',
+    false
+  ],
+  [
+    '}) : r.map(t => {',
+    '}) : (typeof window<"u"&&window.__ISO_IS_ANDROID__?r.slice(0,8):r).map(t => {',
     false
   ],
   [
@@ -1325,7 +1380,7 @@ patchFile(dashboardHeaderBundle, [
       '                                                className: "space-y-2",',
       '                                                children: [r.length > 8 && e.jsx("p", {',
       '                                                    className: "text-center text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500",',
-      '                                                    children: "Scroll for more"',
+      '                                                    children: typeof window<"u"&&window.__ISO_IS_ANDROID__?"Latest 8 shown":"Scroll for more"',
       '                                                }), e.jsx("button", {',
       '                                                    onClick: w,',
       '                                                    className: "w-full py-2 text-xs font-bold text-zinc-500 hover:text-red-500 transition-colors uppercase tracking-widest",',
