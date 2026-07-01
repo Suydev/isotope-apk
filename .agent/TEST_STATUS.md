@@ -56,6 +56,8 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 | Headway account `7eeYY7`, Featurebase app link, and Android storage-warning suppression | PASS | 2026-07-01 | local branch | `npm test` |
 | Notification panel bounded scroll patch | PASS | 2026-07-01 | local branch | `npm test` |
 | Android community group actions unlocked and invite code entry patched | PASS | 2026-07-01 | local branch | `npm test` |
+| Android community group creation uses atomic RPC | PASS | 2026-07-01 | local branch | `npm test` |
+| Android notification panel header/scroll hint patch | PASS | 2026-07-01 | local branch | `npm test` |
 | Android invite RPC slug contract migration | PASS | 2026-07-01 | Supabase project `vteqquoqvksshmfhuepu` | Management API migration applied and function signatures re-read |
 | PWA manager disabled and Android metadata stripped | PASS | 2026-06-30 | local branch | `npm test` |
 | Android native resources for overlay/keyboard/notification/logo | PASS | 2026-06-30 | local branch | `npm test` |
@@ -96,7 +98,7 @@ fail 0
 ```text
 npm run build
 prepare-www: copied real isotope-code public assets, repaired 8 KaTeX font assets, pruned 10 browser/PWA artifacts
-apply-patches first pass: 57 patches, 0 skipped, 0 required failures
+apply-patches first pass: 63 patches, 0 skipped, 0 required failures
 npx cap sync android: PASS
 apply-patches final pass: 0 bundle changes, 0 skipped, 0 required failures
 ```

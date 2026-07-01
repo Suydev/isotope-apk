@@ -715,3 +715,33 @@ git push -u origin codex/android-production-repair
 **Not verified:**
 - GitHub Actions APK for this checkpoint is pending push.
 - Device runtime checks for community create/join/invite remain pending.
+
+---
+
+## 2026-07-01 — Atomic group creation + notification panel checkpoint
+
+**Implemented:**
+- `scripts/apply-android-patches.js`
+  - Patches Android `useGroups` bundle so create-group uses `rpc("create_community_group", ...)` instead of direct `groups.insert(...)` followed by a best-effort `group_members.insert(...)`.
+  - Fetches the created group row after the RPC so the existing UI still receives the expected group object.
+  - Tightens Android notification panel layout: compact header, non-overlapping title/button, bounded scrolling, and a `Scroll for more` hint when more than eight notifications exist.
+- `test/prepare-patches.test.mjs`
+  - Verifies Android group creation calls the RPC and no longer contains direct group insert or owner-insert fallback.
+  - Verifies notification panel non-overlap classes and scroll hint are present.
+
+**Tests run:**
+- `node --check scripts/apply-android-patches.js`
+- `node --test test/prepare-patches.test.mjs`
+- `npm test`
+- `npm run build`
+- `git diff --check`
+
+**Results:**
+- `node --test test/prepare-patches.test.mjs`: PASS, 10 tests.
+- `npm test`: PASS, 43 tests.
+- `npm run build`: PASS; first patch pass applied 63 patches, final pass applied 0.
+- `git diff --check`: PASS.
+
+**Not verified:**
+- GitHub Actions APK for this checkpoint is pending push.
+- Runtime create group, invite generation, join code, and notification panel behavior still need device testing.

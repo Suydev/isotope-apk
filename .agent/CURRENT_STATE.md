@@ -1,6 +1,6 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-07-01T18:20:42+05:30
+**Updated:** 2026-07-01T18:33:09+05:30
 **Branch:** codex/android-production-repair
 **Current phase:** ANDROID-012 — Android Supabase sync/Floating Timer/Analytics stability repair awaiting new GitHub APK + device tests
 
@@ -56,11 +56,13 @@
   - forces community/group/leaderboard hooks to run instead of disabling on stale local premium flags
   - adds a visible `Join with Code` action to group discovery
   - fixes the bad group category label `shit` to `Other`
+  - routes Android group creation through atomic `create_community_group(...)` RPC, then fetches the created group row
 - [x] Updated app-only UX patches:
   - Headway account changed to `7eeYY7`.
   - Android browser-storage warning is suppressed.
   - Dashboard feedback link targets `https://isotopeaiapp.featurebase.app/`.
   - Notification panel is bounded and scrollable on Android.
+  - Notification panel header is compact/non-overlapping and shows a scroll hint when there are many notifications.
 - [x] `npm test` passes 43 Node tests.
 - [x] `npm run build` passes: `prepare-www`, required patching, `npx cap sync android`, final idempotent patch pass.
 - [x] `git diff --check` passes.

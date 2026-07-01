@@ -235,6 +235,11 @@ test('apply-android-patches unlocks community group actions on Android', () => {
   assert.doesNotMatch(groupDiscovery, /\{value:"shit",label:"Shit"\}/);
 
   assert.doesNotMatch(useGroups, /isPremium\(\)/);
+  assert.match(useGroups, /rpc\("create_community_group"/);
+  assert.match(useGroups, /p_name: t/);
+  assert.match(useGroups, /p_is_public: e\.is_public \?\? !0/);
+  assert.doesNotMatch(useGroups, /from\("groups"\)\.insert/);
+  assert.doesNotMatch(useGroups, /Failed to add owner as member/);
   assert.match(useGroups, /} = r, s = !0;/);
   assert.match(useGroups, /const i = !0;/);
   assert.match(useGroups, /e = !0;/);
@@ -290,6 +295,10 @@ test('apply-android-patches adds Android analytics render stability and app-only
   assert.match(sessionLog, /layout:typeof window<"u"&&window\.__ISO_IS_ANDROID__\?!1:!0/);
   assert.match(dashboardHeader, /https:\/\/isotopeaiapp\.featurebase\.app\//);
   assert.match(dashboardHeader, /max-h-\[calc\(100dvh-12rem\)\]/);
+  assert.match(dashboardHeader, /items-start justify-between gap-3/);
+  assert.match(dashboardHeader, /className: "min-w-0"/);
+  assert.match(dashboardHeader, /max-w-\[6\.5rem\]/);
+  assert.match(dashboardHeader, /Scroll for more/);
   assert.doesNotMatch(dashboardHeader, /https:\/\/isotope\.featurebase\.app/);
   assert.match(headway, /account: "7eeYY7"/);
   assert.match(headway, /__ISO_IS_ANDROID__ \? null : a\.persistentStorageGranted/);

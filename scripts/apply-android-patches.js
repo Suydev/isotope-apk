@@ -687,6 +687,53 @@ patchFile(groupDiscoveryBundle, [
 
 patchFile(useGroupsBundle, [
   [
+    [
+      '            const {',
+      '                data: n,',
+      '                error: u',
+      '            } = await o.from("groups").insert({ ...e,',
+      '                name: t,',
+      '                description: s,',
+      '                owner_id: i,',
+      '                member_count: 0',
+      '            }).select("id, name, description, cover_url, logo_url, category, slug, member_count, owner_id, is_public, created_at").single();',
+      '            if (u) throw u;',
+      '            const {',
+      '                error: l',
+      '            } = await o.from("group_members").insert({',
+      '                group_id: n.id,',
+      '                user_id: i,',
+      '                role: "owner"',
+      '            });',
+      '            return l && console.error("[useCreateGroup] Failed to add owner as member:", l), n'
+    ].join('\n'),
+    [
+      '            const {',
+      '                data: n,',
+      '                error: u',
+      '            } = await o.rpc("create_community_group", {',
+      '                p_name: t,',
+      '                p_description: s || null,',
+      '                p_category: e.category || "community",',
+      '                p_is_public: e.is_public ?? !0,',
+      '                p_slug: e.slug || null,',
+      '                p_logo_url: e.logo_url || null,',
+      '                p_cover_url: e.cover_url || null,',
+      '                p_settings: e.settings || {}',
+      '            });',
+      '            if (u) throw u;',
+      '            const l = Array.isArray(n) ? n[0] : n;',
+      '            if (!l) throw new Error("Group creation returned no id.");',
+      '            const {',
+      '                data: _,',
+      '                error: G',
+      '            } = await o.from("groups").select("id, name, description, cover_url, logo_url, category, slug, member_count, owner_id, is_public, created_at").eq("id", l).single();',
+      '            if (G) throw G;',
+      '            return _'
+    ].join('\n'),
+    true
+  ],
+  [
     '    } = r, s = c(n => n.isPremium());',
     '    } = r, s = !0;',
     true
@@ -1238,6 +1285,55 @@ patchFile(dashboardHeaderBundle, [
   [
     'className: "max-h-[min(24rem,calc(100dvh-9rem))] overflow-y-auto"',
     'className: "max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain touch-pan-y custom-scrollbar"',
+    false
+  ],
+  [
+    'className: "p-4 border-b border-zinc-200 dark:border-white/10 flex items-center justify-between bg-zinc-50/50 dark:bg-white/[0.02]"',
+    'className: "p-3 border-b border-zinc-200 dark:border-white/10 flex items-start justify-between gap-3 bg-zinc-50/50 dark:bg-white/[0.02]"',
+    false
+  ],
+  [
+    'children: [e.jsxs("div", {\n                                                children: [e.jsx("h3", {',
+    'children: [e.jsxs("div", {\n                                                className: "min-w-0",\n                                                children: [e.jsx("h3", {',
+    false
+  ],
+  [
+    'className: "font-bold text-zinc-900 dark:text-white",\n                                                    children: "Notifications"',
+    'className: "font-bold text-zinc-900 dark:text-white truncate",\n                                                    children: "Notifications"',
+    false
+  ],
+  [
+    'className: "text-xs font-semibold text-brand-500 hover:text-brand-600 transition-colors",\n                                                children: "Mark all as read"',
+    'className: "shrink-0 max-w-[6.5rem] text-right text-[11px] leading-tight font-semibold text-brand-500 hover:text-brand-600 transition-colors",\n                                                children: "Mark all as read"',
+    false
+  ],
+  [
+    [
+      'r.length > 0 && e.jsx("div", {',
+      '                                            className: "p-3 bg-zinc-50 dark:bg-white/5 border-t border-zinc-200 dark:border-white/10",',
+      '                                            children: e.jsx("button", {',
+      '                                                onClick: w,',
+      '                                                className: "w-full py-2 text-xs font-bold text-zinc-500 hover:text-red-500 transition-colors uppercase tracking-widest",',
+      '                                                children: "Clear All"',
+      '                                            })',
+      '                                        })'
+    ].join('\n'),
+    [
+      'r.length > 0 && e.jsx("div", {',
+      '                                            className: "p-3 bg-zinc-50 dark:bg-white/5 border-t border-zinc-200 dark:border-white/10",',
+      '                                            children: e.jsxs("div", {',
+      '                                                className: "space-y-2",',
+      '                                                children: [r.length > 8 && e.jsx("p", {',
+      '                                                    className: "text-center text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500",',
+      '                                                    children: "Scroll for more"',
+      '                                                }), e.jsx("button", {',
+      '                                                    onClick: w,',
+      '                                                    className: "w-full py-2 text-xs font-bold text-zinc-500 hover:text-red-500 transition-colors uppercase tracking-widest",',
+      '                                                    children: "Clear All"',
+      '                                                })]',
+      '                                            })',
+      '                                        })'
+    ].join('\n'),
     false
   ],
 ], 'DashboardHeader app links and notifications');
