@@ -204,6 +204,59 @@ test('apply-android-patches fixes invite route slug fallback', () => {
   assert.doesNotMatch(inviteRoute, /m\.success&&o\(`\/community\/group\/\\$\\{m\.group_slug\\}`\)/);
 });
 
+test('apply-android-patches unlocks community group actions on Android', () => {
+  const wwwDir = runPrepareWww();
+  runApplyPatches(wwwDir);
+
+  const assetsDir = path.join(wwwDir, 'assets');
+  const groupDiscoveryFile = fs.readdirSync(assetsDir).find((name) => /^GroupDiscovery-.*\.js$/.test(name));
+  const useGroupsFile = fs.readdirSync(assetsDir).find((name) => /^useGroups-.*\.js$/.test(name));
+  const communityHubFile = fs.readdirSync(assetsDir).find((name) => /^CommunityHub-.*\.js$/.test(name));
+  const singleGroupFile = fs.readdirSync(assetsDir).find((name) => /^SingleGroup-.*\.js$/.test(name));
+  const leaderboardFile = fs.readdirSync(assetsDir).find((name) => /^useLeaderboard-.*\.js$/.test(name));
+  assert.ok(groupDiscoveryFile, 'GroupDiscovery chunk should exist');
+  assert.ok(useGroupsFile, 'useGroups chunk should exist');
+  assert.ok(communityHubFile, 'CommunityHub chunk should exist');
+  assert.ok(singleGroupFile, 'SingleGroup chunk should exist');
+  assert.ok(leaderboardFile, 'useLeaderboard chunk should exist');
+
+  const groupDiscovery = fs.readFileSync(path.join(assetsDir, groupDiscoveryFile), 'utf8');
+  const useGroups = fs.readFileSync(path.join(assetsDir, useGroupsFile), 'utf8');
+  const communityHub = fs.readFileSync(path.join(assetsDir, communityHubFile), 'utf8');
+  const singleGroup = fs.readFileSync(path.join(assetsDir, singleGroupFile), 'utf8');
+  const leaderboard = fs.readFileSync(path.join(assetsDir, leaderboardFile), 'utf8');
+
+  assert.match(groupDiscovery, /Join with Code/);
+  assert.match(groupDiscovery, /window\.prompt\("Enter invite code or invite link"\)/);
+  assert.match(groupDiscovery, /window\.location\.href="\/invite\/"\+encodeURIComponent\(j\)/);
+  assert.match(groupDiscovery, /\{value:"other",label:"Other"\}/);
+  assert.match(groupDiscovery, /ve=n=>e\.jsx\(H,\{\.\.\.n\}\);/);
+  assert.doesNotMatch(groupDiscovery, /featureName:"Study Groups"/);
+  assert.doesNotMatch(groupDiscovery, /\{value:"shit",label:"Shit"\}/);
+
+  assert.doesNotMatch(useGroups, /isPremium\(\)/);
+  assert.match(useGroups, /} = r, s = !0;/);
+  assert.match(useGroups, /const i = !0;/);
+  assert.match(useGroups, /e = !0;/);
+
+  assert.match(communityHub, /function ze\(\)\{const t=!0,n=E\(i=>i\.userId\);/);
+  assert.match(communityHub, /dr=t=>e\.jsx\(Ae,\{\.\.\.t\}\);/);
+  assert.doesNotMatch(communityHub, /featureName:"Community Hub"/);
+
+  assert.match(singleGroup, /function Vs\(t\)\{const r=!0;return we\(\{/);
+  assert.match(singleGroup, /function Qs\(t\)\{const r=!0;return we\(\{/);
+  assert.match(singleGroup, /function Zs\(t\)\{const r=!0;return we\(\{/);
+  assert.match(singleGroup, /function ea\(t\)\{const r=!0;return we\(\{/);
+  assert.match(singleGroup, /function aa\(t,r="daily"\)\{const s=!0;return we\(\{/);
+  assert.match(singleGroup, /function ra\(t\)\{const r=!0;return we\(\{/);
+  assert.match(singleGroup, /Ga=t=>e\.jsx\(Aa,\{\.\.\.t\}\)/);
+  assert.doesNotMatch(singleGroup, /featureName:"Group Details"/);
+
+  assert.match(leaderboard, /function O\(\{period:s,limit:r=50,groupId:t\}\)\{const c=!0,n=s==="daily";/);
+  assert.match(leaderboard, /function U\(\)\{const s=!0,r=k\(t=>t\.userId\);/);
+  assert.doesNotMatch(leaderboard, /isPremium\(\)/);
+});
+
 test('apply-android-patches adds Android analytics render stability and app-only links', () => {
   const wwwDir = runPrepareWww();
   runApplyPatches(wwwDir);

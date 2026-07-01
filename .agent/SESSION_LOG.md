@@ -679,3 +679,39 @@ git push -u origin codex/android-production-repair
 - Temporary `.artifact-tmp/` files were deleted after inspection.
 - `adb devices` showed no connected devices, so install/runtime testing could not run from this shell.
 - OnePlus Pad Go runtime verification is pending for Analytics Monthly switching, Focus reopen, login persistence, cloud sync, storage cleanup, Floating Timer, and notifications.
+
+---
+
+## 2026-07-01 — Android community group action checkpoint
+
+**User-reported runtime state:**
+- Community create group button and invite/join flow still felt disconnected.
+- Supabase invite RPC contract needed app-compatible group slug values.
+
+**Implemented:**
+- `scripts/apply-android-patches.js`
+  - Removes stale `PremiumGate` wrappers around Community Hub, Group Discovery, and Group Details in the Android packaged bundles.
+  - Forces community/group/leaderboard query hooks to execute on Android instead of disabling from stale local premium flags.
+  - Adds a visible `Join with Code` button beside `Create Group` on Group Discovery.
+  - Routes pasted invite codes or invite links to `/invite/{code}`.
+  - Replaces the bad group category label/value `shit` with `Other`.
+- `test/prepare-patches.test.mjs`
+  - Adds patch-contract coverage for community unlocks, Join with Code, invite route fallback, group category repair, and removed premium wrappers.
+- Supabase live migration from `supabase/repair_invite_rpc_slug_contract.sql` was already applied to project `vteqquoqvksshmfhuepu`.
+
+**Tests run:**
+- `node --check scripts/apply-android-patches.js`
+- `node --test test/prepare-patches.test.mjs`
+- `npm test`
+- `npm run build`
+- `git diff --check`
+
+**Results:**
+- `node --test test/prepare-patches.test.mjs`: PASS, 10 tests.
+- `npm test`: PASS, 43 tests.
+- `npm run build`: PASS through `prepare-www`, required patching, `npx cap sync android`, and final idempotent patch pass.
+- `git diff --check`: PASS.
+
+**Not verified:**
+- GitHub Actions APK for this checkpoint is pending push.
+- Device runtime checks for community create/join/invite remain pending.

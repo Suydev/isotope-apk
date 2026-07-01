@@ -21,14 +21,16 @@
   - physical-device tested
 
 **Current evidence:**
-- `npm test`: PASS, 40 tests.
+- `npm test`: PASS, 43 tests.
 - `npm run build`: PASS through `prepare-www`, `apply-patches`, `npx cap sync android`, and final idempotent patch pass.
 - `git diff --check`: PASS.
-- Commit `8f5cb1f` pushed to `origin/codex/android-production-repair`.
-- GitHub Actions run `28516820643`: PASS.
-- Debug artifact: `IsotopeAI-debug-46`, artifact id `8009649602`.
+- Commit `cbe98ac` pushed to `origin/codex/android-production-repair`.
+- GitHub Actions run `28518336667`: PASS.
+- Current local community patch is tested and awaiting push/GitHub Actions APK build.
+- Previous inspected debug artifact: `IsotopeAI-debug-46`, artifact id `8009649602`.
 - Artifact was downloaded with `GITHUB_PAT` from `.env`, extracted, statically inspected, and deleted locally.
-- Latest checkpoint adds Android Analytics black-screen mitigation, profile/onboarding merge repair, storage bucket upload helpers, Headway/feedback link patches, and native WebView resume recovery.
+- Latest pushed checkpoint adds Android Analytics black-screen mitigation, profile/onboarding merge repair, storage bucket upload helpers, Headway/feedback link patches, native WebView resume recovery, and live invite RPC slug repair.
+- Current local checkpoint adds Android community group action unlocks and Join with Code patch coverage.
 - Local artifact download from the GitHub API is blocked by HTTP 401 because no `GITHUB_PAT`/`GH_TOKEN`/`gh` auth exists in this shell.
 - Local Gradle/APK build intentionally not run by user instruction; use GitHub Actions for APK assembly.
 

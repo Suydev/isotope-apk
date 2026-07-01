@@ -1,6 +1,6 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-07-01T17:58:00+05:30
+**Updated:** 2026-07-01T18:20:42+05:30
 **Branch:** codex/android-production-repair
 **Current phase:** ANDROID-012 — Android Supabase sync/Floating Timer/Analytics stability repair awaiting new GitHub APK + device tests
 
@@ -50,15 +50,22 @@
   - Completed profile saves persist `user_onboarding.completed=true` via verified upsert without wiping academics.
 - [x] Added Android Storage bucket bridge helpers for `group-icons` and `study-material`.
 - [x] Applied live Supabase migration files for Android storage buckets and community API grants in project `vteqquoqvksshmfhuepu`.
+- [x] Applied live Supabase migration for invite RPC slug contract in project `vteqquoqvksshmfhuepu`.
+- [x] Added Android community bundle patch:
+  - removes stale community premium wrappers
+  - forces community/group/leaderboard hooks to run instead of disabling on stale local premium flags
+  - adds a visible `Join with Code` action to group discovery
+  - fixes the bad group category label `shit` to `Other`
 - [x] Updated app-only UX patches:
   - Headway account changed to `7eeYY7`.
   - Android browser-storage warning is suppressed.
   - Dashboard feedback link targets `https://isotopeaiapp.featurebase.app/`.
   - Notification panel is bounded and scrollable on Android.
-- [x] `npm test` passes 40 Node tests.
+- [x] `npm test` passes 43 Node tests.
 - [x] `npm run build` passes: `prepare-www`, required patching, `npx cap sync android`, final idempotent patch pass.
 - [x] `git diff --check` passes.
-- [x] GitHub Actions build for commit `8f5cb1f` passed.
+- [x] GitHub Actions build for commit `cbe98ac` passed.
+- [ ] GitHub Actions build for the current local community patch is pending push.
 - [x] Downloaded and extracted artifact `IsotopeAI-debug-46` using `GITHUB_PAT` from `.env`.
 - [x] Statically inspected the APK:
   - `app-debug.apk` size: 56,024,656 bytes.
@@ -73,7 +80,7 @@
 ## Important Test Scope
 
 - Code written: YES.
-- Unit/patch-contract tested: YES, 40 Node tests.
+- Unit/patch-contract tested: YES, 43 Node tests.
 - Local Capacitor sync/build script: YES, `npm run build`.
 - Local Gradle/APK build: SKIPPED by user instruction. Use GitHub Actions only.
 - CI APK build: PASS for commit `8f5cb1f`, GitHub Actions run `28516820643`.

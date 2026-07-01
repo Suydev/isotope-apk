@@ -12,7 +12,7 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 | Script syntax: `prepare-www.js` | PASS | 2026-06-30 | local branch | `node --check scripts/prepare-www.js` |
 | `git diff --check` | PASS | 2026-06-30 | local branch | `git diff --check` |
 | `git diff --check` | PASS | 2026-07-01 | local branch | `git diff --check` |
-| Regression tests | PASS | 2026-07-01 | local branch | `npm test`: 40 tests passed |
+| Regression tests | PASS | 2026-07-01 | local branch | `npm test`: 43 tests passed |
 | `/__auth/check` causes zero signup requests | PASS | 2026-06-30 | local branch | `npm test` |
 | Bootstrap canonical onboarding/profile contract | PASS | 2026-06-30 | local branch | `npm test` |
 | Bootstrap network failure does not assume onboarded | PASS | 2026-06-30 | local branch | `npm test` |
@@ -55,6 +55,8 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 | Android native WebView resume/repaint contract | PASS | 2026-07-01 | local branch | `npm test` |
 | Headway account `7eeYY7`, Featurebase app link, and Android storage-warning suppression | PASS | 2026-07-01 | local branch | `npm test` |
 | Notification panel bounded scroll patch | PASS | 2026-07-01 | local branch | `npm test` |
+| Android community group actions unlocked and invite code entry patched | PASS | 2026-07-01 | local branch | `npm test` |
+| Android invite RPC slug contract migration | PASS | 2026-07-01 | Supabase project `vteqquoqvksshmfhuepu` | Management API migration applied and function signatures re-read |
 | PWA manager disabled and Android metadata stripped | PASS | 2026-06-30 | local branch | `npm test` |
 | Android native resources for overlay/keyboard/notification/logo | PASS | 2026-06-30 | local branch | `npm test` |
 | Offline LaTeX/KaTeX font packaging | PASS | 2026-06-30 | local branch | `npm test` |
@@ -84,8 +86,8 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 
 ```text
 npm test
-tests 40
-pass 40
+tests 43
+pass 43
 fail 0
 ```
 
@@ -94,7 +96,7 @@ fail 0
 ```text
 npm run build
 prepare-www: copied real isotope-code public assets, repaired 8 KaTeX font assets, pruned 10 browser/PWA artifacts
-apply-patches first pass: 38 patches, 0 skipped, 0 required failures
+apply-patches first pass: 57 patches, 0 skipped, 0 required failures
 npx cap sync android: PASS
 apply-patches final pass: 0 bundle changes, 0 skipped, 0 required failures
 ```

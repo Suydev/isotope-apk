@@ -662,7 +662,131 @@ patchFile(inviteRouteBundle, [
   ],
 ], 'InviteOnlineOnlyRoute bundle');
 
-// ── 6. Notification store — native scheduled notifications ──────────────────
+// ── 6b. Community bundles — remove stale premium locks and add join by code ──
+
+console.log('\n=== Patching community group bundles ===');
+const groupDiscoveryBundle = findAsset('GroupDiscovery-');
+const useGroupsBundle = findAsset('useGroups-');
+const communityHubBundle = findAsset('CommunityHub-');
+const singleGroupBundle = findAsset('SingleGroup-');
+const useLeaderboardBundle = findAsset('useLeaderboard-');
+
+patchFile(groupDiscoveryBundle, [
+  [
+    'e.jsxs("button",{onClick:()=>f(!0),className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white shadow-lg shadow-brand-500/25 transition-colors hover:bg-brand-700 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Create Group"]})',
+    'e.jsxs("div",{className:"flex w-full flex-col gap-2 sm:w-auto sm:flex-row",children:[e.jsxs("button",{onClick:()=>{const t=window.prompt("Enter invite code or invite link");if(t){const j=String(t).trim().split(/[\\\\/]/).filter(Boolean).pop();j&&(window.location.href="/invite/"+encodeURIComponent(j))}},className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2 font-bold text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Join with Code"]}),e.jsxs("button",{onClick:()=>f(!0),className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white shadow-lg shadow-brand-500/25 transition-colors hover:bg-brand-700 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Create Group"]})]})',
+    true
+  ],
+  ['{value:"shit",label:"Shit"}', '{value:"other",label:"Other"}', true],
+  [
+    've=n=>e.jsx($,{featureName:"Study Groups",children:e.jsx(H,{...n})});',
+    've=n=>e.jsx(H,{...n});',
+    true
+  ],
+], 'GroupDiscovery bundle');
+
+patchFile(useGroupsBundle, [
+  [
+    '    } = r, s = c(n => n.isPremium());',
+    '    } = r, s = !0;',
+    true
+  ],
+  [
+    '    const i = c(e => e.isPremium());',
+    '    const i = !0;',
+    true
+  ],
+  [
+    [
+      '    const i = c(t => t.userId),',
+      '        e = c(t => t.isPremium());'
+    ].join('\n'),
+    [
+      '    const i = c(t => t.userId),',
+      '        e = !0;'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '    const i = c(s => s.userId),',
+      '        e = c(s => s.isPremium()),',
+      '        {'
+    ].join('\n'),
+    [
+      '    const i = c(s => s.userId),',
+      '        e = !0,',
+      '        {'
+    ].join('\n'),
+    true
+  ],
+], 'useGroups bundle');
+
+patchFile(communityHubBundle, [
+  [
+    'function ze(){const t=E(i=>i.isPremium()),n=E(i=>i.userId);',
+    'function ze(){const t=!0,n=E(i=>i.userId);',
+    true
+  ],
+  [
+    'dr=t=>e.jsx(pe,{featureName:"Community Hub",children:e.jsx(Ae,{...t})});',
+    'dr=t=>e.jsx(Ae,{...t});',
+    true
+  ],
+], 'CommunityHub bundle');
+
+patchFile(singleGroupBundle, [
+  [
+    'function Vs(t){const r=q(s=>s.isPremium());return we({',
+    'function Vs(t){const r=!0;return we({',
+    true
+  ],
+  [
+    'function Qs(t){const r=q(s=>s.isPremium());return we({',
+    'function Qs(t){const r=!0;return we({',
+    true
+  ],
+  [
+    'function Zs(t){const r=q(s=>s.isPremium());return we({',
+    'function Zs(t){const r=!0;return we({',
+    true
+  ],
+  [
+    'function ea(t){const r=q(s=>s.isPremium());return we({',
+    'function ea(t){const r=!0;return we({',
+    true
+  ],
+  [
+    'function aa(t,r="daily"){const s=q(a=>a.isPremium());return we({',
+    'function aa(t,r="daily"){const s=!0;return we({',
+    true
+  ],
+  [
+    'function ra(t){const r=q(s=>s.isPremium());return we({',
+    'function ra(t){const r=!0;return we({',
+    true
+  ],
+  [
+    'Ga=t=>e.jsx(ns,{featureName:"Group Details",children:e.jsx(Aa,{...t})})',
+    'Ga=t=>e.jsx(Aa,{...t})',
+    true
+  ],
+], 'SingleGroup bundle');
+
+patchFile(useLeaderboardBundle, [
+  [
+    'function O({period:s,limit:r=50,groupId:t}){const c=k(e=>e.isPremium()),n=s==="daily";',
+    'function O({period:s,limit:r=50,groupId:t}){const c=!0,n=s==="daily";',
+    true
+  ],
+  [
+    'function U(){const s=k(t=>t.isPremium()),r=k(t=>t.userId);',
+    'function U(){const s=!0,r=k(t=>t.userId);',
+    true
+  ],
+], 'useLeaderboard bundle');
+
+// ── 6c. Notification store — native scheduled notifications ─────────────────
 
 console.log('\n=== Patching Notification store bundle ===');
 const notificationBundle = findAsset('useNotificationStore-');
