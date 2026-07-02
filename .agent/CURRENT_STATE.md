@@ -1,106 +1,126 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-06-30T07:39:16Z
+**Updated:** 2026-07-01T18:33:09+05:30
 **Branch:** codex/android-production-repair
-**Current phase:** ANDROID-006 — Android-native wiring for online sync, notifications, PiP, logo, and shell behavior
+**Current phase:** ANDROID-012 — Android Supabase sync/Floating Timer/Analytics stability repair awaiting new GitHub APK + device tests
 
 ---
 
-## Verified This Session
+## Verified Locally This Session
 
-- [x] `npm test` passes 18 regression tests for auth/bootstrap/onboarding/PWA/session-storage/stale-boot-state/native-notification/network/PiP/patch-resource contracts.
-- [x] Android bridge now uses Capacitor Network as the authoritative Android online source, overrides `navigator.onLine`, and dispatches `isotope:network` events consumed by the patched `useOnlineStatus` bundle.
-- [x] Android bridge now schedules native notifications with `ic_notification`, `allowWhileIdle`, and cancellation before focus timer reschedules.
-- [x] Added the missing Android `ic_notification` drawable and removed the nonexistent `beep` sound reference from Capacitor LocalNotifications config.
-- [x] `MainActivity.java` now exposes a JavaScript interface named `IsotopeAndroid` for Focus Picture-in-Picture and dispatches `isotope:pip-mode` events.
-- [x] `AndroidManifest.xml` now enables PiP/resizable activity and uses `adjustResize` for keyboard insets.
-- [x] Focus bundle patch delegates Picture-in-Picture to the Android bridge before falling back to browser `documentPictureInPicture`.
-- [x] Settings bundle patch adds a matching Font Size control and persists `fontScale` / `isotope-font-scale`; bridge applies the persisted scale at startup.
-- [x] Android back-button handling is wired through the Capacitor App plugin to close dialogs, navigate back inside the app, or minimize at root routes.
-- [x] Android launcher foreground/background and density PNG icons were replaced with isotope-code logo assets; no default Android robot launcher icon remains in the committed resources.
-- [x] `npm run build` succeeds through `prepare-www`, required bundle patching, `npx cap sync android`, and the final idempotent patch pass. First pass applied 23 patch targets; second pass applied 0.
-- [x] Patch-contract tests verify Android online hook, Focus PiP hook, Settings Font Size hook, notification icon resource, launcher logo resource, PiP manifest/activity wiring, and notification config.
-- [x] GitHub Actions runs for commit `868b889` reached the Android compile step after tests/patching/sync all passed, then failed in `Build Debug APK`:
-  - Push run `28428151528`
-  - PR run `28428153462`
-- [x] Follow-up native compile fix written locally: `MainActivity.onStart()` now remains `public`, matching `BridgeActivity`; regression test asserts it is not `protected`.
-- [x] Supabase Management API access works with local `SUPABASE_PAT`; project `vteqquoqvksshmfhuepu` is `ACTIVE_HEALTHY`.
-- [x] Supabase Auth logs show the user-reported credential attempt reached `/token` and returned HTTP 200, so the reported login loop is local Android session/routing behavior after successful Supabase auth.
-- [x] Root cause found for the repeated post-login loop: `restore-and-launch.js` can leave `window.__ISO_BOOT_STATE__.state="readyLoggedOut"` from startup, and `AppAccessGate` honored that stale state after Auth hydrated the Android session.
-- [x] Auth bundle patch now writes a fresh `window.__ISO_BOOT_STATE__` from bootstrap before navigating after native login.
-- [x] AppAccessGate bundle patch now redirects `readyLoggedOut` to `/auth` only when the auth store is not authenticated.
-- [x] AppAccessGate storage cleanup patch now preserves Android auth keys instead of deleting `isotope-auth` / `isotope-auth-token`.
-- [x] `npm run prepare-www` copies the real `isotope-code/public` UI into `www/` and reports 154 JS bundles, total size 56.9 MB.
-- [x] `npx cap sync android` succeeds and copies web assets into the committed Android project.
-- [x] Generated `www/` and `android/app/src/main/assets/public` both contain the new Auth boot-state write and AppAccessGate stale-logged-out guard.
-- [x] `npm run agent:status` now reports `ANDROID-006` as the active task after fixing the task-block parser.
-- [x] GitHub Actions builds for commit `ce73a3f` succeeded:
-  - Push run `28415768373`
-  - PR run `28415767170`
-- [x] Debug artifact `IsotopeAI-debug-35` (artifact id `7969405842`) was downloaded and extracted locally.
-- [x] Extracted APK contains the real IsotopeAI UI: 154 JS chunks and 266 packaged public files.
-- [x] Extracted APK contains the Android auth storage fallback in `assets/App-pJGjDiPw.js`.
-- [x] Extracted APK contains native notification bootstrap helpers and does not skip native setup when `window.Notification` exists.
-- [x] `aapt dump permissions` confirms packaged permissions include `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `SCHEDULE_EXACT_ALARM`, `WAKE_LOCK`, `FOREGROUND_SERVICE`, and `INTERNET`.
-- [x] `/__auth/check` no longer calls Supabase signup and is covered by regression test.
-- [x] `/__auth/bootstrap` now returns the canonical server-compatible shape, including `onboarding`, `profile_data`, restore metadata, and backup fields.
-- [x] Onboarding completion now uses verified PostgREST upsert with `on_conflict=user_id`.
-- [x] Auth bundle patch waits for bootstrap onboarding decision before routing to dashboard/onboarding.
-- [x] Auth bundle patch now hydrates the Zustand auth store directly from Android bootstrap after login, instead of calling compiled `initializeAuth()` which can flip back to logged-out UI.
-- [x] App bundle patch now makes the compiled Supabase auth storage adapter read/write/remove the bridge-written `localStorage` session fallback on Android (`isotope-auth-token`, `sb-vteqquoqvksshmfhuepu-auth-token`, `isotope-last-session-raw`), preventing `initializeAuth()` from treating a just-logged-in user as logged out.
-- [x] Android packaging removes PWA manifest/mobile-web-app meta tags and disables the compiled `PWAManager` on Android.
-- [x] Notification and focus timer bundles now call Capacitor `LocalNotifications` scheduling/cancel APIs through Android bridge globals instead of relying only on browser `setTimeout`/service-worker notification paths.
-- [x] Android bridge now always installs the native notification helper path on Android, even if WebView exposes a `window.Notification` object.
-- [x] Android project has been generated once and is ready to commit instead of being regenerated by CI.
-- [x] Branch `codex/android-production-repair` pushed to `https://github.com/Suydev/isotope-apk`.
-- [x] GitHub Actions debug build succeeded: https://github.com/Suydev/isotope-apk/actions/runs/28374915430
-- [x] Debug artifact uploaded as `IsotopeAI-debug-28` (artifact id `7953037831`, zip size 44,653,663 bytes).
-- [x] Draft PR opened: https://github.com/Suydev/isotope-apk/pull/1
+- [x] `npm run agent:resume` completed on `codex/android-production-repair`.
+- [x] Supabase changelog checked for current breaking-change risk. Relevant risk remains Data API/RLS/Storage permission shape, not a changed client endpoint.
+- [x] Replaced broken Android system-PiP timer path with `android-floating-timer-bridge.js` + native `FloatingTimerService`.
+- [x] Removed old `android-pip-bridge.js` and unused PiP RemoteAction icons.
+- [x] Added grapheme-safe focus-type emoji repair; corrupted Lecture `����` repairs to `🎓`.
+- [x] Added offline LaTeX font packaging repair for missing KaTeX font assets.
+- [x] Pruned Android-unused browser/PWA artifacts from packaged `www`.
+- [x] Added conservative WebView smoothness/stability flags:
+  - manifest `android:hardwareAccelerated="true"`
+  - `WebView.LAYER_TYPE_HARDWARE`
+  - `setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)`
+- [x] Repaired Android Supabase disconnect paths in `android-bridge.js`:
+  - direct absolute Supabase `/functions/v1/*` calls are intercepted, not only `/__supa/functions/v1/*`
+  - `finish-session` maps compiled payloads to `finish_session_sync(p_session_id,p_action,p_duration_minutes,p_group_id,p_session_type,p_notes,p_ended_at)`
+  - daily leaderboard maps to existing `get_leaderboard` with `p_period:"daily"` instead of nonexistent `get_daily_leaderboard`
+  - group leaderboard maps `groupId` to `p_group_id`
+  - group analytics maps `groupId/days` to `p_group_id/p_days`
+  - non-2xx RPCs return `ok:false`, not fake success
+- [x] Repaired Android backup/import/restore wiring:
+  - uploads canonical `userId/backups/latest.json`
+  - writes timestamped `userId/backups/history/*.json`
+  - writes `userId/cloud-snapshot/latest.json`
+  - imports archive to `userId/imports/*` and promote canonical backup
+  - restore endpoints return `backup_json`, `selected_backup`, candidates, and collection counts
+  - `BLOCKED_EMPTY_OVERWRITE` blocks empty local state overwriting rich cloud state
+  - cleanup deletes only current-user stale `.json` archive paths after verified upload/readback
+  - explicit `/__auth/storage/cleanup-preview` and `/__auth/storage/cleanup-apply` routes exist
+- [x] Added Android runtime render recovery for intermittent black/white screens:
+  - `MainActivity.onResume()` resumes WebView timers, invalidates the WebView, and calls `window.__isoAndroidForceRepaint`.
+  - `android-bridge.js` dispatches `isotope:android-resume`, installs Android-gated render recovery CSS, and reloads only if the React root is truly blank.
+  - `AppTheme.NoActionBarLaunch` now declares `postSplashScreenTheme`; app theme uses a stable dark `windowBackground`.
+- [x] Added Android-gated Analytics stability patches:
+  - disables Sentry/replay startup on Android
+  - forces chart reduce-motion/performance mode on Android
+  - disables AnalyticsPeriod chart animation on Android
+  - caps rendered Session Log rows to 120 on Android while preserving source data
+  - prevents Monthly/Weekly next navigation from going past the current period
+- [x] Repaired profile/onboarding cloud merge:
+  - `handlePostProfile()` reads existing `profile_data`, deep-merges partial updates, and upserts the merged row.
+  - Completed profile saves persist `user_onboarding.completed=true` via verified upsert without wiping academics.
+- [x] Added Android Storage bucket bridge helpers for `group-icons` and `study-material`.
+- [x] Applied live Supabase migration files for Android storage buckets and community API grants in project `vteqquoqvksshmfhuepu`.
+- [x] Applied live Supabase migration for invite RPC slug contract in project `vteqquoqvksshmfhuepu`.
+- [x] Added Android community bundle patch:
+  - removes stale community premium wrappers
+  - forces community/group/leaderboard hooks to run instead of disabling on stale local premium flags
+  - adds a visible `Join with Code` action to group discovery
+  - fixes the bad group category label `shit` to `Other`
+  - routes Android group creation through atomic `create_community_group(...)` RPC, then fetches the created group row
+- [x] Updated app-only UX patches:
+  - Headway account changed to `7eeYY7`.
+  - Android browser-storage warning is suppressed.
+  - Dashboard feedback link targets `https://isotopeaiapp.featurebase.app/`.
+  - Notification panel is bounded and scrollable on Android.
+  - Notification panel header is compact/non-overlapping and shows a scroll hint when there are many notifications.
+- [x] `npm test` passes 43 Node tests.
+- [x] `npm run build` passes: `prepare-www`, required patching, `npx cap sync android`, final idempotent patch pass.
+- [x] `git diff --check` passes.
+- [x] GitHub Actions build for commit `cbe98ac` passed.
+- [ ] GitHub Actions build for the current local community patch is pending push.
+- [x] Downloaded and extracted artifact `IsotopeAI-debug-46` using `GITHUB_PAT` from `.env`.
+- [x] Statically inspected the APK:
+  - `app-debug.apk` size: 56,024,656 bytes.
+  - Package: `in.isotopeai.app`.
+  - compileSdk/targetSdk: 35.
+  - Real UI assets present: `App-pJGjDiPw.js`, `Analytics-D74gQMjN.js`, `AnalyticsPeriod-CGXbfYQB.js`, `DashboardHeader-DNuRMna8.js`, `HeadwayUpdatesButton-DUh668tJ.js`.
+  - Bridge assets present: `android-bridge.js`, `android-floating-timer-bridge.js`, `sync/backup-normalizer.js`, `sync/local-data-adapter.js`.
+  - Markers found in APK: `__isoAndroidForceRepaint`, `persistCompletedOnboardingIfNeeded`, `__androidStable`, `h.slice(0,120)`, Headway account `7eeYY7`, Featurebase app link, Android Sentry startup skip.
+  - Permissions found: notification, overlay, foreground service, exact alarm, network state.
+  - Temporary artifact directory `.artifact-tmp/` deleted after inspection.
+
+## Important Test Scope
+
+- Code written: YES.
+- Unit/patch-contract tested: YES, 43 Node tests.
+- Local Capacitor sync/build script: YES, `npm run build`.
+- Local Gradle/APK build: SKIPPED by user instruction. Use GitHub Actions only.
+- CI APK build: PASS for commit `8f5cb1f`, GitHub Actions run `28516820643`.
+- Debug artifact: `IsotopeAI-debug-46`, artifact id `8009649602`.
+- Artifact ZIP download from this shell: PASS using `GITHUB_PAT` from `.env`; extracted and statically inspected, then deleted from local storage.
+- Emulator tested: NOT YET.
+- Physical-device tested: NOT YET.
+
+## Current User-Reported Runtime Defects To Verify Next
+
+- App appears disconnected from Supabase beyond login/info.
+- Cloud sync/import/export/backup decisions may still fail at runtime until the new bridge is in a GitHub-built APK.
+- Focus/Analytics pages intermittently show a full black screen; code-level Android render recovery is written and locally tested, but not device-verified.
+- PNG logo looks wrong in dark mode.
+
+## Npm Audit
+
+- `npm audit --omit=optional` still reports 2 high-severity dev-only issues through `@capacitor/cli@6.2.1`:
+  - `tar@6.2.1`
+  - `glob@9.3.5`
+- `npm explain tar` and `npm explain glob` show both come through `@capacitor/cli@6.2.1`.
+- Available remediation requires `npm audit fix --force`, upgrading Capacitor CLI to `8.4.1`. That is a separate major migration and was not mixed into this repair.
 
 ## Not Yet Verified
 
-- [ ] GitHub Actions debug APK build for the follow-up native compile fix.
-- [ ] Download/extract static inspection of the current GitHub Actions APK artifact.
-- [ ] Follow-up APK installation on emulator or physical Android device.
-- [ ] Login with real credentials inside the follow-up packaged APK.
-- [ ] Existing-account dashboard route in follow-up packaged APK.
-- [ ] New-account onboarding completion in packaged APK.
-- [ ] Offline mode, import/export, backup restore, notifications, timer process-death behavior, and responsive layout matrix on Android.
+- Runtime login/dashboard/onboarding with the next APK.
+- Runtime cloud sync, import/export, backup restore, and storage cleanup.
+- Empty local state cannot overwrite rich cloud data in the packaged APK.
+- Community/leaderboards/session sync in the packaged APK.
+- Focus/Analytics intermittent black-screen bug.
+- Dark-mode logo appearance.
+- OnePlus Pad Go Floating Timer acceptance list.
+- Responsive phone/tablet/orientation matrix.
 
-## Important Implementation State
-
-- User tested the previous GitHub-built APK and reported: login now reaches the app shell but cloud sync/online status still says offline, notification permission appears without actual focus notification delivery, Android app shell behavior still feels PWA-like, keyboard/back behavior is unstable, old launcher logo remains, and Focus PiP/font scale controls are missing.
-- Root cause evidence: Supabase logs show Auth login succeeded with HTTP 200. Two Android-side failure paths were then found: the compiled Supabase storage adapter could miss the bridge-written `localStorage` session, and `AppAccessGate` could trust a stale startup `readyLoggedOut` boot state even after Auth hydrated the session.
-- Follow-up code-level fixes now target Android-native wiring rather than Supabase credentials: Capacitor Network feeds online state, notification resource/scheduling is aligned, Focus PiP is native, app back/keyboard shell behavior is native-aware, and old launcher resources are replaced.
-- `isotope-code` source assets are pinned for CI at commit `fd39fad1384333ad774f19f35b754659a34dae60`.
-- Capacitor versions are pinned in `package.json` and `package-lock.json`.
-- `.github/workflows/android.yml` now runs on `main` and `codex/android-production-repair`, uses `npm ci`, runs `npm test`, prepares `www/`, applies patch checks, runs `npx cap sync android`, reapplies native patches, and builds the debug APK.
-- `gh` is not installed in this environment and `.env` currently has no `GITHUB_PAT`. Branch push works through existing git credentials; Actions/artifact inspection may need browser access, an installed/authenticated `gh`, or `GITHUB_PAT`.
-- `adb` is installed, but `adb devices -l` currently shows no attached/authorized device.
-- Per user instruction, do not use local Gradle for APK assembly in this environment. GitHub Actions is the only APK build path for this checkpoint.
-
-## Last Successful Build
-
-- GitHub Actions run `28415768373`
-- Commit: `ce73a3f`
-- URL: https://github.com/Suydev/isotope-apk/actions/runs/28415768373
-- Job: `Build Debug APK` succeeded
-
-## Last Successful APK Path
-
-- Artifact: `IsotopeAI-debug-35`
-- Artifact id: `7969405842`
-- Downloaded APK: `/data/data/com.termux/files/usr/tmp/isotope-apk-ce73a3f/artifact/app-debug.apk`
-- Download page: https://github.com/Suydev/isotope-apk/actions/runs/28415768373
-
-## Current Blocker
-
-No emulator or physical Android device is visible to ADB from this environment. Runtime claims must not be marked complete until the follow-up GitHub-built APK is installed and tested. APK assembly must be done by GitHub Actions only for this checkpoint. The latest pushed Actions run failed at native debug build; a targeted `MainActivity.onStart()` compile fix is local and must be pushed.
-
-## Exact Next Commands
+## Next Commands
 
 ```bash
-git add android/app/src/main/java/in/isotopeai/app/MainActivity.java test/prepare-patches.test.mjs .agent
-git commit -m "fix: restore MainActivity onStart access"
-git push
+export GITHUB_PAT=...
+curl -L -H "Authorization: Bearer $GITHUB_PAT" -o /tmp/isotope-a99d575.zip https://api.github.com/repos/Suydev/isotope-apk/actions/artifacts/7996534384/zip
+unzip /tmp/isotope-a99d575.zip -d /tmp/isotope-a99d575
 ```

@@ -125,6 +125,89 @@
     try { document.addEventListener('DOMContentLoaded', install); } catch (e) {}
   })();
 
+  (function setupAndroidRenderRecovery() {
+    var reloadAttempted = false;
+
+    function forceRepaint(source) {
+      try {
+        var root = document.documentElement;
+        if (root) root.classList.add('iso-android-repaint');
+        if (document.body) {
+          document.body.style.webkitTransform = 'translateZ(0)';
+          document.body.style.transform = 'translateZ(0)';
+          void document.body.offsetHeight;
+        }
+        setTimeout(function () {
+          try {
+            if (document.body) {
+              document.body.style.webkitTransform = '';
+              document.body.style.transform = '';
+            }
+            if (root) root.classList.remove('iso-android-repaint');
+          } catch (e) {}
+        }, 120);
+      } catch (e) {}
+      dispatchAndroidEvent('isotope:android-resume', { source: source || 'android-bridge' });
+    }
+
+    function checkBlankRoot() {
+      setTimeout(function () {
+        try {
+          var root = document.getElementById && document.getElementById('root');
+          var blank = root && root.children && root.children.length === 0;
+          if (blank && !reloadAttempted) {
+            reloadAttempted = true;
+            window.location.reload();
+          }
+        } catch (e) {}
+      }, 1200);
+    }
+
+    function installStyles() {
+      if (!document.head || document.getElementById && document.getElementById('iso-android-render-style')) return;
+      try {
+        var style = document.createElement('style');
+        style.id = 'iso-android-render-style';
+        style.textContent = [
+          'html.iso-android-stable-render .app-ambient { display: none !important; }',
+          'html.iso-android-stable-render .recharts-wrapper, html.iso-android-stable-render .recharts-surface { transform: translateZ(0); backface-visibility: hidden; }',
+          'html.iso-android-stable-render [class*="blur-[100px]"], html.iso-android-stable-render [class*="blur-[120px]"] { filter: none !important; }',
+          'html.iso-android-stable-render [data-framer-name], html.iso-android-stable-render .recharts-wrapper * { transition-duration: 0s !important; }',
+          'html.iso-android-repaint body { min-height: calc(100% + 1px); }'
+        ].join('\n');
+        document.head.appendChild(style);
+        document.documentElement.classList.add('iso-android-stable-render');
+      } catch (e) {}
+    }
+
+    window.__isoAndroidForceRepaint = forceRepaint;
+    try { document.addEventListener('DOMContentLoaded', installStyles); } catch (e) {}
+    try { document.addEventListener('visibilitychange', function () { if (!document.hidden) { forceRepaint('visibilitychange'); checkBlankRoot(); } }); } catch (e) {}
+    try { window.addEventListener('focus', function () { forceRepaint('focus'); checkBlankRoot(); }); } catch (e) {}
+
+    (function installCapacitorResume() {
+      var attempts = 0;
+      function install() {
+        attempts++;
+        var app = getCapacitorPlugin('App');
+        if (app && typeof app.addListener === 'function') {
+          try {
+            app.addListener('resume', function () { forceRepaint('capacitor:resume'); checkBlankRoot(); });
+            app.addListener('appStateChange', function (state) {
+              if (!state || state.isActive !== false) {
+                forceRepaint('capacitor:appStateChange');
+                checkBlankRoot();
+              }
+            });
+            return;
+          } catch (e) {}
+        }
+        if (attempts < 30) setTimeout(install, 100);
+      }
+      install();
+    })();
+  })();
+
   // ── Inject __IK__ global (mirrors server-side injection) ───────────────────
   // The AI store reads window.__IK__.supa / .anon / .gemini / .groq
   // Without this, all AI features are broken on Android.
@@ -323,6 +406,218 @@
     };
   }
 
+  function stableStringify(value) {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+    return '{' + Object.keys(value).sort().map(function (key) {
+      return JSON.stringify(key) + ':' + stableStringify(value[key]);
+    }).join(',') + '}';
+  }
+
+  function hashText(text) {
+    var str = String(text || '');
+    var h1 = 2166136261;
+    var h2 = 16777619;
+    for (var i = 0; i < str.length; i++) {
+      var code = str.charCodeAt(i);
+      h1 ^= code;
+      h1 = Math.imul(h1, 16777619);
+      h2 = Math.imul(h2 ^ code, 2246822519);
+    }
+    return (h1 >>> 0).toString(16).padStart(8, '0')
+      + (h2 >>> 0).toString(16).padStart(8, '0')
+      + str.length.toString(16).padStart(8, '0');
+  }
+
+  function byteSize(value) {
+    var text = typeof value === 'string' ? value : JSON.stringify(value || {});
+    try {
+      if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(text).length;
+    } catch (e) {}
+    return text.length;
+  }
+
+  function normalizeBackup(raw, meta) {
+    var text = typeof raw === 'string' ? raw : JSON.stringify(raw || {});
+    var parsed = safeJsonParse(text, null);
+    var fallbackCounts = getCollectionCounts({ data: {} });
+    if (!isObject(parsed)) {
+      return {
+        valid: false,
+        kind: 'invalid',
+        reason: 'Backup JSON must be an object',
+        raw: null,
+        data: getBackupData({ data: {} }),
+        collection_counts: fallbackCounts,
+        exported_at: null,
+        size_bytes: byteSize(text),
+        empty: true,
+        rich: false,
+        rich_score: 0
+      };
+    }
+    var data = getBackupData(parsed);
+    var counts = getCollectionCounts(parsed);
+    var size = Number(meta && (meta.size_bytes || meta.size || 0)) || byteSize(text);
+    var localBackup = isObject(parsed.local_backup) ? parsed.local_backup : {};
+    var kind = parsed.schema_version === 1
+      ? 'cloud_snapshot'
+      : ((parsed.version === 1 && (parsed.source === 'isotopeai' || parsed.source === 'isotope-study')) ? 'local_backup_v1' : 'unknown');
+    var hasAnyData = !!data.profile || !!data.timerState || [
+      'tasks', 'sessions', 'subjects', 'habits', 'dailyLogs', 'tests', 'exams', 'mockTests'
+    ].some(function (key) { return Array.isArray(data[key]) && data[key].length > 0; });
+    var exportedAt = parsed.exported_at || parsed.exportedAt || localBackup.exportedAt || parsed.downloaded_at
+      || meta && (meta.exported_at || meta.updated_at) || null;
+    var rich = isCountsRich(counts, size);
+    var empty = isCountsEmpty(counts);
+    return {
+      valid: kind !== 'unknown' || hasAnyData,
+      kind: kind,
+      reason: rich ? 'rich backup' : (empty ? 'profile-only or empty backup' : 'valid sparse backup'),
+      raw: parsed,
+      data: data,
+      collection_counts: counts,
+      exported_at: exportedAt,
+      app_version: parsed.appVersion || parsed.app_version || localBackup.appVersion || null,
+      size_bytes: size,
+      hash: meta && meta.hash || hashText(text),
+      data_hash: hashText(stableStringify(data)),
+      source_path: meta && (meta.source_path || meta.path) || null,
+      updated_at: meta && meta.updated_at || null,
+      empty: empty,
+      rich: rich,
+      rich_score: backupScore(counts, size)
+    };
+  }
+
+  function buildCanonicalBackupPayload(normalizedOrRaw, options) {
+    var normalized = normalizedOrRaw && normalizedOrRaw.collection_counts
+      ? normalizedOrRaw
+      : normalizeBackup(normalizedOrRaw, options || {});
+    return {
+      version: 1,
+      source: 'isotopeai',
+      exportedAt: options && options.exportedAt || normalized.exported_at || new Date().toISOString(),
+      appVersion: options && options.appVersion || normalized.app_version || APP_VERSION,
+      data: getBackupData(normalized.raw || { data: normalized.data })
+    };
+  }
+
+  function buildCloudSnapshotMirror(userId, normalizedOrRaw, options) {
+    var canonical = buildCanonicalBackupPayload(normalizedOrRaw, options || {});
+    var normalized = normalizeBackup(canonical, options || {});
+    return {
+      schema_version: 1,
+      user_id: userId,
+      exported_at: canonical.exportedAt,
+      downloaded_at: options && options.downloaded_at || canonical.exportedAt,
+      source: options && options.source || 'canonical_backup',
+      trusted: true,
+      app_version: canonical.appVersion,
+      profile_data: canonical.data.profile || {},
+      local_backup: canonical,
+      backup_data: canonical.data,
+      local_collections: canonical.data,
+      collection_counts: normalized.collection_counts
+    };
+  }
+
+  function latestRecordTime(record) {
+    var value = record && (record.updatedAt || record.updated_at || record.lastModified || record.createdAt || record.created_at);
+    var time = new Date(value || 0).getTime();
+    return Number.isFinite(time) ? time : 0;
+  }
+
+  function mergeById(localRecords, cloudRecords) {
+    var out = new Map();
+    function push(record, source) {
+      if (!record || typeof record !== 'object') return;
+      var id = record.id || record._id || null;
+      var key = id || (source + ':' + stableStringify(record));
+      var existing = out.get(key);
+      if (!existing) {
+        out.set(key, record);
+        return;
+      }
+      if (!latestRecordTime(existing) || latestRecordTime(record) >= latestRecordTime(existing)) {
+        out.set(key, Object.assign({}, existing, record));
+      }
+    }
+    (Array.isArray(cloudRecords) ? cloudRecords : []).forEach(function (record) { push(record, 'cloud'); });
+    (Array.isArray(localRecords) ? localRecords : []).forEach(function (record) { push(record, 'local'); });
+    return Array.from(out.values());
+  }
+
+  function mergeObjects(base, overlay) {
+    var out = Object.assign({}, isObject(base) ? base : {});
+    Object.keys(isObject(overlay) ? overlay : {}).forEach(function (key) {
+      var value = overlay[key];
+      if (value === undefined) return;
+      if (isObject(value)) out[key] = mergeObjects(out[key], value);
+      else if (value !== null && value !== '') out[key] = value;
+      else if (!(key in out)) out[key] = value;
+    });
+    return out;
+  }
+
+  function persistCompletedOnboardingIfNeeded(userId, profileData) {
+    if (!userId || !isObject(profileData)) return Promise.resolve(null);
+    var completed = profileData.isOnboarded === true || profileData.onboarding_completed === true;
+    if (!completed) return Promise.resolve(null);
+    var now = new Date().toISOString();
+    var completedAt = profileData.onboardingCompletedAt || profileData.onboarding_completed_at || now;
+    var onboardingData = compactObject({
+      academic: isObject(profileData.academic) ? profileData.academic : undefined,
+      studyPreferences: isObject(profileData.studyPreferences) ? profileData.studyPreferences : undefined,
+      workflowPreferences: isObject(profileData.workflowPreferences) ? profileData.workflowPreferences : undefined,
+      communityPreferences: isObject(profileData.communityPreferences) ? profileData.communityPreferences : undefined,
+      personalization: isObject(profileData.personalization) ? profileData.personalization : undefined,
+      settings: isObject(profileData.settings) ? profileData.settings : undefined,
+      onboarding: isObject(profileData.onboarding) ? profileData.onboarding : undefined
+    });
+    return supaJson('/rest/v1/user_onboarding?on_conflict=user_id', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify({
+        user_id: userId,
+        completed: true,
+        completed_at: completedAt,
+        data: onboardingData,
+        updated_at: now
+      })
+    }).then(function (result) {
+      if (!result.ok) return { ok: false, warning: result.body && (result.body.message || result.body.error) || 'Onboarding completion upsert failed' };
+      var row = Array.isArray(result.body) ? result.body[0] : result.body;
+      if (!row || row.completed !== true) return { ok: false, warning: 'Onboarding completion was not verified' };
+      return row;
+    }).catch(function (e) {
+      return { ok: false, warning: e && e.message || 'Onboarding completion upsert failed' };
+    });
+  }
+
+  function mergeBackupData(localBackup, cloudBackup) {
+    var localData = getBackupData(localBackup && (localBackup.raw || { data: localBackup.data }) || {});
+    var cloudData = getBackupData(cloudBackup && (cloudBackup.raw || { data: cloudBackup.data }) || {});
+    var out = {
+      profile: mergeObjects(cloudData.profile || {}, localData.profile || {}),
+      timerState: null,
+      tasks: mergeById(localData.tasks, cloudData.tasks),
+      sessions: mergeById(localData.sessions, cloudData.sessions),
+      subjects: mergeById(localData.subjects, cloudData.subjects),
+      habits: mergeById(localData.habits, cloudData.habits),
+      dailyLogs: mergeById(localData.dailyLogs, cloudData.dailyLogs),
+      tests: mergeById(localData.tests, cloudData.tests),
+      exams: mergeById(localData.exams, cloudData.exams),
+      mockTests: mergeById(localData.mockTests, cloudData.mockTests)
+    };
+    var localTimer = localData.timerState;
+    var cloudTimer = cloudData.timerState;
+    out.timerState = localTimer && cloudTimer
+      ? (latestRecordTime(localTimer) >= latestRecordTime(cloudTimer) ? localTimer : cloudTimer)
+      : (localTimer || cloudTimer || null);
+    return out;
+  }
+
   function isCountsRich(counts, sizeBytes) {
     return ['tasks', 'sessions', 'subjects', 'habits', 'tests', 'exams', 'mockTests'].some(function (key) {
       return Number(counts[key] || 0) > 0;
@@ -370,24 +665,27 @@
   }
 
   function buildBackupCandidate(userId, path, text, meta) {
-    var counts = getCollectionCounts(text);
-    var size = text ? text.length : Number(meta && (meta.size_bytes || meta.size || 0)) || 0;
-    var rich = isCountsRich(counts, size);
-    var empty = isCountsEmpty(counts);
+    var normalized = normalizeBackup(text, Object.assign({}, meta || {}, { path: path, source_path: path }));
+    var counts = normalized.collection_counts;
+    var size = normalized.size_bytes;
     return {
       bucket: 'user-content',
       path: path,
-      exists: !!text,
-      valid: !!text,
+      exists: typeof text === 'string' && text.length > 0,
+      valid: normalized.valid,
       kind: backupKindFromPath(path),
+      hash: normalized.hash,
+      data_hash: normalized.data_hash,
       size_bytes: size,
-      exported_at: backupExportedAt(text, meta),
+      exported_at: normalized.exported_at || backupExportedAt(text, meta),
       updated_at: meta && (meta.updated_at || meta.created_at) || null,
       collection_counts: counts,
-      rich_score: backupScore(counts, size),
-      rich: rich,
-      empty: empty,
-      reason: rich ? 'rich backup' : (empty ? 'profile-only or empty backup' : 'valid sparse backup')
+      rich_score: normalized.rich_score,
+      rich: normalized.rich,
+      empty: normalized.empty,
+      reason: normalized.reason,
+      raw_text: text,
+      normalized: normalized
     };
   }
 
@@ -413,7 +711,7 @@
         'apikey': SUPA_ANON_KEY,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ prefix: prefix || '', limit: 20, offset: 0, sortBy: { column: 'name', order: 'asc' } }),
+      body: JSON.stringify({ prefix: prefix || '', limit: 200, offset: 0, sortBy: { column: 'name', order: 'asc' } }),
       credentials: 'omit'
     }).then(function (r) {
       if (!r.ok) return [];
@@ -421,19 +719,57 @@
     }).catch(function () { return []; });
   }
 
+  function newestFilesFirst(files) {
+    return (Array.isArray(files) ? files.slice() : []).sort(function (a, b) {
+      var at = new Date(a && (a.updated_at || a.created_at) || 0).getTime() || 0;
+      var bt = new Date(b && (b.updated_at || b.created_at) || 0).getTime() || 0;
+      if (bt !== at) return bt - at;
+      return String(b && b.name || '').localeCompare(String(a && a.name || ''));
+    });
+  }
+
+  function pathPriority(path) {
+    if (/\/backups\/latest\.json$/.test(path)) return 100;
+    if (/\/cloud-snapshot\/latest\.json$/.test(path)) return 90;
+    if (/\/imports\/latest\.json$/.test(path)) return 80;
+    if (/\/exports\/latest\.json$/.test(path)) return 70;
+    if (path.indexOf('/backups/history/') !== -1) return 60;
+    if (path.indexOf('/imports/') !== -1) return 50;
+    if (path.indexOf('/exports/') !== -1) return 40;
+    if (path.indexOf('/cloud-snapshot/history/') !== -1) return 30;
+    return 0;
+  }
+
+  function candidateTime(candidate) {
+    var values = [candidate && candidate.exported_at, candidate && candidate.updated_at, candidate && candidate.created_at];
+    return Math.max.apply(Math, values.map(function (value) {
+      var time = new Date(value || 0).getTime();
+      return Number.isFinite(time) ? time : 0;
+    }));
+  }
+
   function compareBackupCandidate(a, b) {
+    if (a.valid !== b.valid) return a.valid ? -1 : 1;
     if (a.rich !== b.rich) return a.rich ? -1 : 1;
-    var at = new Date(a.exported_at || a.updated_at || 0).getTime() || 0;
-    var bt = new Date(b.exported_at || b.updated_at || 0).getTime() || 0;
-    if (bt !== at) return bt - at;
+    if (a.empty !== b.empty) return a.empty ? 1 : -1;
+    if (a.hash && b.hash && a.hash === b.hash) return pathPriority(b.path) - pathPriority(a.path);
+    var at = candidateTime(a);
+    var bt = candidateTime(b);
+    if (Math.abs(bt - at) > 10000) return bt - at;
+    var priorityDelta = pathPriority(b.path) - pathPriority(a.path);
+    if (priorityDelta !== 0) return priorityDelta;
     return Number(b.rich_score || 0) - Number(a.rich_score || 0);
   }
 
   function publicBackupCandidate(candidate) {
-    return candidate ? Object.assign({}, candidate) : null;
+    if (!candidate) return null;
+    var copy = Object.assign({}, candidate);
+    delete copy.raw_text;
+    delete copy.normalized;
+    return copy;
   }
 
-  function findBestCloudBackup(userId) {
+  function findBestCloudBackup(userId, options) {
     var basePaths = [
       userId + '/backups/latest.json',
       userId + '/cloud-snapshot/latest.json',
@@ -451,7 +787,7 @@
       var metas = basePaths.map(function (path) { return { path: path }; });
       lists.forEach(function (files, idx) {
         var prefix = historyPrefixes[idx];
-        (Array.isArray(files) ? files : []).slice(0, 20).forEach(function (file) {
+        newestFilesFirst(files).slice(0, 50).forEach(function (file) {
           if (!file || !file.name || file.name === 'history') return;
           var path = prefix + file.name;
           metas.push({ path: path, updated_at: file.updated_at || file.created_at || null, size_bytes: file.metadata && file.metadata.size || file.size || null });
@@ -468,7 +804,9 @@
         });
       }));
     }).then(function (candidates) {
-      var valid = candidates.filter(Boolean).sort(compareBackupCandidate);
+      var valid = candidates.filter(function (candidate) {
+        return candidate && candidate.exists && candidate.valid;
+      }).sort(compareBackupCandidate);
       var selected = valid[0] || null;
       var emptyLatest = valid.find(function (candidate) {
         return candidate.empty && (/\/backups\/latest\.json$/.test(candidate.path) || /\/exports\/latest\.json$/.test(candidate.path) || /\/cloud-snapshot\/latest\.json$/.test(candidate.path));
@@ -479,7 +817,9 @@
       return {
         ok: true,
         selected: publicBackupCandidate(selected),
+        selected_internal: options && options.includeRaw ? selected : undefined,
         candidates: valid.map(publicBackupCandidate),
+        candidates_internal: options && options.includeRaw ? valid : undefined,
         local_recommendation: selected && selected.rich ? 'restore_or_merge_before_upload' : (selected ? 'cloud_empty_upload_allowed_if_local_rich' : 'upload_local_if_rich'),
         warning_if_empty_latest: emptyLatest && richLegacy && richLegacy.path !== emptyLatest.path
           ? 'A latest backup is empty/profile-only while a richer backup exists. Do not upload empty local data.'
@@ -493,6 +833,487 @@
       var parsed = safeJsonParse(text, null);
       return parsed && parsed.user_id === userId ? parsed : null;
     });
+  }
+
+  function storageResultBody(response) {
+    return response.text().then(function (text) {
+      return { ok: response.ok, status: response.status, body: safeJsonParse(text, text || null), text: text };
+    });
+  }
+
+  function storageUploadText(objectPath, text, upsert) {
+    var session = getSession();
+    if (!session || !session.access_token) return Promise.reject(new Error('no_session'));
+    return fetch(SUPA_URL + '/storage/v1/object/user-content/' + objectPath, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + session.access_token,
+        'apikey': SUPA_ANON_KEY,
+        'Content-Type': 'application/json',
+        'x-upsert': upsert ? 'true' : 'false'
+      },
+      body: text,
+      credentials: 'omit'
+    }).then(storageResultBody);
+  }
+
+  function encodeStoragePath(pathValue) {
+    return String(pathValue || '').split('/').map(encodeURIComponent).join('/');
+  }
+
+  function publicStorageUrl(bucket, objectPath) {
+    return SUPA_URL + '/storage/v1/object/public/' + encodeURIComponent(bucket) + '/' + encodeStoragePath(objectPath);
+  }
+
+  function sanitizeStorageSegment(value, fallback) {
+    var text = String(value || fallback || 'file')
+      .split(/[\\/]/).pop()
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 96);
+    if (!text || text === '.' || text === '..') return fallback || 'file';
+    return text;
+  }
+
+  function extensionForContentType(contentType) {
+    var type = String(contentType || '').toLowerCase().split(';')[0].trim();
+    if (type === 'image/jpeg') return 'jpg';
+    if (type === 'image/png') return 'png';
+    if (type === 'image/webp') return 'webp';
+    if (type === 'image/gif') return 'gif';
+    if (type === 'image/svg+xml') return 'svg';
+    if (type === 'application/pdf') return 'pdf';
+    if (type === 'text/plain') return 'txt';
+    if (type === 'text/markdown') return 'md';
+    if (type === 'application/json') return 'json';
+    return 'bin';
+  }
+
+  function extensionFromName(fileName) {
+    var match = String(fileName || '').match(/\.([a-zA-Z0-9]{1,12})$/);
+    return match ? match[1].toLowerCase() : null;
+  }
+
+  function bytesFromBase64(value) {
+    if (typeof atob !== 'function' || typeof Uint8Array === 'undefined') return null;
+    var binary = atob(String(value || ''));
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  function resolveUploadBody(input, options) {
+    options = options || {};
+    var optionContentType = options.contentType || options.content_type;
+    var optionFileName = options.fileName || options.file_name;
+    if (typeof Blob !== 'undefined' && input instanceof Blob) {
+      return Promise.resolve({
+        body: input,
+        content_type: optionContentType || input.type || 'application/octet-stream',
+        size_bytes: Number(input.size || 0),
+        file_name: sanitizeStorageSegment(optionFileName || input.name || 'upload.bin', 'upload.bin')
+      });
+    }
+    if (input && typeof ArrayBuffer !== 'undefined' && input instanceof ArrayBuffer) {
+      return Promise.resolve({
+        body: input,
+        content_type: optionContentType || 'application/octet-stream',
+        size_bytes: input.byteLength || 0,
+        file_name: sanitizeStorageSegment(optionFileName || 'upload.bin', 'upload.bin')
+      });
+    }
+    if (input && typeof ArrayBuffer !== 'undefined' && input.buffer instanceof ArrayBuffer && input.byteLength !== undefined) {
+      return Promise.resolve({
+        body: input,
+        content_type: optionContentType || 'application/octet-stream',
+        size_bytes: input.byteLength || 0,
+        file_name: sanitizeStorageSegment(optionFileName || 'upload.bin', 'upload.bin')
+      });
+    }
+    if (isObject(input) && (input.data_url || input.dataUrl || input.content || input.text || input.body)) {
+      return resolveUploadBody(input.data_url || input.dataUrl || input.content || input.text || input.body, Object.assign({}, options, {
+        contentType: optionContentType || input.content_type || input.contentType,
+        fileName: optionFileName || input.file_name || input.fileName || input.name
+      }));
+    }
+    var text = String(input === undefined || input === null ? '' : input);
+    var dataUrl = text.match(/^data:([^;,]+)?(;base64)?,([\s\S]*)$/);
+    if (dataUrl) {
+      var dataType = optionContentType || dataUrl[1] || 'application/octet-stream';
+      var encoded = dataUrl[3] || '';
+      var body = dataUrl[2] ? bytesFromBase64(encoded) : decodeURIComponent(encoded);
+      if (body && typeof Blob !== 'undefined' && body instanceof Uint8Array) {
+        body = new Blob([body], { type: dataType });
+      }
+      if (!body) body = encoded;
+      return Promise.resolve({
+        body: body,
+        content_type: dataType,
+        size_bytes: body && typeof body.size === 'number' ? body.size : (body.byteLength || body.length || 0),
+        file_name: sanitizeStorageSegment(optionFileName || 'upload.' + extensionForContentType(dataType), 'upload.bin')
+      });
+    }
+    return Promise.resolve({
+      body: text,
+      content_type: optionContentType || 'text/plain',
+      size_bytes: byteSize(text),
+      file_name: sanitizeStorageSegment(optionFileName || 'upload.txt', 'upload.txt')
+    });
+  }
+
+  function storageUploadObject(bucket, objectPath, body, contentType, upsert) {
+    var session = getSession();
+    if (!session || !session.access_token) return Promise.reject(new Error('no_session'));
+    return fetch(SUPA_URL + '/storage/v1/object/' + encodeURIComponent(bucket) + '/' + encodeStoragePath(objectPath), {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + session.access_token,
+        'apikey': SUPA_ANON_KEY,
+        'Content-Type': contentType || 'application/octet-stream',
+        'x-upsert': upsert ? 'true' : 'false'
+      },
+      body: body,
+      credentials: 'omit'
+    }).then(storageResultBody);
+  }
+
+  function uploadGroupIconCompat(input, options) {
+    options = options || {};
+    var session = getSession();
+    var userId = session && session.user && session.user.id;
+    if (!session || !session.access_token) return Promise.reject(new Error('no_session'));
+    if (!userId) return Promise.reject(new Error('no_user_id'));
+    return resolveUploadBody(input, options).then(function (resolved) {
+      var contentType = String(resolved.content_type || '').toLowerCase().split(';')[0].trim();
+      if (!/^image\/(png|jpe?g|webp|gif|svg\+xml)$/.test(contentType)) {
+        var typeErr = new Error('Group icon must be a PNG, JPEG, WebP, GIF, or SVG image.');
+        typeErr.status = 400;
+        typeErr.code = 'UNSUPPORTED_GROUP_ICON_TYPE';
+        throw typeErr;
+      }
+      if (resolved.size_bytes > 10 * 1024 * 1024) {
+        var sizeErr = new Error('Group icon exceeds the 10 MB bucket limit.');
+        sizeErr.status = 413;
+        sizeErr.code = 'GROUP_ICON_TOO_LARGE';
+        throw sizeErr;
+      }
+      var groupId = sanitizeStorageSegment(options.groupId || options.group_id || 'unassigned', 'unassigned');
+      var baseName = sanitizeStorageSegment(options.fileName || options.file_name || resolved.file_name || 'group-icon', 'group-icon');
+      var ext = extensionFromName(baseName) || extensionForContentType(contentType);
+      var nameWithoutExt = baseName.replace(/\.[a-zA-Z0-9]{1,12}$/, '') || 'group-icon';
+      var objectPath = userId + '/groups/' + groupId + '/' + safeIsoStamp(new Date().toISOString()) + '-' + hashText(nameWithoutExt).slice(0, 10) + '.' + ext;
+      return storageUploadObject('group-icons', objectPath, resolved.body, contentType, options.upsert === true)
+        .then(function (result) {
+          assertStorageOk(result, 'Group icon upload');
+          return {
+            ok: true,
+            bucket: 'group-icons',
+            path: objectPath,
+            public_url: publicStorageUrl('group-icons', objectPath),
+            content_type: contentType,
+            size_bytes: resolved.size_bytes,
+            uploaded_at: new Date().toISOString()
+          };
+        });
+    });
+  }
+
+  function uploadStudyMaterialCompat(input, options) {
+    options = options || {};
+    var session = getSession();
+    var userId = session && session.user && session.user.id;
+    if (!session || !session.access_token) return Promise.reject(new Error('no_session'));
+    if (!userId) return Promise.reject(new Error('no_user_id'));
+    return resolveUploadBody(input, options).then(function (resolved) {
+      if (resolved.size_bytes > 100 * 1024 * 1024) {
+        var sizeErr = new Error('Study material exceeds the 100 MB bucket limit.');
+        sizeErr.status = 413;
+        sizeErr.code = 'STUDY_MATERIAL_TOO_LARGE';
+        throw sizeErr;
+      }
+      var folder = sanitizeStorageSegment(options.folder || options.subjectId || options.subject_id || 'general', 'general');
+      var fileName = sanitizeStorageSegment(options.fileName || options.file_name || resolved.file_name || 'study-material.bin', 'study-material.bin');
+      if (!extensionFromName(fileName)) fileName += '.' + extensionForContentType(resolved.content_type);
+      var objectPath = userId + '/study-material/' + folder + '/' + safeIsoStamp(new Date().toISOString()) + '-' + fileName;
+      return storageUploadObject('study-material', objectPath, resolved.body, resolved.content_type, options.upsert === true)
+        .then(function (result) {
+          assertStorageOk(result, 'Study material upload');
+          return {
+            ok: true,
+            bucket: 'study-material',
+            path: objectPath,
+            content_type: resolved.content_type,
+            size_bytes: resolved.size_bytes,
+            uploaded_at: new Date().toISOString()
+          };
+        });
+    });
+  }
+
+  function isStorageAlreadyExists(result) {
+    var text = result && (result.text || JSON.stringify(result.body || {})) || '';
+    return (result && (result.status === 400 || result.status === 409)) && /already exists|resource exists|duplicate/i.test(text);
+  }
+
+  function assertStorageOk(result, label, options) {
+    if (result && result.ok) return result;
+    if (options && options.ignoreAlreadyExists && isStorageAlreadyExists(result)) return result;
+    var errText = result && (result.body && (result.body.message || result.body.error) || result.text) || 'Storage request failed';
+    var err = new Error(label + ': ' + errText);
+    err.status = result && result.status || 500;
+    err.code = /permission|policy|forbidden|rls/i.test(errText) ? 'STORAGE_PERMISSION_DENIED' : 'STORAGE_REQUEST_FAILED';
+    throw err;
+  }
+
+  function isOwnedJsonPath(userId, objectPath) {
+    return !!userId
+      && typeof objectPath === 'string'
+      && objectPath.startsWith(userId + '/')
+      && /\.json$/.test(objectPath)
+      && objectPath.indexOf('..') === -1;
+  }
+
+  function storageRemove(userId, objectPaths) {
+    var session = getSession();
+    if (!session || !session.access_token) return Promise.reject(new Error('no_session'));
+    var paths = (Array.isArray(objectPaths) ? objectPaths : [objectPaths]).filter(function (path) {
+      return isOwnedJsonPath(userId, path);
+    });
+    if (!paths.length) return Promise.resolve({ ok: true, status: 200, body: [], deleted: [] });
+    return fetch(SUPA_URL + '/storage/v1/object/user-content', {
+      method: 'DELETE',
+      headers: {
+        'Authorization': 'Bearer ' + session.access_token,
+        'apikey': SUPA_ANON_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ prefixes: paths }),
+      credentials: 'omit'
+    }).then(storageResultBody).then(function (result) {
+      result.deleted = paths;
+      return result;
+    });
+  }
+
+  function safeIsoStamp(value) {
+    return String(value || new Date().toISOString()).replace(/[:.]/g, '-');
+  }
+
+  function canonicalBackupJson(normalized, options) {
+    return JSON.stringify(buildCanonicalBackupPayload(normalized, options || {}), null, 2);
+  }
+
+  function cloudSnapshotJson(userId, normalized, options) {
+    return JSON.stringify(buildCloudSnapshotMirror(userId, normalized, options || {}), null, 2);
+  }
+
+  function hasHistoryHash(userId, hashPrefix) {
+    return storageList(userId + '/backups/history/').then(function (files) {
+      return newestFilesFirst(files).some(function (file) {
+        return file && file.name && String(file.name).indexOf(hashPrefix) !== -1;
+      });
+    });
+  }
+
+  function writeCanonicalBackup(userId, backupInput, options) {
+    options = options || {};
+    var normalized = backupInput && backupInput.collection_counts
+      ? backupInput
+      : normalizeBackup(backupInput, { source_path: options.source_path || null });
+    if (!normalized.valid) {
+      var invalid = new Error(normalized.reason || 'This file is not a valid Isotope backup.');
+      invalid.status = 400;
+      invalid.code = 'INVALID_BACKUP';
+      throw invalid;
+    }
+    var exportedAt = options.exportedAt || normalized.exported_at || new Date().toISOString();
+    var canonical = canonicalBackupJson(normalized, { exportedAt: exportedAt, appVersion: APP_VERSION });
+    var canonicalHash = hashText(canonical);
+    var canonicalNormalized = normalizeBackup(canonical, { hash: canonicalHash, source_path: userId + '/backups/latest.json' });
+    var canonicalDataHash = canonicalNormalized.data_hash;
+    var latestPath = userId + '/backups/latest.json';
+    var hashPrefix = canonicalHash.slice(0, 16);
+    var historyPath = userId + '/backups/history/' + safeIsoStamp(exportedAt) + '-' + hashPrefix + '.json';
+    var mirrorPath = userId + '/cloud-snapshot/latest.json';
+    var mirror = cloudSnapshotJson(userId, canonicalNormalized, {
+      exportedAt: exportedAt,
+      appVersion: APP_VERSION,
+      source: options.source || 'canonical_backup'
+    });
+    var historyStatus = 'skipped_duplicate';
+    return storageUploadText(latestPath, canonical, true)
+      .then(function (result) { return assertStorageOk(result, 'Storage upload ' + latestPath); })
+      .then(function () { return hasHistoryHash(userId, hashPrefix); })
+      .then(function (exists) {
+        if (exists) return null;
+        return storageUploadText(historyPath, canonical, false).then(function (result) {
+          assertStorageOk(result, 'Storage upload ' + historyPath, { ignoreAlreadyExists: true });
+          historyStatus = result.status || 'uploaded';
+          return result;
+        });
+      })
+      .then(function () {
+        return storageUploadText(mirrorPath, mirror, true).then(function (result) {
+          return assertStorageOk(result, 'Storage upload ' + mirrorPath);
+        });
+      })
+      .then(function () { return storageDownloadText(userId, latestPath); })
+      .then(function (readback) {
+        if (hashText(readback || '') !== canonicalHash) {
+          var mismatch = new Error('Canonical latest backup readback hash mismatch');
+          mismatch.code = 'STORAGE_READBACK_MISMATCH';
+          throw mismatch;
+        }
+        return {
+          ok: true,
+          bucket: 'user-content',
+          path: latestPath,
+          latest_path: latestPath,
+          history_path: historyPath,
+          history_status: historyStatus,
+          cloud_snapshot_path: mirrorPath,
+          hash: canonicalHash,
+          data_hash: canonicalDataHash,
+          cloud_snapshot_hash: hashText(mirror),
+          size_bytes: byteSize(canonical),
+          cloud_snapshot_size_bytes: byteSize(mirror),
+          exported_at: exportedAt,
+          collection_counts: canonicalNormalized.collection_counts,
+          rich: canonicalNormalized.rich,
+          empty: canonicalNormalized.empty,
+          backup_json: canonical,
+          cloud_snapshot_json: mirror
+        };
+      });
+  }
+
+  function cleanupPreview(userId) {
+    return findBestCloudBackup(userId, { includeRaw: true }).then(function (best) {
+      var selectedPath = best.selected_internal && best.selected_internal.path || null;
+      var candidates = best.candidates_internal || [];
+      var canonical = candidates.find(function (candidate) { return candidate.path === userId + '/backups/latest.json'; });
+      var canonicalHash = canonical && canonical.hash || null;
+      var seenHash = {};
+      var backupHistory = candidates.filter(function (candidate) {
+        return candidate.path.indexOf('/backups/history/') !== -1;
+      }).sort(compareBackupCandidate);
+      var importArchives = candidates.filter(function (candidate) {
+        return candidate.path.indexOf('/imports/') !== -1 && !/\/latest\.json$/.test(candidate.path);
+      }).sort(compareBackupCandidate);
+      var exportArchives = candidates.filter(function (candidate) {
+        return candidate.path.indexOf('/exports/') !== -1 && !/\/latest\.json$/.test(candidate.path);
+      }).sort(compareBackupCandidate);
+      var decisions = candidates.map(function (candidate) {
+        var action = 'keep';
+        var reason = 'active candidate';
+        var protectedLatest = [
+          userId + '/backups/latest.json',
+          userId + '/cloud-snapshot/latest.json',
+          userId + '/imports/latest.json',
+          userId + '/exports/latest.json'
+        ].indexOf(candidate.path) !== -1;
+        if (protectedLatest) {
+          reason = 'latest protected path';
+        } else if (candidate.path === selectedPath) {
+          reason = 'selected best backup';
+        } else if (candidate.path.indexOf('/backups/history/') !== -1 && backupHistory.findIndex(function (row) { return row.path === candidate.path; }) < 5) {
+          reason = 'backup history keep-latest-5 policy';
+        } else if (candidate.hash && canonicalHash && candidate.hash === canonicalHash) {
+          action = 'delete';
+          reason = 'duplicate of canonical latest';
+        } else if (candidate.empty && best.selected_internal && best.selected_internal.rich) {
+          action = 'delete';
+          reason = 'profile-only backup superseded by richer cloud backup';
+        } else if (candidate.hash && seenHash[candidate.hash]) {
+          action = 'delete';
+          reason = 'duplicate of ' + seenHash[candidate.hash];
+        } else if (candidate.path.indexOf('/backups/history/') !== -1 && backupHistory.findIndex(function (row) { return row.path === candidate.path; }) >= 5) {
+          action = 'delete';
+          reason = 'backup history beyond keep-latest-5 policy';
+        } else if (candidate.path.indexOf('/imports/') !== -1 && !/\/latest\.json$/.test(candidate.path) && importArchives.findIndex(function (row) { return row.path === candidate.path; }) >= 3) {
+          action = 'delete';
+          reason = 'import archive beyond keep-latest-3 policy';
+        } else if (candidate.path.indexOf('/exports/') !== -1 && !/\/latest\.json$/.test(candidate.path) && exportArchives.findIndex(function (row) { return row.path === candidate.path; }) >= 3) {
+          action = 'delete';
+          reason = 'export archive beyond keep-latest-3 policy';
+        }
+        if (candidate.hash && !seenHash[candidate.hash]) seenHash[candidate.hash] = candidate.path;
+        return {
+          action: action,
+          reason: reason,
+          bucket: 'user-content',
+          path: candidate.path,
+          hash: candidate.hash,
+          size_bytes: candidate.size_bytes,
+          bytes_freed: action === 'delete' ? candidate.size_bytes : 0,
+          collection_counts: candidate.collection_counts
+        };
+      });
+      return {
+        ok: true,
+        selected: best.selected,
+        decisions: decisions,
+        bytes_freed: decisions.reduce(function (sum, row) { return sum + Number(row.bytes_freed || 0); }, 0),
+        dry_run: true
+      };
+    });
+  }
+
+  function cleanupApply(userId) {
+    return cleanupPreview(userId).then(function (preview) {
+      var toDelete = preview.decisions.filter(function (row) {
+        return row.action === 'delete' && isOwnedJsonPath(userId, row.path);
+      }).map(function (row) { return row.path; });
+      if (!toDelete.length) {
+        return Object.assign({}, preview, { dry_run: false, deleted: [], deleted_count: 0 });
+      }
+      return storageRemove(userId, toDelete).then(function (removed) {
+        assertStorageOk(removed, 'Storage cleanup delete');
+        return Object.assign({}, preview, {
+          dry_run: false,
+          deleted: toDelete,
+          deleted_count: toDelete.length
+        });
+      });
+    });
+  }
+
+  function blockedEmptyOverwrite(localNormalized, best) {
+    var selected = best && best.selected_internal;
+    return !!(localNormalized && localNormalized.empty && selected && selected.rich);
+  }
+
+  function blockedEmptyOverwriteResponse(localNormalized, best) {
+    var selected = best && best.selected_internal;
+    return jsonResponse({
+      ok: false,
+      success: false,
+      code: 'BLOCKED_EMPTY_OVERWRITE',
+      state: 'blocked_empty_overwrite',
+      stage: 'storage_scan',
+      message: 'Cloud has richer backup. Restore first.',
+      error: 'Cloud has richer backup. Restore first.',
+      selected_backup: publicBackupCandidate(selected),
+      backup_candidates: best && best.candidates || [],
+      local_counts: localNormalized && localNormalized.collection_counts || {},
+      cloud_counts: selected && selected.collection_counts || {}
+    }, 409);
+  }
+
+  function backupErrorResponse(error, fallback, stage) {
+    var code = error && error.code || (/auth/i.test(error && error.message || '') ? 'AUTH_REQUIRED' : 'UNKNOWN');
+    var status = error && error.status
+      || (code === 'AUTH_REQUIRED' ? 401 : (code === 'INVALID_BACKUP' ? 400 : (code === 'STORAGE_NOT_FOUND' ? 404 : 500)));
+    return jsonResponse({
+      ok: false,
+      success: false,
+      code: code,
+      state: 'failed',
+      stage: stage || 'storage',
+      retryable: status >= 500,
+      message: error && error.message || fallback,
+      error: error && error.message || fallback
+    }, status);
   }
 
   // ── Endpoint handlers ───────────────────────────────────────────────────────
@@ -582,12 +1403,28 @@
     return fetch(SUPA_URL + '/auth/v1/signup', {
       method: 'POST',
       headers: { 'apikey': SUPA_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: body.email, password: body.password }),
+      body: JSON.stringify({
+        email: body.email,
+        password: body.password,
+        data: compactObject({ name: body.name || body.full_name || body.fullName })
+      }),
       credentials: 'omit'
     }).then(function (r) {
       return r.json().then(function (d) {
         if (r.ok) {
-          return jsonResponse({ ok: true, data: d, email_confirmation_required: !d.session });
+          var hasSession = !!(d && d.session && d.session.access_token);
+          return jsonResponse({
+            ok: hasSession,
+            success: hasSession,
+            data: d,
+            session: d && d.session || null,
+            user: d && d.user || null,
+            email_confirmation_required: !hasSession,
+            code: hasSession ? 'SIGNED_UP' : 'EMAIL_CONFIRMATION_REQUIRED',
+            message: hasSession
+              ? 'Account created.'
+              : 'Confirmation email sent. Check your inbox and confirm your email before logging in.'
+          }, hasSession ? 200 : 202);
         }
         return jsonResponse({ ok: false, error: d.error_description || d.msg || d.message || 'Signup failed' }, r.status || 400);
       });
@@ -754,22 +1591,38 @@
     var userId = session.user && session.user.id;
     if (!userId) return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id' }, 401));
 
-    var profileData = body.profile_data || body;
-    return supaFetch('/rest/v1/user_profiles?user_id=eq.' + userId, {
-      method: 'PATCH',
-      headers: { 'Prefer': 'return=representation' },
-      body: JSON.stringify({ profile_data: profileData, updated_at: new Date().toISOString() })
-    }).then(function (r) {
-      return r.json().then(function (d) {
-        if (r.ok) return jsonResponse({ ok: true, profile: Array.isArray(d) ? d[0] : d });
-        // Try upsert if no rows updated
-        return supaFetch('/rest/v1/user_profiles', {
-          method: 'POST',
-          headers: { 'Prefer': 'return=representation,resolution=merge-duplicates' },
-          body: JSON.stringify({ user_id: userId, profile_data: profileData })
-        }).then(function (r2) {
-          return r2.json().then(function (d2) {
-            return jsonResponse({ ok: r2.ok, profile: Array.isArray(d2) ? d2[0] : d2 });
+    var incomingProfileData = isObject(body && body.profile_data)
+      ? body.profile_data
+      : (isObject(body && body.profile) ? body.profile : (isObject(body) ? body : {}));
+    return supaJson('/rest/v1/user_profiles?select=profile_data&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', {
+      method: 'GET'
+    }).then(function (existingResult) {
+      var existingRow = existingResult.ok ? firstRow(existingResult) : null;
+      var existingProfileData = isObject(existingRow && existingRow.profile_data) ? existingRow.profile_data : {};
+      var mergedProfileData = mergeObjects(existingProfileData, incomingProfileData);
+      return supaJson('/rest/v1/user_profiles?on_conflict=user_id', {
+        method: 'POST',
+        headers: { 'Prefer': 'return=representation,resolution=merge-duplicates' },
+        body: JSON.stringify({
+          user_id: userId,
+          profile_data: mergedProfileData,
+          updated_at: new Date().toISOString()
+        })
+      }).then(function (result) {
+        if (!result.ok) {
+          return jsonResponse({
+            ok: false,
+            error: result.body && (result.body.message || result.body.error) || 'Profile upsert failed',
+            detail: result.body || null
+          }, result.status || 500);
+        }
+        var row = Array.isArray(result.body) ? result.body[0] : result.body;
+        return persistCompletedOnboardingIfNeeded(userId, mergedProfileData).then(function (onboardingResult) {
+          return jsonResponse({
+            ok: true,
+            profile: row,
+            profile_data: row && row.profile_data || mergedProfileData,
+            onboarding: onboardingResult || null
           });
         });
       });
@@ -783,46 +1636,123 @@
     var userId = session.user && session.user.id;
     if (!userId) return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id' }, 401));
 
-    var backupJson = body.backup_json;
-    if (!backupJson) return Promise.resolve(errorResponse('No backup_json provided'));
+    var rawBackup = body && (body.backup_json !== undefined ? body.backup_json : (body.backup !== undefined ? body.backup : null));
+    if (rawBackup === null || rawBackup === undefined) return Promise.resolve(errorResponse('No backup_json provided', 400));
+    var backupText = typeof rawBackup === 'string' ? rawBackup : JSON.stringify(rawBackup);
+    var localNormalized = normalizeBackup(backupText, { source_path: body && body.source_path || 'android_upload' });
+    if (!localNormalized.valid) return Promise.resolve(backupErrorResponse({ code: 'INVALID_BACKUP', status: 400, message: localNormalized.reason }, 'Invalid backup', 'request_validation'));
 
-    var fileName = 'backup-' + Date.now() + '.json';
-    var storagePath = userId + '/' + fileName;
-
-    // Upload to Supabase Storage
-    return fetch(SUPA_URL + '/storage/v1/object/user-content/' + storagePath, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + session.access_token,
-        'apikey': SUPA_ANON_KEY,
-        'Content-Type': 'application/json',
-        'x-upsert': 'true'
-      },
-      body: typeof backupJson === 'string' ? backupJson : JSON.stringify(backupJson),
-      credentials: 'omit'
-    }).then(function (r) {
-      return r.json().then(function (d) {
-        if (r.ok) {
-          // Record in backup_manifests
-          return supaFetch('/rest/v1/backup_manifests', {
-            method: 'POST',
-            headers: { 'Prefer': 'return=representation' },
-            body: JSON.stringify({
-              user_id: userId,
-              file_name: fileName,
-              storage_path: storagePath,
-              size_bytes: (typeof backupJson === 'string' ? backupJson : JSON.stringify(backupJson)).length,
-              created_at: new Date().toISOString()
-            })
-          }).then(function () {
-            return jsonResponse({ ok: true, path: storagePath, file_name: fileName });
-          }).catch(function () {
-            return jsonResponse({ ok: true, path: storagePath, file_name: fileName });
-          });
-        }
-        return errorResponse(d.error || d.message || 'Upload failed', r.status);
+    return findBestCloudBackup(userId, { includeRaw: true }).then(function (best) {
+      if (blockedEmptyOverwrite(localNormalized, best)) return blockedEmptyOverwriteResponse(localNormalized, best);
+      var localDataHash = localNormalized.data_hash;
+      var canonicalCandidate = (best.candidates_internal || []).find(function (candidate) {
+        return candidate.path === userId + '/backups/latest.json';
       });
-    }).catch(function (e) { return errorResponse(e.message); });
+      if (canonicalCandidate && canonicalCandidate.valid && canonicalCandidate.data_hash === localDataHash) {
+        return jsonResponse({
+          ok: true,
+          success: true,
+          uploaded: false,
+          skipped: true,
+          code: 'UNCHANGED',
+          state: 'synced',
+          message: 'Canonical backup already matches local data.',
+          bucket: 'user-content',
+          path: canonicalCandidate.path,
+          latest_path: canonicalCandidate.path,
+          cloud_snapshot_path: userId + '/cloud-snapshot/latest.json',
+          hash: canonicalCandidate.hash,
+          data_hash: localDataHash,
+          size_bytes: canonicalCandidate.size_bytes,
+          collection_counts: canonicalCandidate.collection_counts,
+          selected_backup: best.selected,
+          backup_candidates: best.candidates || [],
+          snapshot_storage: {
+            bucket: 'user-content',
+            latest_path: userId + '/cloud-snapshot/latest.json',
+            skipped: true
+          }
+        });
+      }
+
+      var backupToWrite = localNormalized;
+      var conflict = null;
+      var state = 'uploading_local';
+      if (localNormalized.rich && best.selected_internal && best.selected_internal.rich && best.selected_internal.data_hash !== localDataHash) {
+        backupToWrite = normalizeBackup({
+          version: 1,
+          source: 'isotopeai',
+          exportedAt: new Date().toISOString(),
+          appVersion: APP_VERSION,
+          data: mergeBackupData(localNormalized, best.selected_internal.normalized)
+        }, { source_path: 'android_merged_cloud_local' });
+        state = 'merged_cloud_and_local';
+        conflict = {
+          selected_backup: best.selected,
+          strategy: 'merge_by_id_newer_fields_preserved'
+        };
+      }
+
+      return writeCanonicalBackup(userId, backupToWrite, {
+        source_path: body && body.source_path || 'android_upload',
+        source: body && body.source || 'android_backup'
+      }).then(function (written) {
+        var manifestPromise = supaFetch('/rest/v1/backup_manifests', {
+          method: 'POST',
+          headers: { 'Prefer': 'return=representation' },
+          body: JSON.stringify({
+            user_id: userId,
+            file_name: written.history_path.split('/').pop(),
+            storage_path: written.latest_path,
+            history_path: written.history_path,
+            size_bytes: written.size_bytes,
+            hash: written.hash,
+            data_hash: written.data_hash,
+            created_at: new Date().toISOString()
+          })
+        }).then(function (r) { return r.ok; }).catch(function () { return false; });
+        var cleanupPromise = body && body.cleanup === false
+          ? Promise.resolve(null)
+          : cleanupApply(userId).catch(function (e) {
+            return { ok: false, error: e && e.message || 'Storage cleanup failed' };
+          });
+        return Promise.all([manifestPromise, cleanupPromise]).then(function (extras) {
+          return jsonResponse({
+            ok: true,
+            success: true,
+            uploaded: true,
+            code: 'CANONICAL_BACKUP_WRITTEN',
+            state: state,
+            stage: 'storage_upload',
+            bucket: 'user-content',
+            path: written.path,
+            latest_path: written.latest_path,
+            history_path: written.history_path,
+            history_status: written.history_status,
+            cloud_snapshot_path: written.cloud_snapshot_path,
+            hash: written.hash,
+            data_hash: written.data_hash,
+            size_bytes: written.size_bytes,
+            collection_counts: written.collection_counts,
+            synced_at: new Date().toISOString(),
+            user_id: userId,
+            manifest_recorded: extras[0],
+            cleanup: extras[1],
+            selected_backup: best.selected,
+            backup_candidates: best.candidates || [],
+            conflict: conflict,
+            snapshot_storage: {
+              bucket: 'user-content',
+              latest_path: written.cloud_snapshot_path,
+              latest_status: 'uploaded',
+              uploaded_at: written.exported_at
+            }
+          });
+        });
+      });
+    }).catch(function (e) {
+      return backupErrorResponse(e, 'Cloud backup failed', 'storage_upload');
+    });
   }
 
   // GET /__auth/backup/latest
@@ -832,24 +1762,44 @@
     var userId = session.user && session.user.id;
     if (!userId) return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id' }, 401));
 
-    return supaFetch('/rest/v1/backup_manifests?select=*&user_id=eq.' + userId + '&order=created_at.desc&limit=1', { method: 'GET' })
-      .then(function (r) {
-        return r.json().then(function (rows) {
-          if (!Array.isArray(rows) || rows.length === 0) {
-            return jsonResponse({ ok: true, backup: null, empty: true });
-          }
-          var manifest = rows[0];
-          // Download the file
-          return fetch(SUPA_URL + '/storage/v1/object/user-content/' + manifest.storage_path, {
-            headers: { 'Authorization': 'Bearer ' + session.access_token, 'apikey': SUPA_ANON_KEY },
-            credentials: 'omit'
-          }).then(function (fr) {
-            return fr.text().then(function (text) {
-              return jsonResponse({ ok: true, backup: text, manifest: manifest, size: text.length });
-            });
-          });
+    return findBestCloudBackup(userId, { includeRaw: true }).then(function (best) {
+      var selected = best.selected_internal;
+      if (!selected || !selected.valid) {
+        return jsonResponse({
+          ok: true,
+          success: true,
+          code: 'NO_CLOUD_BACKUP',
+          state: 'no_cloud_backup',
+          backup_json: null,
+          backup: null,
+          empty: true,
+          selected_backup: null,
+          candidates: best.candidates || []
         });
-      }).catch(function (e) { return errorResponse(e.message); });
+      }
+      var backupJson = canonicalBackupJson(selected.normalized, {
+        exportedAt: selected.exported_at || new Date().toISOString(),
+        appVersion: APP_VERSION
+      });
+      return downloadCloudSnapshot(userId).catch(function () { return null; }).then(function (cloudSnapshot) {
+        return jsonResponse({
+          ok: true,
+          success: true,
+          code: 'BEST_BACKUP_RETURNED',
+          state: selected.rich ? 'restore_available' : 'cloud_empty',
+          stage: 'storage_download',
+          user_id: userId,
+          backup_json: backupJson,
+          backup: backupJson,
+          backup_hash: hashText(backupJson),
+          collection_counts: getCollectionCounts(backupJson),
+          selected_backup: publicBackupCandidate(selected),
+          candidates: best.candidates || [],
+          backup_storage: { bucket: 'user-content', path: selected.path, source: 'best_backup_selector' },
+          cloud_snapshot: cloudSnapshot
+        });
+      });
+    }).catch(function (e) { return backupErrorResponse(e, 'Cloud backup download failed', 'storage_download'); });
   }
 
   // GET /__auth/backup/best — find the richest backup
@@ -859,23 +1809,30 @@
     var userId = session.user && session.user.id;
     if (!userId) return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id' }, 401));
 
-    return supaFetch('/rest/v1/backup_manifests?select=*&user_id=eq.' + userId + '&order=size_bytes.desc,created_at.desc&limit=5', { method: 'GET' })
-      .then(function (r) {
-        return r.json().then(function (rows) {
-          if (!Array.isArray(rows) || rows.length === 0) {
-            return jsonResponse({ ok: true, backup: null, empty: true });
-          }
-          var manifest = rows[0];
-          return fetch(SUPA_URL + '/storage/v1/object/user-content/' + manifest.storage_path, {
-            headers: { 'Authorization': 'Bearer ' + session.access_token, 'apikey': SUPA_ANON_KEY },
-            credentials: 'omit'
-          }).then(function (fr) {
-            return fr.text().then(function (text) {
-              return jsonResponse({ ok: true, backup: text, manifest: manifest, manifests: rows });
-            });
-          });
-        });
-      }).catch(function (e) { return errorResponse(e.message); });
+    return findBestCloudBackup(userId, { includeRaw: true }).then(function (best) {
+      var selected = best.selected_internal;
+      var backupJson = selected && selected.valid ? canonicalBackupJson(selected.normalized, {
+        exportedAt: selected.exported_at || new Date().toISOString(),
+        appVersion: APP_VERSION
+      }) : null;
+      return jsonResponse({
+        ok: true,
+        success: true,
+        code: 'BEST_BACKUP_SELECTED',
+        state: selected && selected.rich ? 'restore_available' : (selected ? 'cloud_empty' : 'no_cloud_backup'),
+        stage: 'storage_scan',
+        selected: best.selected,
+        selected_backup: best.selected,
+        candidates: best.candidates || [],
+        backup_json: backupJson,
+        backup: backupJson,
+        backup_hash: backupJson ? hashText(backupJson) : null,
+        collection_counts: backupJson ? getCollectionCounts(backupJson) : null,
+        local_recommendation: best.local_recommendation,
+        warning_if_empty_latest: best.warning_if_empty_latest,
+        empty: !selected
+      });
+    }).catch(function (e) { return backupErrorResponse(e, 'Best backup scan failed', 'storage_scan'); });
   }
 
   // POST /__auth/logout
@@ -914,10 +1871,126 @@
     });
   }
 
+  function uploadRawBackupJson(userId, rawJson, folder) {
+    var text = typeof rawJson === 'string' ? rawJson : JSON.stringify(rawJson || {});
+    var parsed = safeJsonParse(text, null);
+    if (!isObject(parsed)) {
+      var invalid = new Error('Backup JSON must be an object');
+      invalid.status = 400;
+      invalid.code = 'INVALID_BACKUP';
+      throw invalid;
+    }
+    var now = new Date().toISOString();
+    var prefix = folder === 'exports' ? 'exports' : 'imports';
+    var hashPrefix = hashText(text).slice(0, 16);
+    var archivePath = userId + '/' + prefix + '/' + safeIsoStamp(now) + '-' + hashPrefix + '.json';
+    var latestPath = userId + '/' + prefix + '/latest.json';
+    var pretty = JSON.stringify(parsed, null, 2);
+    return storageUploadText(archivePath, pretty, false)
+      .then(function (result) {
+        assertStorageOk(result, 'Storage upload ' + archivePath, { ignoreAlreadyExists: true });
+        return storageUploadText(latestPath, pretty, true);
+      })
+      .then(function (result) {
+        assertStorageOk(result, 'Storage upload ' + latestPath);
+        return {
+          bucket: 'user-content',
+          path: archivePath,
+          latest_path: latestPath,
+          hash: hashText(pretty),
+          size_bytes: byteSize(pretty),
+          uploaded_at: now
+        };
+      });
+  }
+
+  function applyBackupProfileToSupabase(userId, backupJson) {
+    var data = getBackupData(backupJson);
+    if (!data.profile) return Promise.resolve({ profile_applied: false });
+    return supaJson('/rest/v1/user_profiles?on_conflict=user_id', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify({
+        user_id: userId,
+        profile_data: data.profile,
+        updated_at: new Date().toISOString()
+      })
+    }).then(function (result) {
+      if (!result.ok) {
+        return {
+          profile_applied: false,
+          warning: result.body && (result.body.message || result.body.error) || 'Profile apply failed'
+        };
+      }
+      return { profile_applied: true };
+    }).catch(function (e) {
+      return { profile_applied: false, warning: e && e.message || 'Profile apply failed' };
+    });
+  }
+
   // POST /__auth/import
   function handleImport(body) {
-    // Import is handled client-side — just acknowledge
-    return Promise.resolve(jsonResponse({ ok: true, imported: true, android: true }));
+    var session = getSession();
+    if (!session) return Promise.resolve(jsonResponse({ ok: false, error: 'no_session' }, 401));
+    var userId = session.user && session.user.id;
+    if (!userId) return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id' }, 401));
+
+    var rawBackup = body && (body.backup_json !== undefined ? body.backup_json : (body.backup !== undefined ? body.backup : null));
+    if (rawBackup === null || rawBackup === undefined) return Promise.resolve(errorResponse('No backup_json provided', 400));
+    var backupText = typeof rawBackup === 'string' ? rawBackup : JSON.stringify(rawBackup);
+    var normalized = normalizeBackup(backupText, { source_path: 'android_import' });
+    if (!normalized.valid) return Promise.resolve(backupErrorResponse({ code: 'INVALID_BACKUP', status: 400, message: normalized.reason }, 'Invalid backup', 'request_validation'));
+
+    return findBestCloudBackup(userId, { includeRaw: true }).then(function (best) {
+      if (blockedEmptyOverwrite(normalized, best)) return blockedEmptyOverwriteResponse(normalized, best);
+      return uploadRawBackupJson(userId, backupText, 'imports').then(function (importUpload) {
+        return writeCanonicalBackup(userId, normalized, {
+          source_path: importUpload.latest_path,
+          source: 'android_manual_import'
+        }).then(function (written) {
+          return Promise.all([
+            applyBackupProfileToSupabase(userId, written.backup_json),
+            cleanupApply(userId).catch(function (e) { return { ok: false, error: e && e.message || 'Storage cleanup failed' }; })
+          ]).then(function (extras) {
+            return jsonResponse({
+              ok: true,
+              success: true,
+              imported: true,
+              code: 'IMPORT_ARCHIVED_AND_PROMOTED',
+              state: 'restore_required',
+              stage: 'storage_upload',
+              user_id: userId,
+              import_storage: importUpload,
+              canonical_backup: {
+                bucket: written.bucket,
+                path: written.path,
+                history_path: written.history_path,
+                cloud_snapshot_path: written.cloud_snapshot_path,
+                hash: written.hash,
+                size_bytes: written.size_bytes,
+                collection_counts: written.collection_counts
+              },
+              backup_json: written.backup_json,
+              backup_hash: written.hash,
+              applied: extras[0],
+              cleanup: extras[1],
+              collection_counts: written.collection_counts,
+              restore_required_on_browser: true,
+              storage_backed_collections: ['tasks', 'sessions', 'subjects', 'habits', 'dailyLogs', 'tests', 'exams', 'mockTests'],
+              storage_backed_reason: 'Android archived and promoted the full backup. WebView must apply backup_json to local stores for UI-visible restore.',
+              snapshot_storage: {
+                bucket: 'user-content',
+                latest_path: written.cloud_snapshot_path,
+                latest_status: 'uploaded',
+                uploaded_at: written.exported_at
+              }
+            });
+          });
+        });
+      });
+    }).catch(function (e) {
+      return backupErrorResponse(e, 'Backup import failed', 'storage_upload');
+    });
   }
 
   // POST /__auth/onboarding-complete — mark onboarding done for the current user
@@ -958,18 +2031,36 @@
     var session = getSession();
     if (!session) return Promise.resolve(jsonResponse({ ok: false, error: 'no_session' }, 401));
     var userId = session.user && session.user.id;
-    if (!userId) return Promise.resolve(jsonResponse({ ok: true, android: true }));
+    if (!userId) return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id' }, 401));
 
-    // Update user_settings.last_snapshot_at
-    return supaFetch('/rest/v1/user_settings?user_id=eq.' + userId, {
-      method: 'PATCH',
-      headers: { 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ last_snapshot_at: new Date().toISOString() })
-    }).then(function () {
-      return jsonResponse({ ok: true, android: true, source: body && body.source || 'android' });
-    }).catch(function () {
-      return jsonResponse({ ok: true, android: true });
-    });
+    if (body && body.backup_json) {
+      return handleUploadBackup(Object.assign({}, body, { source: body.source || 'android_snapshot' }));
+    }
+
+    if (window.IsotopeLocalDataAdapter && typeof window.IsotopeLocalDataAdapter.buildBackupPayloadFromLocal === 'function') {
+      return Promise.resolve()
+        .then(function () { return window.IsotopeLocalDataAdapter.buildBackupPayloadFromLocal(); })
+        .then(function (payload) {
+          return handleUploadBackup({
+            backup_json: payload,
+            source: body && body.source || 'android_local_snapshot',
+            source_path: 'android_local_adapter'
+          });
+        })
+        .catch(function (e) {
+          return backupErrorResponse(e, 'Local backup adapter snapshot failed', 'local_snapshot');
+        });
+    }
+
+    return Promise.resolve(jsonResponse({
+      ok: false,
+      success: false,
+      code: 'LOCAL_BACKUP_ADAPTER_UNAVAILABLE',
+      state: 'pending_local',
+      stage: 'local_snapshot',
+      retryable: true,
+      error: 'Local backup adapter is not ready; snapshot was not uploaded.'
+    }, 503));
   }
 
   // ── Edge function interceptors (mirrors server-side /__supa/functions/v1/* logic) ─
@@ -980,7 +2071,21 @@
   function handleFinishSession(body) {
     var session = getSession();
     if (!session) return Promise.resolve(jsonResponse({ ok: false, error: 'no_session' }, 401));
-    // Call finish_session_sync RPC with the user's JWT (required — RPC uses auth.uid())
+    var sessionId = body && (body.session_id || body.id) || null;
+    if (!sessionId) {
+      try { sessionId = window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : null; } catch (e) {}
+    }
+    if (!sessionId) sessionId = '00000000-0000-4000-8000-' + String(Date.now()).slice(-12).padStart(12, '0');
+    var duration = body && (body.duration_minutes !== undefined ? body.duration_minutes : body.durationMinutes);
+    var rpcBody = {
+      p_session_id: sessionId,
+      p_action: body && body.action || 'complete',
+      p_duration_minutes: Math.max(0, parseInt(duration, 10) || 0),
+      p_group_id: body && (body.group_id || body.groupId) || null,
+      p_session_type: body && (body.session_type || body.sessionType) || 'focus',
+      p_notes: body && body.notes || null,
+      p_ended_at: body && (body.ended_at || body.endedAt) || null
+    };
     return fetch(SUPA_URL + '/rest/v1/rpc/finish_session_sync', {
       method: 'POST',
       headers: {
@@ -988,104 +2093,685 @@
         'Authorization': 'Bearer ' + session.access_token,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(body || {}),
+      body: JSON.stringify(rpcBody),
       credentials: 'omit'
     }).then(function (r) {
       return r.json().then(function (d) {
-        return jsonResponse({ ok: r.ok, data: d });
+        if (!r.ok || d && d.error) {
+          return jsonResponse({
+            ok: false,
+            success: false,
+            error: d && (d.error || d.message) || 'Session sync failed',
+            detail: d,
+            data: d
+          }, r.ok ? 502 : (r.status || 502));
+        }
+        return handleSnapshot({ source: 'finish_session' }).then(function (snapshotResp) {
+          return snapshotResp.json().catch(function () { return {}; }).then(function (snapshot) {
+            if (!snapshotResp.ok || snapshot.ok === false) {
+              return jsonResponse({
+                ok: false,
+                success: false,
+                error: snapshot.error || 'Cloud snapshot upload failed after session sync',
+                detail: snapshot,
+                data: d
+              }, snapshotResp.status || 502);
+            }
+            var payload = Object.assign({}, d || {}, {
+              ok: true,
+              success: true,
+              cloud_snapshot: snapshot.cloud_snapshot || null,
+              snapshot_storage: snapshot.snapshot_storage || null
+            });
+            return jsonResponse(payload);
+          });
+        });
       });
     }).catch(function (e) {
       return errorResponse(e.message);
     });
   }
 
-  // GET /__supa/functions/v1/get-leaderboard — live leaderboard from DB
-  function handleGetLeaderboard(searchParams) {
+  function intFrom(value, fallback, min, max) {
+    var n = parseInt(value, 10);
+    if (!Number.isFinite(n)) n = fallback;
+    if (typeof min === 'number') n = Math.max(min, n);
+    if (typeof max === 'number') n = Math.min(max, n);
+    return n;
+  }
+
+  function rpcPost(path, body, fallbackError, mapper, allowAnon) {
     var session = getSession();
-    var token = session ? session.access_token : SUPA_ANON_KEY;
-    var limit = searchParams.get ? (searchParams.get('limit') || '50') : '50';
-    return fetch(SUPA_URL + '/rest/v1/rpc/get_leaderboard?limit=' + limit, {
+    var token = session && session.access_token || (allowAnon ? SUPA_ANON_KEY : null);
+    if (!token) return Promise.resolve(jsonResponse({ ok: false, error: 'no_session' }, 401));
+    return fetch(SUPA_URL + path, {
       method: 'POST',
       headers: {
         'apikey': SUPA_ANON_KEY,
         'Authorization': 'Bearer ' + token,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ p_limit: parseInt(limit, 10) || 50 }),
+      body: JSON.stringify(body || {}),
       credentials: 'omit'
     }).then(function (r) {
-      return r.json().then(function (d) {
-        if (!r.ok) return jsonResponse({ ok: false, error: d && (d.message || d.error) || 'Leaderboard RPC failed', data: [] }, r.status || 500);
-        return jsonResponse({ ok: true, data: Array.isArray(d) ? d : [], android: true });
+      return r.text().then(function (text) {
+        var d = safeJsonParse(text, text ? { raw: text } : null);
+        if (!r.ok) return jsonResponse({ ok: false, error: d && (d.message || d.error) || fallbackError, data: null, detail: d }, r.status || 500);
+        return jsonResponse(mapper ? mapper(d) : { ok: true, data: d, android: true });
       });
-    }).catch(function () {
-      return jsonResponse({ ok: false, error: 'Leaderboard RPC failed', data: [], android: true }, 503);
+    }).catch(function (e) {
+      return jsonResponse({ ok: false, error: e && e.message || fallbackError, data: null, android: true }, 503);
     });
   }
 
+  function leaderboardPayloadFromRows(rows, period) {
+    var rankings = Array.isArray(rows) ? rows : [];
+    return {
+      ok: true,
+      rankings: rankings,
+      data: rankings,
+      period: period,
+      source: 'rpc',
+      currentUserRank: null,
+      display_names_resolved: true,
+      android: true
+    };
+  }
+
+  // GET /__supa/functions/v1/get-leaderboard — live leaderboard from DB
+  function handleGetLeaderboard(searchParams, body) {
+    body = body || {};
+    var limit = body.limit || (searchParams && searchParams.get ? searchParams.get('limit') : null) || 50;
+    var offset = body.offset || (searchParams && searchParams.get ? searchParams.get('offset') : null) || 0;
+    var period = body.period || (searchParams && searchParams.get ? searchParams.get('period') : null) || 'weekly';
+    var rpcBody = {
+      p_period: String(period || 'weekly'),
+      p_limit: intFrom(limit, 50, 1, 100),
+      p_offset: intFrom(offset, 0, 0, 5000)
+    };
+    return rpcPost('/rest/v1/rpc/get_leaderboard', rpcBody, 'Leaderboard RPC failed', function (rows) {
+      return leaderboardPayloadFromRows(rows, rpcBody.p_period);
+    }, false);
+  }
+
   // GET /__supa/functions/v1/get-daily-leaderboard
-  function handleGetDailyLeaderboard(searchParams) {
-    var session = getSession();
-    var token = session ? session.access_token : SUPA_ANON_KEY;
-    return fetch(SUPA_URL + '/rest/v1/rpc/get_daily_leaderboard', {
-      method: 'POST',
-      headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-      credentials: 'omit'
-    }).then(function (r) {
-      return r.json().then(function (d) {
-        if (!r.ok) return jsonResponse({ ok: false, error: d && (d.message || d.error) || 'Daily leaderboard RPC failed', data: [] }, r.status || 500);
-        return jsonResponse({ ok: true, data: Array.isArray(d) ? d : [], android: true });
-      });
-    }).catch(function () {
-      return jsonResponse({ ok: false, error: 'Daily leaderboard RPC failed', data: [], android: true }, 503);
-    });
+  function handleGetDailyLeaderboard(searchParams, body) {
+    body = body || {};
+    return handleGetLeaderboard(searchParams, Object.assign({}, body, { period: 'daily' }));
   }
 
   // POST /__supa/functions/v1/get-group-leaderboard
   function handleGetGroupLeaderboard(body) {
-    var session = getSession();
-    var token = session ? session.access_token : SUPA_ANON_KEY;
-    return fetch(SUPA_URL + '/rest/v1/rpc/get_group_leaderboard', {
-      method: 'POST',
-      headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body || {}),
-      credentials: 'omit'
-    }).then(function (r) {
-      return r.json().then(function (d) {
-        if (!r.ok) return jsonResponse({ ok: false, error: d && (d.message || d.error) || 'Group leaderboard RPC failed', data: [] }, r.status || 500);
-        return jsonResponse({ ok: true, data: Array.isArray(d) ? d : [], android: true });
-      });
-    }).catch(function () {
-      return jsonResponse({ ok: false, error: 'Group leaderboard RPC failed', data: [], android: true }, 503);
+    var groupId = body && (body.group_id || body.groupId || body.id) || null;
+    if (!groupId) return Promise.resolve(jsonResponse({ ok: false, error: 'group_id_required', data: [] }, 400));
+    var rpcBody = {
+      p_group_id: groupId,
+      p_limit: intFrom(body && body.limit, 20, 1, 100)
+    };
+    return rpcPost('/rest/v1/rpc/get_group_leaderboard', rpcBody, 'Group leaderboard RPC failed', function (rows) {
+      var rankings = Array.isArray(rows) ? rows : [];
+      return {
+        ok: true,
+        rankings: rankings,
+        data: rankings,
+        period: body && body.period || 'weekly',
+        source: 'rpc',
+        currentUserRank: null,
+        display_names_resolved: true,
+        android: true
+      };
     });
   }
 
   // POST /__supa/functions/v1/get-group-analytics
   function handleGetGroupAnalytics(body) {
-    var session = getSession();
-    var token = session ? session.access_token : SUPA_ANON_KEY;
-    return fetch(SUPA_URL + '/rest/v1/rpc/get_group_analytics_from_snapshots', {
-      method: 'POST',
-      headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body || {}),
-      credentials: 'omit'
-    }).then(function (r) {
-      return r.json().then(function (d) {
-        if (!r.ok) return jsonResponse({ ok: false, error: d && (d.message || d.error) || 'Group analytics RPC failed', data: null }, r.status || 500);
-        return jsonResponse({ ok: true, data: d, android: true });
-      });
-    }).catch(function () {
-      return jsonResponse({ ok: false, error: 'Group analytics RPC failed', data: null, android: true }, 503);
+    var groupId = body && (body.group_id || body.groupId || body.id) || null;
+    if (!groupId) return Promise.resolve(jsonResponse({ ok: false, error: 'group_id_required', data: null }, 400));
+    var rpcBody = {
+      p_group_id: groupId,
+      p_days: intFrom(body && (body.days || body.p_days), 30, 1, 366)
+    };
+    return rpcPost('/rest/v1/rpc/get_group_analytics_from_snapshots', rpcBody, 'Group analytics RPC failed', function (rows) {
+      var series = Array.isArray(rows) ? rows : [];
+      var totalSeconds = series.reduce(function (sum, row) { return sum + Number(row.total_seconds || 0); }, 0);
+      var memberCount = series.reduce(function (max, row) { return Math.max(max, Number(row.member_count || 0)); }, 0);
+      return {
+        ok: true,
+        data: series,
+        group_id: groupId,
+        member_count: memberCount,
+        total_sessions: 0,
+        total_hours: Math.round((totalSeconds / 3600) * 100) / 100,
+        weekly_hours: Math.round((totalSeconds / 3600) * 100) / 100,
+        monthly_hours: Math.round((totalSeconds / 3600) * 100) / 100,
+        group_streak: 0,
+        members_active_today: 0,
+        avg_session_minutes: 0,
+        peak_hour: 12,
+        top_contributor: null,
+        source: 'rpc',
+        display_names_resolved: true,
+        android: true
+      };
     });
   }
 
   // POST /__auth/restore-best-backup
   function handleRestoreBestBackup(body) {
-    return handleGetBestBackup().then(function (resp) {
-      return resp.json().then(function (d) {
-        return jsonResponse({ ok: d.ok, backup: d.backup, manifest: d.manifest, android: true });
+    var session = getSession();
+    if (!session) return Promise.resolve(jsonResponse({ ok: false, error: 'no_session' }, 401));
+    var userId = session.user && session.user.id;
+    if (!userId) return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id' }, 401));
+    return findBestCloudBackup(userId, { includeRaw: true }).then(function (best) {
+      var selected = best.selected_internal;
+      if (!selected || !selected.valid) {
+        return jsonResponse({ ok: false, success: false, code: 'STORAGE_NOT_FOUND', error: 'No valid cloud backup exists' }, 404);
+      }
+      var backupJson = canonicalBackupJson(selected.normalized, {
+        exportedAt: selected.exported_at || new Date().toISOString(),
+        appVersion: APP_VERSION
       });
+      var promotePromise = body && body.promote === false
+        ? Promise.resolve(null)
+        : writeCanonicalBackup(userId, selected.normalized, { source_path: selected.path, source: 'android_restore_best_backup' });
+      return promotePromise.then(function (promoted) {
+        return jsonResponse({
+          ok: true,
+          success: true,
+          code: 'RESTORE_BEST_BACKUP_READY',
+          state: 'restore_required',
+          stage: 'storage_download',
+          user_id: userId,
+          selected_backup: publicBackupCandidate(selected),
+          candidates: best.candidates || [],
+          backup_json: backupJson,
+          backup: backupJson,
+          backup_hash: hashText(backupJson),
+          collection_counts: getCollectionCounts(backupJson),
+          promoted: promoted ? {
+            path: promoted.path,
+            history_path: promoted.history_path,
+            cloud_snapshot_path: promoted.cloud_snapshot_path,
+            hash: promoted.hash,
+            size_bytes: promoted.size_bytes,
+            collection_counts: promoted.collection_counts
+          } : null,
+          restore_required_on_browser: true,
+          android: true
+        });
+      });
+    }).catch(function (e) {
+      return backupErrorResponse(e, 'Restore best backup failed', 'storage_download');
+    });
+  }
+
+  // ── Browser sync helper compatibility ─────────────────────────────────────
+  // The compiled web app expects server.mjs to install these helpers. Android
+  // does not run server.mjs, so the bridge owns the same local restore/upload
+  // state machine.
+  var syncLocks = {};
+
+  function readSyncMetadata() {
+    return safeJsonParse(localStorage.getItem('isotope_sync_metadata') || '{}', {}) || {};
+  }
+
+  function writeSyncMetadata(patch) {
+    var next = Object.assign({}, readSyncMetadata(), patch || {});
+    localStorage.setItem('isotope_sync_metadata', JSON.stringify(next));
+    try {
+      window.dispatchEvent(new CustomEvent('isotope:sync_metadata', { detail: next }));
+    } catch (e) {}
+    return next;
+  }
+
+  function writeSyncHistory(entry) {
+    var rows = safeJsonParse(localStorage.getItem('isotope_sync_history') || '[]', []);
+    if (!Array.isArray(rows)) rows = [];
+    rows.unshift(Object.assign({ at: new Date().toISOString() }, entry || {}));
+    localStorage.setItem('isotope_sync_history', JSON.stringify(rows.slice(0, 80)));
+  }
+
+  function yieldToWebView() {
+    return new Promise(function (resolve) { setTimeout(resolve, 0); });
+  }
+
+  function responseJson(response, fallback) {
+    return response.json().catch(function () { return {}; }).then(function (data) {
+      if (response.ok && data && data.ok !== false) return data;
+      var err = new Error(data && (data.message || data.error) || fallback || 'Request failed');
+      err.status = response.status;
+      err.code = data && data.code || (response.status === 401 ? 'AUTH_REQUIRED' : 'REQUEST_FAILED');
+      err.payload = data || {};
+      throw err;
+    });
+  }
+
+  function isAuthError(error) {
+    return !!error && (error.status === 401 || error.code === 'AUTH_REQUIRED' || /no_session|auth|log in|session missing/i.test(error.message || ''));
+  }
+
+  function isEmptyOverwriteBlocked(error) {
+    return !!error && (error.code === 'BLOCKED_EMPTY_OVERWRITE' || error.__isEmptyOverwriteBlocked || /richer backup|empty overwrite/i.test(error.message || ''));
+  }
+
+  function isPermissionError(error) {
+    return !!error && (error.code === 'STORAGE_PERMISSION_DENIED' || error.status === 403 || /permission|policy|forbidden|rls/i.test(error.message || ''));
+  }
+
+  function syncAuthBlock(reason) {
+    window.__isoSyncAuthBlocked = true;
+    writeSyncMetadata({
+      last_sync_status: 'paused_auth',
+      last_error: reason || 'Authentication required. Log in again to sync.'
+    });
+  }
+
+  function withSyncLock(name, fn) {
+    if (syncLocks[name]) {
+      var locked = new Error('Cloud sync is already running.');
+      locked.code = 'SYNC_ALREADY_RUNNING';
+      return Promise.reject(locked);
+    }
+    syncLocks[name] = true;
+    writeSyncMetadata({
+      last_sync_status: 'syncing',
+      last_error: null,
+      active_operation: name,
+      active_started_at: new Date().toISOString()
+    });
+    return Promise.resolve()
+      .then(fn)
+      .finally(function () {
+        syncLocks[name] = false;
+        writeSyncMetadata({ active_operation: null, active_started_at: null });
+      });
+  }
+
+  function buildLocalBackupText(buildBackup) {
+    var adapter = window.IsotopeLocalDataAdapter || null;
+    if (adapter && typeof adapter.buildBackupPayloadFromLocal === 'function') {
+      return Promise.resolve(adapter.buildBackupPayloadFromLocal()).then(function (payload) {
+        return JSON.stringify(payload || {});
+      });
+    }
+    if (typeof buildBackup === 'function') {
+      return Promise.resolve(buildBackup()).then(function (payload) {
+        return typeof payload === 'string' ? payload : JSON.stringify(payload || {});
+      });
+    }
+    return Promise.resolve('');
+  }
+
+  function countLocalData(backupText) {
+    var adapter = window.IsotopeLocalDataAdapter || null;
+    if (adapter && typeof adapter.countLocalData === 'function') {
+      return Promise.resolve(adapter.countLocalData());
+    }
+    return Promise.resolve(getCollectionCounts(backupText || '{}'));
+  }
+
+  function isLocalWorkspaceEmpty(backupText) {
+    var adapter = window.IsotopeLocalDataAdapter || null;
+    if (adapter && typeof adapter.isLocalWorkspaceEmpty === 'function') {
+      return Promise.resolve(adapter.isLocalWorkspaceEmpty());
+    }
+    return Promise.resolve(normalizeBackup(backupText || '{}').empty);
+  }
+
+  function applyCloudBackupToLocal(backupText, meta, applyBackup) {
+    var adapter = window.IsotopeLocalDataAdapter || null;
+    if (adapter && typeof adapter.applyBackupToLocal === 'function') {
+      return Promise.resolve(adapter.applyBackupToLocal(backupText, meta || {}));
+    }
+    if (typeof applyBackup === 'function') {
+      return Promise.resolve(applyBackup(backupText)).then(function () {
+        try {
+          window.dispatchEvent(new CustomEvent('isotope:sync_refresh', { detail: { source: 'cloud_restore' } }));
+        } catch (e) {}
+        return { ok: true, fallback_apply: true };
+      });
+    }
+    var err = new Error('No local restore adapter is available.');
+    err.code = 'LOCAL_RESTORE_ADAPTER_UNAVAILABLE';
+    throw err;
+  }
+
+  function didCountsGrow(before, after) {
+    before = before || {};
+    after = after || {};
+    return ['tasks', 'sessions', 'subjects', 'habits', 'exams', 'tests', 'mockTests'].some(function (key) {
+      return Number(after[key] || 0) > Number(before[key] || 0);
+    });
+  }
+
+  function uploadBackupJsonCompat(backupJson, options) {
+    options = options || {};
+    var text = typeof backupJson === 'string' ? backupJson : JSON.stringify(backupJson || {});
+    var hash = hashText(text);
+    return withSyncLock('upload', function () {
+      return yieldToWebView()
+        .then(function () {
+          return handleUploadBackup({
+            backup_json: text,
+            source: options.source || options.reason || 'android_manual_export',
+            source_path: options.source_path || 'android_runtime_helper',
+            cleanup: options.cleanup
+          });
+        })
+        .then(function (response) { return responseJson(response, 'Backup upload failed'); })
+        .then(function (data) {
+          writeSyncMetadata({
+            last_sync_status: 'synced',
+            last_backup_hash: data.hash || hash,
+            last_uploaded_hash: data.hash || hash,
+            last_uploaded_data_hash: data.data_hash || null,
+            last_uploaded_bytes: text.length,
+            last_snapshot_at: data.synced_at || new Date().toISOString(),
+            pending_count: 0,
+            last_error: null
+          });
+          writeSyncHistory({
+            op: 'upload',
+            status: data.skipped ? 'skipped' : 'ok',
+            source: options.source || 'android_upload',
+            bytes: text.length,
+            hash: data.hash || hash
+          });
+          return data;
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      else if (isEmptyOverwriteBlocked(error)) writeSyncMetadata({ last_sync_status: 'blocked_empty_overwrite', last_error: error.message });
+      else writeSyncMetadata({ last_sync_status: isPermissionError(error) ? 'failed_permission' : 'failed', last_error: error.message || 'Backup upload failed' });
+      writeSyncHistory({ op: 'upload', status: 'failed', source: options.source || 'android_upload', error: error.message || 'Backup upload failed' });
+      throw error;
+    });
+  }
+
+  function downloadBackupJsonCompat(options) {
+    options = options || {};
+    return withSyncLock('download', function () {
+      return handleGetLatestBackup()
+        .then(function (response) { return responseJson(response, 'Download failed'); })
+        .then(function (data) {
+          var text = data.backup_json || '';
+          if (!text) return null;
+          var hash = data.backup_hash || hashText(text);
+          writeSyncMetadata({
+            last_sync_status: 'synced',
+            last_downloaded_hash: hash,
+            last_downloaded_bytes: text.length,
+            last_snapshot_at: data.synced_at || data.snapshot_at || new Date().toISOString(),
+            last_error: null
+          });
+          writeSyncHistory({
+            op: 'download',
+            status: 'ok',
+            source: options.source || 'android_download',
+            bytes: text.length,
+            hash: hash
+          });
+          return text;
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      writeSyncMetadata({ last_sync_status: 'failed', last_error: error.message || 'Download failed' });
+      writeSyncHistory({ op: 'download', status: 'failed', source: options.source || 'android_download', error: error.message || 'Download failed' });
+      throw error;
+    });
+  }
+
+  function importBackupJsonCompat(backupJson, mode, options) {
+    options = options || {};
+    var text = typeof backupJson === 'string' ? backupJson : JSON.stringify(backupJson || {});
+    var hash = options.hash || hashText(text);
+    return withSyncLock('import', function () {
+      return yieldToWebView()
+        .then(function () {
+          return handleImport({ backup_json: text, mode: mode || 'merge' });
+        })
+        .then(function (response) { return responseJson(response, 'Backup import failed'); })
+        .then(function (data) {
+          return applyCloudBackupToLocal(text, {
+            hash: hash,
+            source_path: data.import_storage && (data.import_storage.latest_path || data.import_storage.path) || 'android_import'
+          }, null).then(function (restoreResult) {
+            writeSyncMetadata({
+              last_sync_status: 'synced',
+              last_imported_hash: hash,
+              last_imported_bytes: text.length,
+              last_snapshot_at: new Date().toISOString(),
+              pending_count: 0,
+              last_error: null
+            });
+            writeSyncHistory({
+              op: 'import',
+              status: 'ok',
+              mode: mode || 'merge',
+              source: options.source || 'android_import',
+              bytes: text.length,
+              hash: hash
+            });
+            return Object.assign({}, data, { restore_result: restoreResult });
+          });
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      else if (isEmptyOverwriteBlocked(error)) writeSyncMetadata({ last_sync_status: 'blocked_empty_overwrite', last_error: error.message });
+      else writeSyncMetadata({ last_sync_status: isPermissionError(error) ? 'failed_permission' : 'failed', last_error: error.message || 'Backup import failed' });
+      writeSyncHistory({ op: 'import', status: 'failed', source: options.source || 'android_import', error: error.message || 'Backup import failed' });
+      throw error;
+    });
+  }
+
+  function refreshCloudSnapshotCompat(source) {
+    var src = source || 'android_snapshot';
+    return withSyncLock('snapshot', function () {
+      return handleSnapshot({ source: src })
+        .then(function (response) { return responseJson(response, 'Cloud snapshot upload failed'); })
+        .then(function (data) {
+          writeSyncMetadata({
+            last_sync_status: 'synced',
+            last_snapshot_at: data.synced_at || new Date().toISOString(),
+            pending_count: 0,
+            last_error: null
+          });
+          writeSyncHistory({ op: 'snapshot', status: 'ok', source: src });
+          return data;
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      else if (isEmptyOverwriteBlocked(error)) writeSyncMetadata({ last_sync_status: 'blocked_empty_overwrite', last_error: error.message });
+      else writeSyncMetadata({ last_sync_status: isPermissionError(error) ? 'failed_permission' : 'failed', last_error: error.message || 'Cloud snapshot upload failed' });
+      writeSyncHistory({ op: 'snapshot', status: 'failed', source: src, error: error.message || 'Cloud snapshot upload failed' });
+      throw error;
+    });
+  }
+
+  function runManualCloudSyncCompat(buildBackup, applyBackup, source) {
+    var src = source || 'manual_full_sync';
+    return withSyncLock('manual_sync', function () {
+      var bytes = 0;
+      var hash = null;
+      var uploaded = false;
+      var uploadSkipped = false;
+      var downloaded = false;
+      var imported = false;
+      var selected = null;
+      var backupJson = '';
+      return yieldToWebView()
+        .then(function () {
+          writeSyncMetadata({ last_sync_status: 'selecting_backup', last_error: null });
+          return buildLocalBackupText(buildBackup);
+        })
+        .then(function (text) {
+          backupJson = String(text || '');
+          bytes = backupJson.length;
+          hash = hashText(stableStringify(getBackupData(backupJson || '{}')));
+          return Promise.all([
+            countLocalData(backupJson),
+            isLocalWorkspaceEmpty(backupJson),
+            handleGetBestBackup().then(function (response) { return responseJson(response, 'Best backup scan failed'); })
+          ]);
+        })
+        .then(function (parts) {
+          var beforeCounts = parts[0] || {};
+          var emptyLocal = parts[1] === true;
+          var best = parts[2] || {};
+          selected = best.selected || best.selected_backup || null;
+          var cloudRich = !!(selected && selected.rich === true && selected.empty !== true);
+          if (!emptyLocal || !cloudRich) return null;
+          writeSyncMetadata({ last_sync_status: 'restoring_cloud', last_error: null });
+          return handleRestoreBestBackup({ promote: true })
+            .then(function (response) { return responseJson(response, 'Restore best backup failed'); })
+            .then(function (restore) {
+              var cloudBackup = restore.backup_json || '';
+              var cloudHash = restore.backup_hash || hashText(cloudBackup);
+              if (!cloudBackup) throw new Error('Selected cloud backup did not include backup_json.');
+              return yieldToWebView()
+                .then(function () { return applyCloudBackupToLocal(cloudBackup, { source_path: selected && selected.path || null, hash: cloudHash }, applyBackup); })
+                .then(function (restoreResult) {
+                  imported = true;
+                  downloaded = true;
+                  return countLocalData(cloudBackup).then(function (afterCounts) {
+                    if (!didCountsGrow(beforeCounts, afterCounts) && selected && selected.collection_counts) {
+                      throw new Error('Cloud restore did not increase local data counts; upload blocked.');
+                    }
+                    writeSyncMetadata({
+                      last_imported_hash: cloudHash,
+                      last_imported_bytes: cloudBackup.length,
+                      last_restore_message: restoreResult && restoreResult.message || null,
+                      last_sync_status: 'verifying_restore'
+                    });
+                    writeSyncHistory({
+                      op: 'restore_best_cloud_backup',
+                      status: 'ok',
+                      source: src,
+                      bytes: cloudBackup.length,
+                      hash: cloudHash,
+                      selected_path: selected && selected.path || null,
+                      counts: afterCounts
+                    });
+                    return buildLocalBackupText(buildBackup).then(function (rebuilt) {
+                      backupJson = String(rebuilt || '');
+                      bytes = backupJson.length;
+                      hash = hashText(stableStringify(getBackupData(backupJson || '{}')));
+                    });
+                  });
+                });
+            });
+        })
+        .then(function () {
+          writeSyncMetadata({ last_sync_status: 'uploading_local', last_error: null });
+          return handleUploadBackup({
+            backup_json: backupJson,
+            source: src,
+            source_path: 'android_manual_sync'
+          });
+        })
+        .then(function (response) { return responseJson(response, 'Cloud sync failed'); })
+        .then(function (uploadResult) {
+          uploaded = uploadResult.skipped !== true;
+          uploadSkipped = uploadResult.skipped === true;
+          writeSyncMetadata({
+            last_sync_status: 'synced',
+            last_error: null,
+            pending_count: 0,
+            last_snapshot_at: uploadResult.synced_at || new Date().toISOString()
+          });
+          writeSyncHistory({
+            op: 'manual_sync',
+            status: 'ok',
+            source: src,
+            bytes: bytes,
+            hash: hash,
+            uploaded: uploaded,
+            upload_skipped: uploadSkipped,
+            downloaded: downloaded,
+            imported: imported,
+            selected_path: selected && selected.path || null
+          });
+          return {
+            ok: true,
+            uploaded: uploaded,
+            upload_skipped: uploadSkipped,
+            downloaded: downloaded,
+            imported: imported,
+            hash: hash,
+            bytes: bytes,
+            selected_backup: selected,
+            upload: uploadResult
+          };
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      else if (isEmptyOverwriteBlocked(error)) writeSyncMetadata({ last_sync_status: 'blocked_empty_overwrite', last_error: error.message || 'Cloud has richer backup. Restore it before uploading this empty device.' });
+      else if (isPermissionError(error)) writeSyncMetadata({ last_sync_status: 'failed_permission', last_error: error.message || 'Storage permission error' });
+      else writeSyncMetadata({ last_sync_status: 'failed', last_error: error.message || 'Cloud sync failed' });
+      writeSyncHistory({
+        op: 'manual_sync',
+        status: isAuthError(error) ? 'paused_auth' : (isPermissionError(error) ? 'failed_permission' : 'failed'),
+        source: src,
+        error: error.message || 'Cloud sync failed'
+      });
+      throw error;
+    });
+  }
+
+  function downloadAndImportBackupCompat(applyBackup, source) {
+    var src = source || 'cloud_download';
+    return withSyncLock('download_import', function () {
+      var result = null;
+      var imported = false;
+      return handleGetLatestBackup()
+        .then(function (response) { return responseJson(response, 'Download/import failed'); })
+        .then(function (data) {
+          result = data;
+          if (!data.backup_json) return null;
+          var hash = data.backup_hash || hashText(data.backup_json);
+          var meta = readSyncMetadata();
+          if (meta.last_imported_hash === hash) return null;
+          return yieldToWebView()
+            .then(function () {
+              return applyCloudBackupToLocal(data.backup_json, {
+                hash: hash,
+                source_path: data.selected_backup && data.selected_backup.path || null
+              }, applyBackup);
+            })
+            .then(function () {
+              imported = true;
+              writeSyncMetadata({ last_imported_hash: hash, last_imported_bytes: data.backup_json.length });
+            });
+        })
+        .then(function () {
+          var snapshotAt = result && (result.synced_at || result.snapshot_at)
+            || result && result.cloud_snapshot && (result.cloud_snapshot.exported_at || result.cloud_snapshot.downloaded_at)
+            || result && result.selected_backup && (result.selected_backup.exported_at || result.selected_backup.updated_at || result.selected_backup.created_at)
+            || (result && result.backup_json ? new Date().toISOString() : null);
+          var patch = { last_sync_status: 'synced', last_error: null, pending_count: 0 };
+          if (snapshotAt) patch.last_snapshot_at = snapshotAt;
+          writeSyncMetadata(patch);
+          writeSyncHistory({
+            op: 'download_import',
+            status: result && result.backup_json ? 'ok' : 'skipped',
+            source: src,
+            bytes: result && result.backup_json ? result.backup_json.length : 0,
+            hash: result && (result.backup_hash || (result.backup_json ? hashText(result.backup_json) : null)) || null,
+            imported: imported
+          });
+          return {
+            ok: true,
+            imported: imported,
+            downloaded: !!(result && result.backup_json),
+            hash: result && (result.backup_hash || (result.backup_json ? hashText(result.backup_json) : null)) || null,
+            selected_backup: result && result.selected_backup || null
+          };
+        });
+    }).catch(function (error) {
+      if (isAuthError(error)) syncAuthBlock(error.message);
+      else writeSyncMetadata({ last_sync_status: 'failed', last_error: error.message || 'Download/import failed' });
+      writeSyncHistory({ op: 'download_import', status: 'failed', source: src, error: error.message || 'Download/import failed' });
+      throw error;
     });
   }
 
@@ -1106,8 +2792,55 @@
     });
   }
 
+  function fetchGroupSlugForInvite(groupId) {
+    if (!groupId) return Promise.resolve(null);
+    return supaJson('/rest/v1/groups?select=slug&id=eq.' + encodeURIComponent(groupId) + '&limit=1', {
+      method: 'GET'
+    }).then(function (result) {
+      var row = result.ok ? firstRow(result) : null;
+      return row && row.slug || null;
+    }).catch(function () {
+      return null;
+    });
+  }
+
+  function normalizeInviteRpcPayload(payload) {
+    var item = Array.isArray(payload) ? payload[0] : payload;
+    if (!isObject(item)) return Promise.resolve(payload);
+    var normalized = Object.assign({}, item);
+    if (typeof normalized.success !== 'boolean' && typeof normalized.ok === 'boolean') normalized.success = normalized.ok;
+    if (typeof normalized.success !== 'boolean' && (normalized.group_id || normalized.group_slug || normalized.slug)) normalized.success = true;
+    var groupId = normalized.group_id || normalized.groupId || null;
+    if (normalized.group_slug || normalized.slug || !groupId) {
+      if (!normalized.group_slug && normalized.slug) normalized.group_slug = normalized.slug;
+      if (!normalized.slug && normalized.group_slug) normalized.slug = normalized.group_slug;
+      return Promise.resolve(Array.isArray(payload) ? [normalized] : normalized);
+    }
+    return fetchGroupSlugForInvite(groupId).then(function (slug) {
+      normalized.group_slug = slug || groupId;
+      normalized.slug = normalized.group_slug;
+      return Array.isArray(payload) ? [normalized] : normalized;
+    });
+  }
+
+  function handleDirectInviteRpc(url, init) {
+    return _originalFetch.call(window, url, init || {}).then(function (response) {
+      return response.text().then(function (text) {
+        var payload = safeJsonParse(text, text ? { raw: text } : null);
+        if (!response.ok) {
+          return jsonResponse(payload || { ok: false, error: 'Invite RPC failed' }, response.status || 500);
+        }
+        return normalizeInviteRpcPayload(payload).then(function (normalized) {
+          return jsonResponse(normalized, response.status || 200);
+        });
+      });
+    }).catch(function (e) {
+      return jsonResponse({ ok: false, success: false, error: e && e.message || 'Invite RPC failed' }, 503);
+    });
+  }
+
   // ── Main fetch interceptor ──────────────────────────────────────────────────
-  var _originalFetch = window.fetch;
+  var _originalFetch = window.fetch || fetch;
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
     var method = (init && init.method ? init.method : 'GET').toUpperCase();
@@ -1165,6 +2898,72 @@
         if (pathname === '/__auth/import')              return handleImport(body);
         if (pathname === '/__auth/snapshot')            return handleSnapshot(body);
         if (pathname === '/__auth/restore-best-backup') return handleRestoreBestBackup(body);
+        if (pathname === '/__auth/storage/group-icon') {
+          return uploadGroupIconCompat(body && (body.data_url || body.dataUrl || body.content || body.body || body.file), body || {})
+            .then(function (result) { return jsonResponse(result); })
+            .catch(function (e) {
+              return jsonResponse({
+                ok: false,
+                error: e && e.message || 'Group icon upload failed',
+                code: e && e.code || 'GROUP_ICON_UPLOAD_FAILED'
+              }, e && e.status || 500);
+            });
+        }
+        if (pathname === '/__auth/storage/study-material') {
+          return uploadStudyMaterialCompat(body && (body.data_url || body.dataUrl || body.content || body.body || body.file), body || {})
+            .then(function (result) { return jsonResponse(result); })
+            .catch(function (e) {
+              return jsonResponse({
+                ok: false,
+                error: e && e.message || 'Study material upload failed',
+                code: e && e.code || 'STUDY_MATERIAL_UPLOAD_FAILED'
+              }, e && e.status || 500);
+            });
+        }
+        if (pathname === '/__auth/storage/cleanup-preview') {
+          var session = getSession();
+          var userId = session && session.user && session.user.id;
+          if (!session) return jsonResponse({ ok: false, error: 'no_session' }, 401);
+          if (!userId) return jsonResponse({ ok: false, error: 'no_user_id' }, 401);
+          return cleanupPreview(userId).then(function (preview) {
+            return jsonResponse(Object.assign({
+              ok: true,
+              success: true,
+              code: 'CLEANUP_PREVIEW_READY',
+              state: 'preview',
+              stage: 'storage_scan'
+            }, preview));
+          }).catch(function (e) {
+            return backupErrorResponse(e, 'Storage cleanup preview failed', 'storage_scan');
+          });
+        }
+        if (pathname === '/__auth/storage/cleanup-apply') {
+          var cleanupSession = getSession();
+          var cleanupUserId = cleanupSession && cleanupSession.user && cleanupSession.user.id;
+          if (!cleanupSession) return jsonResponse({ ok: false, error: 'no_session' }, 401);
+          if (!cleanupUserId) return jsonResponse({ ok: false, error: 'no_user_id' }, 401);
+          if (!body || body.confirm !== true) {
+            return jsonResponse({
+              ok: false,
+              success: false,
+              code: 'CONFIRMATION_REQUIRED',
+              state: 'blocked',
+              stage: 'request_validation',
+              message: 'Cleanup apply requires confirm:true after reviewing preview.'
+            }, 400);
+          }
+          return cleanupApply(cleanupUserId).then(function (applied) {
+            return jsonResponse(Object.assign({
+              ok: true,
+              success: true,
+              code: 'CLEANUP_APPLIED',
+              state: 'applied',
+              stage: 'storage_delete'
+            }, applied));
+          }).catch(function (e) {
+            return backupErrorResponse(e, 'Storage cleanup apply failed', 'storage_delete');
+          });
+        }
         if (pathname === '/__auth/onboarding-complete') return handleOnboardingComplete(body);
 
         // Unknown auth route — return 404
@@ -1172,10 +2971,17 @@
       });
     }
 
-    // ── Edge function interceptors (__supa/functions/v1/*) ───────────────────
+    // ── Edge function interceptors (__supa/functions/v1/* and direct Supabase functions) ──
     // These mirror what the server-side proxy intercepts before hitting Supabase.
-    if (pathname.startsWith('/__supa/functions/v1/')) {
-      var fnName = pathname.replace('/__supa/functions/v1/', '').split('?')[0];
+    var isDirectSupabaseFunction = false;
+    try {
+      var parsedFunctionUrl = new URL(url);
+      isDirectSupabaseFunction = parsedFunctionUrl.origin === SUPA_URL && pathname.startsWith('/functions/v1/');
+    } catch (e) {}
+    if (pathname.startsWith('/__supa/functions/v1/') || isDirectSupabaseFunction) {
+      var fnName = pathname.startsWith('/__supa/functions/v1/')
+        ? pathname.replace('/__supa/functions/v1/', '').split('?')[0]
+        : pathname.replace('/functions/v1/', '').split('?')[0];
       var bodyPromiseEF;
       if (init && init.body) {
         bodyPromiseEF = Promise.resolve().then(function () {
@@ -1206,10 +3012,10 @@
         }
         // Leaderboards
         if (fnName === 'get-leaderboard' || fnName === 'get_leaderboard') {
-          return handleGetLeaderboard(searchParamsEF);
+          return handleGetLeaderboard(searchParamsEF, efBody);
         }
         if (fnName === 'get-daily-leaderboard' || fnName === 'get_daily_leaderboard') {
-          return handleGetDailyLeaderboard(searchParamsEF);
+          return handleGetDailyLeaderboard(searchParamsEF, efBody);
         }
         if (fnName === 'get-group-leaderboard' || fnName === 'get_group_leaderboard') {
           return handleGetGroupLeaderboard(efBody);
@@ -1221,6 +3027,17 @@
         return handleSupaProxy(url, init || {}, init && init.body);
       });
     }
+
+    // ── Direct Supabase RPC compatibility for community invites ──────────────
+    try {
+      var parsedRestUrl = new URL(url);
+      if (
+        parsedRestUrl.origin === SUPA_URL &&
+        (pathname === '/rest/v1/rpc/accept_invite' || pathname === '/rest/v1/rpc/get_invite_details')
+      ) {
+        return handleDirectInviteRpc(url, init || {});
+      }
+    } catch (e) {}
 
     // ── Supabase proxy (__supa/*) ─────────────────────────────────────────────
     if (pathname.startsWith('/__supa/')) {
@@ -1256,6 +3073,20 @@
   window.__isoGetValidJwt = function () {
     return getAccessToken();
   };
+  window.__isoSyncAuthBlocked = false;
+  window.__isoSyncAuthBlock = syncAuthBlock;
+  window.__isoRefreshCloudSnapshot = refreshCloudSnapshotCompat;
+  window.__isoUploadBackupJSON = uploadBackupJsonCompat;
+  window.__isoDownloadBackupJSON = downloadBackupJsonCompat;
+  window.__isoImportBackupJSON = importBackupJsonCompat;
+  window.__isoRunManualCloudSync = runManualCloudSyncCompat;
+  window.__isoDownloadAndImportBackup = downloadAndImportBackupCompat;
+  window.__isoAndroidStorageBuckets = {
+    groupIcons: { bucket: 'group-icons', public: true, user_scoped: true },
+    studyMaterial: { bucket: 'study-material', public: false, user_scoped: true }
+  };
+  window.__isoUploadGroupIcon = uploadGroupIconCompat;
+  window.__isoUploadStudyMaterial = uploadStudyMaterialCompat;
 
   window.__isoAndroidPipSupported = function () {
     try {

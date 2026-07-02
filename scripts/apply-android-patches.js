@@ -11,8 +11,9 @@
  * 2. sessionSync-mloIEnTd.js — 5 patches to prevent false "sync success" when offline
  * 3. AppAccessGate-B975UtK7.js — enable cloud bootstrap download on empty local
  * 4. useOnlineStatus-BJOTUERN.js — route online state through Capacitor Network
- * 5. useInvites-D9RLFwf8.js — rename token_input → p_code for accept_invite RPC
- * 6. AndroidManifest.xml — add internet, notification, PiP, and file permissions
+ * 5. useSyncStore-vWs_TdIc.js — route manual cloud sync/download through Android Storage helpers
+ * 6. useInvites-D9RLFwf8.js — rename token_input → p_code for accept_invite RPC
+ * 7. AndroidManifest.xml — add internet, notification, overlay, and file permissions
  */
 
 const fs   = require('fs');
@@ -88,6 +89,21 @@ function findAsset(pattern) {
     console.log(`  (found ${matches.length} candidates for "${pattern}", chose largest: ${chosen})`);
   }
   return path.join(ASSETS_DIR, chosen);
+}
+
+function findAssetContaining(pattern, requiredText) {
+  if (!fs.existsSync(ASSETS_DIR)) return null;
+  const files = fs.readdirSync(ASSETS_DIR)
+    .filter(f => f.includes(pattern) && f.endsWith('.js'))
+    .map(f => path.join(ASSETS_DIR, f));
+  const matches = files.filter(file => fs.readFileSync(file, 'utf8').includes(requiredText));
+  if (matches.length === 0) return null;
+  if (matches.length > 1) {
+    console.error(`  ERROR: Asset content selector for "${pattern}" matched ${matches.length} files; expected 1`);
+    failureCount++;
+    return matches[0];
+  }
+  return matches[0];
 }
 
 function normalizeManifestPermissions(manifest, desiredPermissionLines) {
@@ -196,6 +212,11 @@ patchFile(appBundle, [
       '        }',
       '    },'
     ].join('\n'),
+    true
+  ],
+  [
+    's = (a.icon ?.trim() || "📌").slice(0, ns),',
+    's = typeof window < "u" && typeof window.__isoNormalizeFocusIcon == "function" ? window.__isoNormalizeFocusIcon(a.icon, t, e) : (a.icon ?.trim() || "📌").slice(0, ns),',
     true
   ],
 ], 'App-pJGjDiPw.js');
@@ -455,7 +476,171 @@ patchFile(onlineStatusBundle, [
   ],
 ], 'useOnlineStatus bundle');
 
-// ── 5. useInvites — fix RPC parameter name ───────────────────────────────────
+// ── 5. useSyncStore — manual sync/download must use Android backup helpers ───
+
+console.log('\n=== Patching useSyncStore bundle ===');
+const syncStoreBundle = findAsset('useSyncStore-');
+
+patchFile(syncStoreBundle, [
+  [
+    [
+      '        triggerSync: async () => {',
+      '            const t = u.getState(),',
+      '                {',
+      '                    userId: r,',
+      '                    isAuthenticated: s',
+      '                } = t,',
+      '                a = t.isPremium();',
+      '            if (!s || !r || !a) return;',
+      '            const o = await n();',
+      '            await o.fullManualSync(r, a), await l(), o.getState().status === "success" && e({',
+      '                needsCloudBootstrap: !1,',
+      '                bootstrapChecked: !0',
+      '            })',
+      '        },'
+    ].join('\n'),
+    [
+      '        triggerSync: async () => {',
+      '            const t = u.getState(),',
+      '                {',
+      '                    userId: r,',
+      '                    isAuthenticated: s',
+      '                } = t,',
+      '                a = t.isPremium();',
+      '            if (!s || !r || String(r).startsWith("local-")) {',
+      '                const o = new Error("Cloud session missing. Log in again before syncing.");',
+      '                e({',
+      '                    status: "error",',
+      '                    error: o.message',
+      '                });',
+      '                throw o',
+      '            }',
+      '            if (!a) {',
+      '                const o = new Error("Cloud sync requires premium access.");',
+      '                e({',
+      '                    status: "error",',
+      '                    error: o.message',
+      '                });',
+      '                throw o',
+      '            }',
+      '            if (typeof window < "u" && typeof window.__isoGetValidJwt == "function") {',
+      '                const o = await window.__isoGetValidJwt();',
+      '                if (!o) {',
+      '                    const c = new Error("Cloud session missing. Log in again before syncing.");',
+      '                    typeof window.__isoSyncAuthBlock == "function" && window.__isoSyncAuthBlock(c.message);',
+      '                    e({',
+      '                        status: "error",',
+      '                        error: c.message',
+      '                    });',
+      '                    throw c',
+      '                }',
+      '            }',
+      '            e({',
+      '                status: "syncing",',
+      '                error: null',
+      '            });',
+      '            try {',
+      '                typeof window < "u" && typeof window.__isoRunManualCloudSync == "function" ? await window.__isoRunManualCloudSync(null, null, "header_manual_sync") : await (await n()).fullManualSync(r, a);',
+      '                await l(), e({',
+      '                    status: "success",',
+      '                    lastSyncAt: new Date().toISOString(),',
+      '                    error: null,',
+      '                    needsCloudBootstrap: !1,',
+      '                    bootstrapChecked: !0',
+      '                })',
+      '            } catch (c) {',
+      '                const b = c && c.message ? c.message : "Sync failed";',
+      '                e({',
+      '                    status: "error",',
+      '                    error: b',
+      '                });',
+      '                throw c',
+      '            }',
+      '        },'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '        downloadCloudSnapshot: async () => {',
+      '            const t = u.getState(),',
+      '                {',
+      '                    userId: r,',
+      '                    isAuthenticated: s',
+      '                } = t,',
+      '                a = t.isPremium();',
+      '            if (!s || !r || !a) return;',
+      '            const o = await n();',
+      '            await o.downloadCloudSnapshot(r, a), await l(), o.getState().status === "success" && e({',
+      '                needsCloudBootstrap: !1,',
+      '                bootstrapChecked: !0',
+      '            })',
+      '        },'
+    ].join('\n'),
+    [
+      '        downloadCloudSnapshot: async () => {',
+      '            const t = u.getState(),',
+      '                {',
+      '                    userId: r,',
+      '                    isAuthenticated: s',
+      '                } = t,',
+      '                a = t.isPremium();',
+      '            if (!s || !r || String(r).startsWith("local-")) {',
+      '                const o = new Error("Cloud session missing. Log in again before downloading cloud data.");',
+      '                e({',
+      '                    status: "error",',
+      '                    error: o.message',
+      '                });',
+      '                throw o',
+      '            }',
+      '            if (!a) {',
+      '                const o = new Error("Cloud restore requires premium access.");',
+      '                e({',
+      '                    status: "error",',
+      '                    error: o.message',
+      '                });',
+      '                throw o',
+      '            }',
+      '            if (typeof window < "u" && typeof window.__isoGetValidJwt == "function") {',
+      '                const o = await window.__isoGetValidJwt();',
+      '                if (!o) {',
+      '                    const c = new Error("Cloud session missing. Log in again before downloading cloud data.");',
+      '                    typeof window.__isoSyncAuthBlock == "function" && window.__isoSyncAuthBlock(c.message);',
+      '                    e({',
+      '                        status: "error",',
+      '                        error: c.message',
+      '                    });',
+      '                    throw c',
+      '                }',
+      '            }',
+      '            e({',
+      '                status: "syncing",',
+      '                error: null',
+      '            });',
+      '            try {',
+      '                typeof window < "u" && typeof window.__isoDownloadAndImportBackup == "function" ? await window.__isoDownloadAndImportBackup(null, "header_download_cloud_data") : await (await n()).downloadCloudSnapshot(r, a);',
+      '                await l(), e({',
+      '                    status: "success",',
+      '                    lastSyncAt: new Date().toISOString(),',
+      '                    error: null,',
+      '                    needsCloudBootstrap: !1,',
+      '                    bootstrapChecked: !0',
+      '                })',
+      '            } catch (c) {',
+      '                const b = c && c.message ? c.message : "Cloud data download failed";',
+      '                e({',
+      '                    status: "error",',
+      '                    error: b',
+      '                });',
+      '                throw c',
+      '            }',
+      '        },'
+    ].join('\n'),
+    true
+  ],
+], 'useSyncStore bundle');
+
+// ── 6. useInvites — fix RPC parameter name ───────────────────────────────────
 
 console.log('\n=== Patching useInvites bundle ===');
 const invitesBundle = findAsset('useInvites-') || path.join(ASSETS_DIR, 'useInvites-D9RLFwf8.js');
@@ -466,7 +651,224 @@ patchFile(invitesBundle, [
   ['token_input:', 'p_code:', false],
 ], 'useInvites bundle');
 
-// ── 6. Notification store — native scheduled notifications ──────────────────
+console.log('\n=== Patching invite route bundle ===');
+const inviteRouteBundle = findAsset('InviteOnlineOnlyRoute-');
+
+patchFile(inviteRouteBundle, [
+  [
+    'm.success&&o(`/community/group/${m.group_slug}`)',
+    'm.success&&o(`/community/group/${m.group_slug||m.slug||m.group_id}`)',
+    true
+  ],
+], 'InviteOnlineOnlyRoute bundle');
+
+// ── 6b. Community bundles — remove stale premium locks and add join by code ──
+
+console.log('\n=== Patching community group bundles ===');
+const groupDiscoveryBundle = findAsset('GroupDiscovery-');
+const useGroupsBundle = findAsset('useGroups-');
+const communityHubBundle = findAsset('CommunityHub-');
+const singleGroupBundle = findAsset('SingleGroup-');
+const useLeaderboardBundle = findAsset('useLeaderboard-');
+
+patchFile(groupDiscoveryBundle, [
+  [
+    'e.jsxs("button",{onClick:()=>f(!0),className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white shadow-lg shadow-brand-500/25 transition-colors hover:bg-brand-700 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Create Group"]})',
+    'e.jsxs("div",{className:"flex w-full flex-col gap-2 sm:w-auto sm:flex-row",children:[e.jsxs("button",{onClick:()=>{const t=window.prompt("Enter invite code or invite link");if(t){const j=String(t).trim().split(/[\\\\/]/).filter(Boolean).pop();j&&(window.location.href="/invite/"+encodeURIComponent(j))}},className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2 font-bold text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Join with Code"]}),e.jsxs("button",{onClick:()=>f(!0),className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white shadow-lg shadow-brand-500/25 transition-colors hover:bg-brand-700 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Create Group"]})]})',
+    true
+  ],
+  ['{value:"shit",label:"Shit"}', '{value:"other",label:"Other"}', true],
+  [
+    've=n=>e.jsx($,{featureName:"Study Groups",children:e.jsx(H,{...n})});',
+    've=n=>e.jsx(H,{...n});',
+    true
+  ],
+], 'GroupDiscovery bundle');
+
+patchFile(useGroupsBundle, [
+  [
+    [
+      '            const {',
+      '                data: n,',
+      '                error: u',
+      '            } = await o.from("groups").insert({ ...e,',
+      '                name: t,',
+      '                description: s,',
+      '                owner_id: i,',
+      '                member_count: 0',
+      '            }).select("id, name, description, cover_url, logo_url, category, slug, member_count, owner_id, is_public, created_at").single();',
+      '            if (u) throw u;',
+      '            const {',
+      '                error: l',
+      '            } = await o.from("group_members").insert({',
+      '                group_id: n.id,',
+      '                user_id: i,',
+      '                role: "owner"',
+      '            });',
+      '            return l && console.error("[useCreateGroup] Failed to add owner as member:", l), n'
+    ].join('\n'),
+    [
+      '            const {',
+      '                data: n,',
+      '                error: u',
+      '            } = await o.rpc("create_community_group", {',
+      '                p_name: t,',
+      '                p_description: s || null,',
+      '                p_category: e.category || "community",',
+      '                p_is_public: e.is_public ?? !0,',
+      '                p_slug: e.slug || null,',
+      '                p_logo_url: e.logo_url || null,',
+      '                p_cover_url: e.cover_url || null,',
+      '                p_settings: e.settings || {}',
+      '            });',
+      '            if (u) throw u;',
+      '            const l = Array.isArray(n) ? n[0] : n;',
+      '            if (!l) throw new Error("Group creation returned no id.");',
+      '            const {',
+      '                data: _,',
+      '                error: G',
+      '            } = await o.from("groups").select("id, name, description, cover_url, logo_url, category, slug, member_count, owner_id, is_public, created_at").eq("id", l).single();',
+      '            if (G) throw G;',
+      '            return _'
+    ].join('\n'),
+    true
+  ],
+  [
+    '    } = r, s = c(n => n.isPremium());',
+    '    } = r, s = !0;',
+    true
+  ],
+  [
+    '    const i = c(e => e.isPremium());',
+    '    const i = !0;',
+    true
+  ],
+  [
+    [
+      '    const i = c(t => t.userId),',
+      '        e = c(t => t.isPremium());'
+    ].join('\n'),
+    [
+      '    const i = c(t => t.userId),',
+      '        e = !0;'
+    ].join('\n'),
+    true
+  ],
+  [
+    [
+      '    const i = c(s => s.userId),',
+      '        e = c(s => s.isPremium()),',
+      '        {'
+    ].join('\n'),
+    [
+      '    const i = c(s => s.userId),',
+      '        e = !0,',
+      '        {'
+    ].join('\n'),
+    true
+  ],
+], 'useGroups bundle');
+
+patchFile(communityHubBundle, [
+  [
+    'e.jsx("div",{className:"responsive-scroll-x relative flex max-w-full gap-1 overflow-x-auto rounded-2xl bg-zinc-100 p-1.5 dark:bg-white/5 md:max-w-[min(100%,46rem)]",children:h.map(r=>e.jsxs("button",{onClick:()=>t(r.id),onMouseEnter:()=>j(r.id),onMouseLeave:()=>j(null),className:"relative z-10 flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-zinc-600 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white lg:px-4",children:[v===r.id&&e.jsx(Q.div,{layoutId:"navPill",className:"absolute inset-0 bg-white dark:bg-white/10 shadow-sm rounded-xl -z-10",initial:!1,transition:{type:"spring",stiffness:400,damping:30}}),e.jsx(r.icon,{className:`w-4 h-4 ${v===r.id?r.color:"text-zinc-400"}`}),e.jsx("span",{className:"hidden xl:inline",children:r.label})]},r.id))})',
+    'e.jsxs("div",{className:"flex w-full flex-col gap-2 md:w-auto",children:[e.jsx("div",{className:"responsive-scroll-x relative flex max-w-full gap-1 overflow-x-auto rounded-2xl bg-zinc-100 p-1.5 dark:bg-white/5 md:max-w-[min(100%,46rem)]",children:h.map(r=>e.jsxs("button",{onClick:()=>t(r.id),onMouseEnter:()=>j(r.id),onMouseLeave:()=>j(null),className:"relative z-10 flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-zinc-600 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white lg:px-4",children:[v===r.id&&e.jsx(Q.div,{layoutId:"navPill",className:"absolute inset-0 bg-white dark:bg-white/10 shadow-sm rounded-xl -z-10",initial:!1,transition:{type:"spring",stiffness:400,damping:30}}),e.jsx(r.icon,{className:`w-4 h-4 ${v===r.id?r.color:"text-zinc-400"}`}),e.jsx("span",{className:"hidden xl:inline",children:r.label})]},r.id))}),e.jsxs("div",{className:"grid grid-cols-2 gap-2",children:[e.jsx("button",{onClick:()=>{const r=window.prompt("Enter invite code or invite link");if(r){const s=String(r).trim().split(/[\\\\/]/).filter(Boolean).pop();s&&(window.location.href="/invite/"+encodeURIComponent(s))}},className:"h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-bold text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10",children:"Join with Code"}),e.jsx("button",{onClick:()=>t("discovery"),className:"h-10 rounded-xl bg-brand-600 px-3 text-xs font-bold text-white shadow-lg shadow-brand-500/20 transition-colors hover:bg-brand-700",children:"Create Group"})]})]})',
+    true
+  ],
+  [
+    'function ze(){const t=E(i=>i.isPremium()),n=E(i=>i.userId);',
+    'function ze(){const t=!0,n=E(i=>i.userId);',
+    true
+  ],
+  [
+    'A=p.useMemo(()=>{const r=o?.weekly_hours||0,s=o?.total_sessions||0;return[',
+    'A=p.useMemo(()=>{const r=Number.isFinite(Number(o?.weekly_hours))?Number(o?.weekly_hours):0,s=Number.isFinite(Number(o?.total_sessions))?Number(o?.total_sessions):0;return[',
+    true
+  ],
+  [
+    'W=(r,s,d)=>{if(d==="hours")return`${r.toFixed(1)}/${s}h`;',
+    'W=(r,s,d)=>{const __v=Number.isFinite(Number(r))?Number(r):0;if(d==="hours")return`${__v.toFixed(1)}/${s}h`;',
+    true
+  ],
+  [
+    'dr=t=>e.jsx(pe,{featureName:"Community Hub",children:e.jsx(Ae,{...t})});',
+    'dr=t=>e.jsx(Ae,{...t});',
+    true
+  ],
+], 'CommunityHub bundle');
+
+patchFile(singleGroupBundle, [
+  [
+    'function Ma({groupId:t,isOwner:r,isEnabled:s=!0}){const{hasSeenTour:a,setHasSeenTour:l}=Ut(),i=a[t]??!1,n=g.useCallback(()=>{',
+    'function Ma({groupId:t,isOwner:r,isEnabled:s=!0}){const{hasSeenTour:a,setHasSeenTour:l}=Ut(),__tourKey="isotope:group-tour-seen:"+(t||"global"),__tourSeen=typeof window<"u"&&window.localStorage&&window.localStorage.getItem(__tourKey)==="1",i=__tourSeen||!!(a[t]??!1),n=g.useCallback(()=>{',
+    true
+  ],
+  [
+    'onDestroyed:()=>{l(t,!0)}});return x.drive(),x},[t,r,l]);',
+    'onDestroyed:()=>{try{typeof window<"u"&&window.localStorage&&window.localStorage.setItem(__tourKey,"1")}catch{}l(t,!0)}});return x.drive(),x},[t,r,l,__tourKey]);',
+    true
+  ],
+  [
+    'const c=g.useCallback(()=>{l(t,!1)},[t,l]);return{startTour:n,hasSeen:i,resetTour:c}}',
+    'const c=g.useCallback(()=>{try{typeof window<"u"&&window.localStorage&&window.localStorage.removeItem(__tourKey)}catch{}l(t,!1)},[t,l,__tourKey]);return{startTour:n,hasSeen:i,resetTour:c}}',
+    true
+  ],
+  [
+    'function Vs(t){const r=q(s=>s.isPremium());return we({',
+    'function Vs(t){const r=!0;return we({',
+    true
+  ],
+  [
+    'function Qs(t){const r=q(s=>s.isPremium());return we({',
+    'function Qs(t){const r=!0;return we({',
+    true
+  ],
+  [
+    'function Zs(t){const r=q(s=>s.isPremium());return we({',
+    'function Zs(t){const r=!0;return we({',
+    true
+  ],
+  [
+    'function ea(t){const r=q(s=>s.isPremium());return we({',
+    'function ea(t){const r=!0;return we({',
+    true
+  ],
+  [
+    'function aa(t,r="daily"){const s=q(a=>a.isPremium());return we({',
+    'function aa(t,r="daily"){const s=!0;return we({',
+    true
+  ],
+  [
+    'function ra(t){const r=q(s=>s.isPremium());return we({',
+    'function ra(t){const r=!0;return we({',
+    true
+  ],
+  [
+    'Ga=t=>e.jsx(ns,{featureName:"Group Details",children:e.jsx(Aa,{...t})})',
+    'Ga=t=>e.jsx(Aa,{...t})',
+    true
+  ],
+], 'SingleGroup bundle');
+
+patchFile(useLeaderboardBundle, [
+  [
+    'return e={...e,rankings:Array.isArray(e.rankings)?e.rankings.filter(w):[],currentUserRank:w(e.currentUserRank)?e.currentUserRank:void 0},',
+    'return e={...e,rankings:Array.isArray(e.rankings)?e.rankings.filter(w).map((a,o)=>({...a,rank:Number.isFinite(Number(a.rank))?Number(a.rank):o+1,hours:Number.isFinite(Number(a.hours))?Number(a.hours):0,total_hours:Number.isFinite(Number(a.total_hours))?Number(a.total_hours):Number.isFinite(Number(a.hours))?Number(a.hours):0,score:Number.isFinite(Number(a.score))?Number(a.score):0,total_sessions:Number.isFinite(Number(a.total_sessions))?Number(a.total_sessions):0})):[],currentUserRank:w(e.currentUserRank)?{...e.currentUserRank,rank:Number.isFinite(Number(e.currentUserRank.rank))?Number(e.currentUserRank.rank):void 0,hours:Number.isFinite(Number(e.currentUserRank.hours))?Number(e.currentUserRank.hours):0,total_hours:Number.isFinite(Number(e.currentUserRank.total_hours))?Number(e.currentUserRank.total_hours):Number.isFinite(Number(e.currentUserRank.hours))?Number(e.currentUserRank.hours):0,score:Number.isFinite(Number(e.currentUserRank.score))?Number(e.currentUserRank.score):0,total_sessions:Number.isFinite(Number(e.currentUserRank.total_sessions))?Number(e.currentUserRank.total_sessions):0}:void 0},',
+    true
+  ],
+  [
+    'function O({period:s,limit:r=50,groupId:t}){const c=k(e=>e.isPremium()),n=s==="daily";',
+    'function O({period:s,limit:r=50,groupId:t}){const c=!0,n=s==="daily";',
+    true
+  ],
+  [
+    'function U(){const s=k(t=>t.isPremium()),r=k(t=>t.userId);',
+    'function U(){const s=!0,r=k(t=>t.userId);',
+    true
+  ],
+], 'useLeaderboard bundle');
+
+// ── 6c. Notification store — native scheduled notifications ─────────────────
 
 console.log('\n=== Patching Notification store bundle ===');
 const notificationBundle = findAsset('useNotificationStore-');
@@ -563,6 +965,53 @@ patchFile(notificationBundle, [
     true
   ],
 ], 'Notification store bundle');
+
+// ── 6d. Focus background importer — Android device file fallback ─────────────
+
+console.log('\n=== Patching focus background importer ===');
+const focusBgImport = path.join(WWW_DIR, 'focus-bg-import.js');
+
+patchFile(focusBgImport, [
+  [
+    [
+      '    imgInput.onchange = function () {',
+      '      var file = imgInput.files && imgInput.files[0];',
+      '      if (!file) return;',
+      '      idbPut(CUSTOM_KEY, mediaRecord(\'image\', file)).catch(function () {});',
+      '      var url = URL.createObjectURL(file);',
+      '      closeModal();',
+      '      applyBackground(url, false, true);',
+      '      toast(\'Image background applied.\');',
+      '    };'
+    ].join('\n'),
+    [
+      '    imgInput.onchange = function () {',
+      '      var file = imgInput.files && imgInput.files[0];',
+      '      if (!file) return;',
+      '      if (window.__ISO_IS_ANDROID__ && typeof FileReader !== "undefined") {',
+      '        var reader = new FileReader();',
+      '        reader.onload = function () {',
+      '          var dataUrl = String(reader.result || "");',
+      '          if (!/^data:image\\//i.test(dataUrl)) { toast("This image could not be opened.", "error"); return; }',
+      '          idbPut(CUSTOM_KEY, { type: "url", kind: "image", url: dataUrl, name: file.name || "", mime: file.type || "", size: file.size || 0, savedAt: new Date().toISOString() }).catch(function () {});',
+      '          closeModal();',
+      '          applyBackground(dataUrl, false, false);',
+      '          toast("Image background applied.");',
+      '        };',
+      '        reader.onerror = function () { toast("This image could not be opened.", "error"); };',
+      '        reader.readAsDataURL(file);',
+      '        return;',
+      '      }',
+      '      idbPut(CUSTOM_KEY, mediaRecord(\'image\', file)).catch(function () {});',
+      '      var url = URL.createObjectURL(file);',
+      '      closeModal();',
+      '      applyBackground(url, false, true);',
+      '      toast(\'Image background applied.\');',
+      '    };'
+    ].join('\n'),
+    true
+  ],
+], 'focus-bg-import.js');
 
 // ── 7. Focus store — native completion alarm scheduling ─────────────────────
 
@@ -677,9 +1126,9 @@ patchFile(focusStoreBundle, [
   ],
 ], 'Focus store bundle');
 
-// ── 8. Focus bundle — PIP polyfill (optional, for video PiP) ─────────────────
+// ── 8. Focus bundle — Android Floating Timer overlay ────────────────────────
 
-console.log('\n=== Patching Focus bundle ===');
+console.log('\n=== Patching Focus bundle for Android Floating Timer ===');
 const focusBundle = findAsset('Focus-') || path.join(ASSETS_DIR, 'Focus-BmgY-9vP.js');
 
 patchFile(focusBundle, [
@@ -694,15 +1143,60 @@ patchFile(focusBundle, [
     ].join('\n'),
     [
       '            Xe = async () => {',
-      '                if (typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoEnterFocusPip == "function") {',
-      '                    const __pip = await window.__isoEnterFocusPip({',
-      '                        route: "/focus"',
+      '                if (typeof window < "u" && window.__ISO_IS_ANDROID__ && typeof window.__isoOpenFloatingTimer == "function") {',
+      '                    const __floating = await window.__isoOpenFloatingTimer({',
+      '                        route: "/focus",',
+      '                        subscribe: __listener => typeof B.subscribe == "function" ? B.subscribe(__listener) : function () {},',
+      '                        getState: () => {',
+      '                            const Zt = B.getState(),',
+      '                                at = Y.getState().profile ?.focusSettings,',
+      '                                is = at ?.focusTypes,',
+      '                                os = at ?.showQuestionTrackingInTimerPip ?? !0,',
+      '                                he = yt(is, Zt.sessionType, Zt.taskType),',
+      '                                rt = os && !!he,',
+      '                                pe = Zt.mode === "pomodoro" || Zt.activePhase === "break" ? Zt.timeLeft : Zt.stopwatchTime,',
+      '                                __now = Date.now(),',
+      '                                __completion = (Zt.mode === "pomodoro" || Zt.activePhase === "break") && (Zt.timerState === "running" || Zt.timerState === "break") ? __now + Math.max(0, pe || 0) * 1e3 : null;',
+      '                            return {',
+      '                                mode: Zt.mode,',
+      '                                timerState: Zt.timerState,',
+      '                                activePhase: Zt.activePhase,',
+      '                                startedAt: Zt.sessionStartTime || null,',
+      '                                completionAtMs: __completion,',
+      '                                updatedAtMs: __now,',
+      '                                displayedSeconds: Math.max(0, pe || 0),',
+      '                                totalSeconds: Math.max(0, Zt.totalTime || pe || 0),',
+      '                                sessionType: Zt.sessionType || "",',
+      '                                taskType: Zt.taskType || "",',
+      '                                focusTypeId: he ?.id || Zt.taskType || Zt.sessionType || "other",',
+      '                                focusTypeLabel: he ?.label || Zt.taskType || Zt.sessionType || "Focus",',
+      '                                focusTypeIcon: he ?.icon || "📌",',
+      '                                questionTrackingEnabled: os,',
+      '                                trackQuestions: !!he,',
+      '                                showQuestionControls: rt,',
+      '                                questionsAttempted: Zt.questionsAttempted || 0,',
+      '                                questionsCorrect: Zt.questionsCorrect || 0,',
+      '                                questionsIncorrect: Zt.questionsIncorrect || 0,',
+      '                                questionsSkipped: Zt.questionsSkipped || 0,',
+      '                                targetQuestions: Zt.targetQuestions || 0,',
+      '                                undoAvailable: !!(Zt.questionActionHistory && Zt.questionActionHistory.length),',
+      '                                theme: s ? "dark" : "light",',
+      '                                route: "/focus"',
+      '                            }',
+      '                        },',
+      '                        dispatch: __action => {',
+      '                            const __state = B.getState(),',
+      '                                __type = __action && __action.type || __action;',
+      '                            if (__type === "correct" || __type === "incorrect" || __type === "skipped") return __state.recordQuestionResult(__type), !0;',
+      '                            if (__type === "undo") return __state.undoLastQuestionResult(), !0;',
+      '                            if (__type === "setTarget") return __state.setTargetQuestions(Math.min(9999, Math.max(0, parseInt(__action.value, 10) || 0))), !0;',
+      '                            if (__type === "close" || __type === "expand") return !0;',
+      '                            return !1',
+      '                        }',
       '                    });',
-      '                    if (__pip && __pip.ok) return;',
-      '                    if (!("documentPictureInPicture" in window)) {',
-      '                        alert(__pip && __pip.reason || "Picture-in-Picture is not available on this Android device.");',
-      '                        return',
-      '                    }',
+      '                    if (__floating && __floating.ok) return;',
+      '                    alert(__floating && __floating.reason || "Floating Timer could not be opened.");',
+      '                    return',
       '                } else if (!("documentPictureInPicture" in window)) {',
       '                    alert("Picture-in-Picture is not supported in this browser.");',
       '                    return',
@@ -717,7 +1211,7 @@ patchFile(focusBundle, [
     '(typeof requestPictureInPicture==="function"?requestPictureInPicture():Promise.reject("no-pip"))',
     false
   ],
-], 'Focus bundle');
+], 'Focus bundle Floating Timer');
 
 // ── 8b. Settings bundle — Android font-size control ─────────────────────────
 
@@ -725,6 +1219,9 @@ console.log('\n=== Patching Settings bundle ===');
 const settingsBundle = findAsset('SettingsLayout-');
 
 patchFile(settingsBundle, [
+  ['children: "Browser Notifications"', 'children: "Notifications"', true],
+  ['"Notifications are blocked by your browser"', '"Notifications are blocked on this device"', true],
+  ['"Grand permission to receive alerts"', '"Grant permission to receive alerts"', true],
   [
     [
       '        } = Z(), [g, y] = s.useState("system"), [h, r] = s.useState("#f97316"), [m, b] = s.useState(!1), [f, v] = s.useState("standard"), [l, z] = s.useState("comfortable");',
@@ -810,6 +1307,141 @@ patchFile(settingsBundle, [
   ],
 ], 'Settings bundle');
 
+// ── 8c. Android render stability and app-only UX patches ───────────────────
+
+console.log('\n=== Patching Android render stability bundles ===');
+const indexBundle = findAssetContaining('index-', 'vendor-sentry-VzeXdCeF.js') || findAsset('index-');
+const analyticsBundle = findAsset('Analytics-');
+const analyticsPeriodBundle = findAsset('AnalyticsPeriod-');
+const sessionLogBundle = findAsset('SessionLogTable-');
+const dashboardHeaderBundle = findAsset('DashboardHeader-');
+const headwayBundle = findAsset('HeadwayUpdatesButton-');
+
+patchFile(indexBundle, [
+  [
+    [
+      '    F = async (e = () => S(() =>',
+      '        import ("./vendor-sentry-VzeXdCeF.js"), __vite__mapDeps([0, 1]))) => {',
+      '        try {'
+    ].join('\n'),
+    [
+      '    F = async (e = () => S(() =>',
+      '        import ("./vendor-sentry-VzeXdCeF.js"), __vite__mapDeps([0, 1]))) => {',
+      '        if (typeof window < "u" && window.__ISO_IS_ANDROID__) return !1;',
+      '        try {'
+    ].join('\n'),
+    true
+  ],
+], 'index bundle Sentry startup');
+
+patchFile(analyticsBundle, [
+  [
+    'const{isPerformanceMode:s,shouldReduceMotion:i}=yn(),[r,c]=A.useState("Today")',
+    'const __androidStable=typeof window<"u"&&window.__ISO_IS_ANDROID__,{isPerformanceMode:__pm,shouldReduceMotion:__rm}=yn(),s=__androidStable||__pm,i=__androidStable||__rm,[r,c]=A.useState("Today")',
+    true
+  ],
+  [
+    'Ue=()=>{r==="Weekly"?y(x=>x+1):r==="Monthly"&&v(x=>x+1)},st=()=>{',
+    'Ue=()=>{if(Ct())return;r==="Weekly"?y(x=>Math.min(0,x+1)):r==="Monthly"&&v(x=>Math.min(0,x+1))},st=()=>{',
+    true
+  ],
+], 'Analytics bundle Android stability');
+
+patchFile(analyticsPeriodBundle, [
+  ['const r=ie(),', 'const r=typeof window<"u"&&window.__ISO_IS_ANDROID__?!1:ie(),', false],
+  ['const m=ie();', 'const m=typeof window<"u"&&window.__ISO_IS_ANDROID__?!1:ie();', false],
+], 'AnalyticsPeriod chart animation');
+
+patchFile(sessionLogBundle, [
+  [
+    'children:h.map(t=>e.jsxs(B.tr,{layout:!0,initial:u?!1:{opacity:0},animate:{opacity:1}',
+    'children:(typeof window<"u"&&window.__ISO_IS_ANDROID__?h.slice(0,120):h).map(t=>e.jsxs(B.tr,{layout:typeof window<"u"&&window.__ISO_IS_ANDROID__?!1:!0,initial:u||typeof window<"u"&&window.__ISO_IS_ANDROID__?!1:{opacity:0},animate:{opacity:1}',
+    true
+  ],
+], 'SessionLogTable Android row cap');
+
+patchFile(dashboardHeaderBundle, [
+  ['window.open("https://isotope.featurebase.app", "_blank")', 'window.open("https://isotopeaiapp.featurebase.app/", "_blank")', false],
+  [
+    'className: "absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"',
+    'className: "fixed left-[max(0.75rem,env(safe-area-inset-left))] right-auto top-[calc(env(safe-area-inset-top)+4.5rem)] w-[min(19rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-9rem)] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[90]"',
+    false
+  ],
+  [
+    'className: "max-h-[min(24rem,calc(100dvh-9rem))] overflow-y-auto"',
+    'className: "max-h-[min(18rem,calc(100dvh-16rem))] overflow-y-auto overscroll-contain touch-pan-y custom-scrollbar"',
+    false
+  ],
+  [
+    '}) : r.map(t => {',
+    '}) : (typeof window<"u"&&window.__ISO_IS_ANDROID__?r.slice(0,8):r).map(t => {',
+    false
+  ],
+  [
+    'className: "p-4 border-b border-zinc-200 dark:border-white/10 flex items-center justify-between bg-zinc-50/50 dark:bg-white/[0.02]"',
+    'className: "p-3 border-b border-zinc-200 dark:border-white/10 flex items-start justify-between gap-3 bg-zinc-50/50 dark:bg-white/[0.02]"',
+    false
+  ],
+  [
+    'children: [e.jsxs("div", {\n                                                children: [e.jsx("h3", {',
+    'children: [e.jsxs("div", {\n                                                className: "min-w-0",\n                                                children: [e.jsx("h3", {',
+    false
+  ],
+  [
+    'className: "font-bold text-zinc-900 dark:text-white",\n                                                    children: "Notifications"',
+    'className: "font-bold text-zinc-900 dark:text-white truncate",\n                                                    children: "Notifications"',
+    false
+  ],
+  [
+    'className: "text-xs font-semibold text-brand-500 hover:text-brand-600 transition-colors",\n                                                children: "Mark all as read"',
+    'className: "shrink-0 max-w-[6.5rem] text-right text-[11px] leading-tight font-semibold text-brand-500 hover:text-brand-600 transition-colors",\n                                                children: "Mark all as read"',
+    false
+  ],
+  [
+    [
+      'r.length > 0 && e.jsx("div", {',
+      '                                            className: "p-3 bg-zinc-50 dark:bg-white/5 border-t border-zinc-200 dark:border-white/10",',
+      '                                            children: e.jsx("button", {',
+      '                                                onClick: w,',
+      '                                                className: "w-full py-2 text-xs font-bold text-zinc-500 hover:text-red-500 transition-colors uppercase tracking-widest",',
+      '                                                children: "Clear All"',
+      '                                            })',
+      '                                        })'
+    ].join('\n'),
+    [
+      'r.length > 0 && e.jsx("div", {',
+      '                                            className: "p-3 bg-zinc-50 dark:bg-white/5 border-t border-zinc-200 dark:border-white/10",',
+      '                                            children: e.jsxs("div", {',
+      '                                                className: "space-y-2",',
+      '                                                children: [r.length > 8 && e.jsx("p", {',
+      '                                                    className: "text-center text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500",',
+      '                                                    children: typeof window<"u"&&window.__ISO_IS_ANDROID__?"Latest 8 shown":"Scroll for more"',
+      '                                                }), e.jsx("button", {',
+      '                                                    onClick: w,',
+      '                                                    className: "w-full py-2 text-xs font-bold text-zinc-500 hover:text-red-500 transition-colors uppercase tracking-widest",',
+      '                                                    children: "Clear All"',
+      '                                                })]',
+      '                                            })',
+      '                                        })'
+    ].join('\n'),
+    false
+  ],
+], 'DashboardHeader app links and notifications');
+
+patchFile(headwayBundle, [
+  ['account: "JRVAXJ"', 'account: "7eeYY7"', true],
+  [
+    '} : a.persistentStorageGranted === !1 ? {',
+    '} : typeof window < "u" && window.__ISO_IS_ANDROID__ ? null : a.persistentStorageGranted === !1 ? {',
+    true
+  ],
+  [
+    'a.persistentStorageGranted === !1 && e.jsxs("button", {',
+    '!(typeof window < "u" && window.__ISO_IS_ANDROID__) && a.persistentStorageGranted === !1 && e.jsxs("button", {',
+    true
+  ],
+], 'Headway app changelog and Android storage warning');
+
 // ── 9. AndroidManifest.xml — add required permissions ───────────────────────
 
 console.log('\n=== Patching AndroidManifest.xml ===');
@@ -827,7 +1459,9 @@ if (fs.existsSync(manifestPath)) {
     '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />',
     '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />',
     '    <uses-permission android:name="android.permission.WAKE_LOCK" />',
+    '    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />',
     '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
+    '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />',
     '    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />',
   ];
 
@@ -857,6 +1491,22 @@ if (fs.existsSync(manifestPath)) {
       '<application',
       '<application\n        android:networkSecurityConfig="@xml/network_security_config"'
     );
+  }
+
+  if (!manifest.includes('android:name=".FloatingTimerService"')) {
+    const serviceBlock = [
+      '        <service',
+      '            android:name=".FloatingTimerService"',
+      '            android:exported="false"',
+      '            android:foregroundServiceType="specialUse">',
+      '            <property',
+      '                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"',
+      '                android:value="interactive_focus_timer_overlay" />',
+      '        </service>',
+      ''
+    ].join('\n');
+    manifest = manifest.replace(/\n\s*<provider\b/, '\n' + serviceBlock + '        <provider');
+    patchCount++;
   }
 
   const missingActivityAttributes = [
@@ -908,13 +1558,15 @@ console.log('\n=== Verifying Android native resources ===');
 if (fs.existsSync(ANDROID_DIR)) {
   const notificationIconPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'res', 'drawable', 'ic_notification.xml');
   const mainActivityPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'java', 'in', 'isotopeai', 'app', 'MainActivity.java');
+  const floatingTimerServicePath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'java', 'in', 'isotopeai', 'app', 'FloatingTimerService.java');
   const launcherForegroundPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'res', 'drawable-v24', 'ic_launcher_foreground.xml');
   const launcherBackgroundPath = path.join(ANDROID_DIR, 'app', 'src', 'main', 'res', 'values', 'ic_launcher_background.xml');
 
   const resourceChecks = [
     [notificationIconPath, 'ic_notification.xml', /strokeColor="#FFFFFFFF"|fillColor="#FFFFFFFF"/],
-    [mainActivityPath, 'MainActivity.java PiP bridge', /enterPictureInPictureMode|JavascriptInterface/],
-    [launcherForegroundPath, 'launcher foreground isotope atom', /A78BFA|PictureInPicture/],
+    [mainActivityPath, 'MainActivity.java Floating Timer bridge', /startFloatingTimer|requestOverlayPermission|replayFloatingTimerActions/],
+    [floatingTimerServicePath, 'FloatingTimerService.java overlay renderer', /TYPE_APPLICATION_OVERLAY|WindowManager|startForeground/],
+    [launcherForegroundPath, 'launcher foreground isotope atom', /A78BFA/],
     [launcherBackgroundPath, 'launcher background color', /#111827/],
   ];
 

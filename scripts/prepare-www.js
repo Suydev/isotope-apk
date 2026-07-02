@@ -16,6 +16,7 @@
  *   www/sounds/              ← audio files (from public/sounds/)
  *   www/sync/                ← backup-normalizer.js, local-data-adapter.js
  *   www/android-bridge.js    ← injected by this script (first script in <head>)
+ *   www/android-floating-timer-bridge.js ← Android overlay timer bridge
  *   www/auth-bridge.js       ← from public/
  *   www/boot-recovery.js     ← from public/
  *   ... etc.
@@ -36,7 +37,7 @@ const REPO_DIR    = process.env.REPO_DIR    || path.resolve(__dirname, '../../is
 const SOURCE_DIR  = process.env.SOURCE_DIR  || path.join(REPO_DIR, 'public');
 const WWW_DIR     = process.env.WWW_DIR     || path.resolve(__dirname, '../www');
 const BRIDGE_FILE = process.env.BRIDGE_FILE || path.resolve(__dirname, '../android-bridge.js');
-const PIP_BRIDGE_FILE = process.env.PIP_BRIDGE_FILE || path.resolve(__dirname, '../android-pip-bridge.js');
+const FLOATING_TIMER_BRIDGE_FILE = process.env.FLOATING_TIMER_BRIDGE_FILE || path.resolve(__dirname, '../android-floating-timer-bridge.js');
 
 console.log('=== prepare-www.js ===');
 console.log('REPO_DIR   :', REPO_DIR);
@@ -69,6 +70,11 @@ if (!fs.existsSync(SOURCE_DIR)) {
 
 if (!fs.existsSync(BRIDGE_FILE)) {
   console.error('ERROR: android-bridge.js not found:', BRIDGE_FILE);
+  process.exit(1);
+}
+
+if (!fs.existsSync(FLOATING_TIMER_BRIDGE_FILE)) {
+  console.error('ERROR: android-floating-timer-bridge.js not found:', FLOATING_TIMER_BRIDGE_FILE);
   process.exit(1);
 }
 
@@ -109,9 +115,9 @@ console.log('\nStep 4: Copying android-bridge.js into www/ ...');
 const bridgeDest = path.join(WWW_DIR, 'android-bridge.js');
 fs.copyFileSync(BRIDGE_FILE, bridgeDest);
 console.log('  ✓ android-bridge.js copied to www/');
-const pipBridgeDest = path.join(WWW_DIR, 'android-pip-bridge.js');
-fs.copyFileSync(PIP_BRIDGE_FILE, pipBridgeDest);
-console.log('  ✓ android-pip-bridge.js copied to www/');
+const floatingTimerBridgeDest = path.join(WWW_DIR, 'android-floating-timer-bridge.js');
+fs.copyFileSync(FLOATING_TIMER_BRIDGE_FILE, floatingTimerBridgeDest);
+console.log('  ✓ android-floating-timer-bridge.js copied to www/');
 
 // ── 5. Patch index.html ───────────────────────────────────────────────────────
 //    a) Inject android-bridge.js as VERY FIRST script (before auth-bridge.js)
@@ -124,7 +130,7 @@ let html = fs.readFileSync(indexDest, 'utf8');
 
 // 5a. Inject android-bridge.js as first child of <head>
 const bridgeScriptTag = '<script src="/android-bridge.js"></script>';
-const pipBridgeScriptTag = '<script src="/android-pip-bridge.js"></script>';
+const floatingTimerBridgeScriptTag = '<script src="/android-floating-timer-bridge.js"></script>';
 if (!html.includes('android-bridge.js')) {
   html = html.replace(/<head>/i, '<head>\n    ' + bridgeScriptTag);
   console.log('  ✓ android-bridge.js injected as first script in <head>');
@@ -133,11 +139,11 @@ if (!html.includes('android-bridge.js')) {
 }
 
 
-if (!html.includes('android-pip-bridge.js')) {
-  html = html.replace(bridgeScriptTag, bridgeScriptTag + '\n    ' + pipBridgeScriptTag);
-  console.log('  ✓ android-pip-bridge.js injected immediately after android-bridge.js');
+if (!html.includes('android-floating-timer-bridge.js')) {
+  html = html.replace(bridgeScriptTag, bridgeScriptTag + '\n    ' + floatingTimerBridgeScriptTag);
+  console.log('  ✓ android-floating-timer-bridge.js injected immediately after android-bridge.js');
 } else {
-  console.log('  ○ android-pip-bridge.js already present in index.html');
+  console.log('  ○ android-floating-timer-bridge.js already present in index.html');
 }
 // 5b. Disable pwa-local.js (SW registration causes stale-asset loops in Capacitor)
 if (html.includes('/pwa-local.js')) {
@@ -291,6 +297,23 @@ workboxFiles.forEach(f => {
 });
 if (workboxFiles.length) console.log(`  ✓ Neutered ${workboxFiles.length} workbox file(s)`);
 
+// ── 6b. Repair KaTeX font assets ────────────────────────────────────────────
+// The pinned isotope-code bundle includes KaTeX CSS/JS, but the CSS references
+// several hashed font filenames that are absent from public/assets/. Copy those
+// exact target names from the pinned katex npm package so offline Android math
+// rendering has every declared font.
+
+console.log('\nStep 6b: Verifying KaTeX font assets ...');
+repairKatexFontAssets(path.join(WWW_DIR, 'assets'));
+
+// ── 6c. Prune browser/PWA-only artifacts ────────────────────────────────────
+// These files are useful on the source website, but they are not runtime inputs
+// for the native Android shell after the service worker, web manifest and update
+// checker have been disabled above.
+
+console.log('\nStep 6c: Pruning Android-unused web artifacts ...');
+pruneAndroidWebOnlyArtifacts(WWW_DIR);
+
 // ── 7. Verify critical files are present ─────────────────────────────────────
 
 console.log('\nStep 7: Verifying critical files ...');
@@ -421,4 +444,91 @@ function replaceOptional(text, pattern, to, label) {
   const next = text.replace(pattern, to);
   if (next !== text) console.log(`  ✓ ${label} removed`);
   return next;
+}
+
+function repairKatexFontAssets(assetsDir) {
+  if (!fs.existsSync(assetsDir)) {
+    console.log('  ○ assets/ missing; KaTeX check skipped');
+    return;
+  }
+
+  const cssFile = fs.readdirSync(assetsDir).find(f => /^vendor-katex-.*\.css$/.test(f));
+  if (!cssFile) {
+    console.log('  ○ vendor-katex CSS not present; KaTeX check skipped');
+    return;
+  }
+
+  const css = fs.readFileSync(path.join(assetsDir, cssFile), 'utf8');
+  const refs = Array.from(css.matchAll(/url\(([^)]+)\)/g))
+    .map(match => match[1].trim().replace(/^['"]|['"]$/g, ''))
+    .filter(ref => ref && !ref.startsWith('data:'));
+  const katexFontsDir = path.resolve(__dirname, '..', 'node_modules', 'katex', 'dist', 'fonts');
+  const sourceFonts = fs.existsSync(katexFontsDir)
+    ? fs.readdirSync(katexFontsDir)
+      .filter(name => /^KaTeX_.+\.(?:woff2?|ttf)$/.test(name))
+      .map(name => ({
+        name,
+        ext: path.extname(name),
+        base: path.basename(name, path.extname(name)),
+      }))
+      .sort((a, b) => b.base.length - a.base.length)
+    : [];
+  const missing = [];
+  let repaired = 0;
+
+  for (const ref of refs) {
+    const targetName = ref.startsWith('/assets/') ? ref.slice('/assets/'.length) : ref;
+    const targetPath = path.join(assetsDir, targetName);
+    if (fs.existsSync(targetPath)) continue;
+
+    const sourceFont = sourceFonts.find(font => (
+      targetName.endsWith(font.ext) &&
+      targetName.startsWith(`${font.base}-`)
+    ));
+    const sourcePath = sourceFont ? path.join(katexFontsDir, sourceFont.name) : null;
+    if (sourcePath && fs.existsSync(sourcePath)) {
+      fs.copyFileSync(sourcePath, targetPath);
+      repaired++;
+    }
+    if (!fs.existsSync(targetPath)) missing.push(targetName);
+  }
+
+  if (repaired > 0) {
+    console.log(`  ✓ Repaired ${repaired} missing KaTeX font asset(s)`);
+  }
+  if (missing.length > 0) {
+    console.error('  ✗ Missing KaTeX font asset(s):');
+    missing.forEach(name => console.error(`    ${name}`));
+    process.exit(1);
+  }
+  console.log(`  ✓ KaTeX CSS font references resolved (${refs.length} files)`);
+}
+
+function pruneAndroidWebOnlyArtifacts(wwwDir) {
+  const relativePaths = [
+    '404.html',
+    'offline.html',
+    'robots.txt',
+    'manifest.json',
+    'manifest.webmanifest',
+    'firebase-messaging-sw.js',
+    'pwa-local.js',
+    'update-checker.js',
+    'screenshots',
+  ];
+  const workboxFiles = fs.readdirSync(wwwDir).filter(name => /^workbox-.*\.js$/.test(name));
+  let removed = 0;
+
+  for (const relativePath of [...relativePaths, ...workboxFiles]) {
+    const target = path.join(wwwDir, relativePath);
+    if (!fs.existsSync(target)) continue;
+    fs.rmSync(target, { recursive: true, force: true });
+    removed++;
+  }
+
+  if (removed > 0) {
+    console.log(`  ✓ Removed ${removed} browser/PWA-only artifact(s)`);
+  } else {
+    console.log('  ○ No browser/PWA-only artifacts found');
+  }
 }

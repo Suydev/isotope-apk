@@ -142,54 +142,222 @@ test('apply-android-patches disables PWA manager and uses native notification sc
   assert.match(focusStore, /__isoCancelFocusTimer/);
 });
 
-test('apply-android-patches wires Android online status, Focus PiP, and font scale controls', () => {
+test('apply-android-patches wires Android online status, Floating Timer, emoji repair, and font scale controls', () => {
   const wwwDir = runPrepareWww();
   const output = runApplyPatches(wwwDir);
 
   assert.match(output, /Patching online status hook/);
-  assert.match(output, /Patching Focus bundle/);
+  assert.match(output, /Patching useSyncStore bundle/);
+  assert.match(output, /Patching Focus bundle for Android Floating Timer/);
   assert.match(output, /Patching Settings bundle/);
 
   const assetsDir = path.join(wwwDir, 'assets');
   const onlineFile = fs.readdirSync(assetsDir).find((name) => /^useOnlineStatus-.*\.js$/.test(name));
+  const syncStoreFile = fs.readdirSync(assetsDir).find((name) => /^useSyncStore-.*\.js$/.test(name));
+  const appFile = fs.readdirSync(assetsDir).find((name) => /^App-.*\.js$/.test(name) && fs.statSync(path.join(assetsDir, name)).size > 100_000);
   const focusFile = fs.readdirSync(assetsDir).find((name) => /^Focus-.*\.js$/.test(name));
   const settingsFile = fs.readdirSync(assetsDir).find((name) => /^SettingsLayout-.*\.js$/.test(name));
   assert.ok(onlineFile, 'online status chunk should exist');
+  assert.ok(syncStoreFile, 'sync store chunk should exist');
+  assert.ok(appFile, 'App chunk should exist');
   assert.ok(focusFile, 'Focus chunk should exist');
   assert.ok(settingsFile, 'Settings chunk should exist');
 
   const online = fs.readFileSync(path.join(assetsDir, onlineFile), 'utf8');
+  const syncStore = fs.readFileSync(path.join(assetsDir, syncStoreFile), 'utf8');
+  const app = fs.readFileSync(path.join(assetsDir, appFile), 'utf8');
   const focus = fs.readFileSync(path.join(assetsDir, focusFile), 'utf8');
   const settings = fs.readFileSync(path.join(assetsDir, settingsFile), 'utf8');
 
   assert.match(online, /__isoIsOnline/);
   assert.match(online, /isotope:network/);
   assert.doesNotMatch(online, /useState\(navigator\.onLine\)/);
-  assert.match(focus, /__isoEnterFocusPip/);
-  assert.match(focus, /Picture-in-Picture is not available on this Android device/);
+  assert.match(syncStore, /__isoRunManualCloudSync/);
+  assert.match(syncStore, /__isoDownloadAndImportBackup/);
+  assert.match(syncStore, /__isoGetValidJwt/);
+  assert.match(syncStore, /header_manual_sync/);
+  assert.match(syncStore, /header_download_cloud_data/);
+  assert.doesNotMatch(syncStore, /if \(!s \|\| !r \|\| !a\) return;\s+const o = await n\(\);\s+await o\.fullManualSync/);
+  assert.doesNotMatch(syncStore, /if \(!s \|\| !r \|\| !a\) return;\s+const o = await n\(\);\s+await o\.downloadCloudSnapshot/);
+  assert.match(app, /__isoNormalizeFocusIcon/);
+  assert.match(focus, /__isoOpenFloatingTimer/);
+  assert.match(focus, /getState: \(\) =>/);
+  assert.match(focus, /dispatch: __action =>/);
+  assert.match(focus, /showQuestionControls: rt/);
+  assert.match(focus, /Floating Timer could not be opened/);
+  assert.doesNotMatch(focus, /__isoEnterFocusPip/);
   assert.match(settings, /children: "Font Size"/);
   assert.match(settings, /fontScale: P/);
   assert.match(settings, /isotope-font-scale/);
 });
 
-test('Android native project exposes notification icon, launcher logo, PiP, and keyboard contracts', () => {
+test('apply-android-patches fixes invite route slug fallback', () => {
+  const wwwDir = runPrepareWww();
+  runApplyPatches(wwwDir);
+
+  const assetsDir = path.join(wwwDir, 'assets');
+  const inviteRouteFile = fs.readdirSync(assetsDir).find((name) => /^InviteOnlineOnlyRoute-.*\.js$/.test(name));
+  assert.ok(inviteRouteFile, 'InviteOnlineOnlyRoute chunk should exist');
+  const inviteRoute = fs.readFileSync(path.join(assetsDir, inviteRouteFile), 'utf8');
+
+  assert.match(inviteRoute, /m\.group_slug\|\|m\.slug\|\|m\.group_id/);
+  assert.doesNotMatch(inviteRoute, /m\.success&&o\(`\/community\/group\/\\$\\{m\.group_slug\\}`\)/);
+});
+
+test('apply-android-patches unlocks community group actions on Android', () => {
+  const wwwDir = runPrepareWww();
+  runApplyPatches(wwwDir);
+
+  const assetsDir = path.join(wwwDir, 'assets');
+  const groupDiscoveryFile = fs.readdirSync(assetsDir).find((name) => /^GroupDiscovery-.*\.js$/.test(name));
+  const useGroupsFile = fs.readdirSync(assetsDir).find((name) => /^useGroups-.*\.js$/.test(name));
+  const communityHubFile = fs.readdirSync(assetsDir).find((name) => /^CommunityHub-.*\.js$/.test(name));
+  const singleGroupFile = fs.readdirSync(assetsDir).find((name) => /^SingleGroup-.*\.js$/.test(name));
+  const leaderboardFile = fs.readdirSync(assetsDir).find((name) => /^useLeaderboard-.*\.js$/.test(name));
+  assert.ok(groupDiscoveryFile, 'GroupDiscovery chunk should exist');
+  assert.ok(useGroupsFile, 'useGroups chunk should exist');
+  assert.ok(communityHubFile, 'CommunityHub chunk should exist');
+  assert.ok(singleGroupFile, 'SingleGroup chunk should exist');
+  assert.ok(leaderboardFile, 'useLeaderboard chunk should exist');
+
+  const groupDiscovery = fs.readFileSync(path.join(assetsDir, groupDiscoveryFile), 'utf8');
+  const useGroups = fs.readFileSync(path.join(assetsDir, useGroupsFile), 'utf8');
+  const communityHub = fs.readFileSync(path.join(assetsDir, communityHubFile), 'utf8');
+  const singleGroup = fs.readFileSync(path.join(assetsDir, singleGroupFile), 'utf8');
+  const leaderboard = fs.readFileSync(path.join(assetsDir, leaderboardFile), 'utf8');
+
+  assert.match(groupDiscovery, /Join with Code/);
+  assert.match(groupDiscovery, /window\.prompt\("Enter invite code or invite link"\)/);
+  assert.match(groupDiscovery, /window\.location\.href="\/invite\/"\+encodeURIComponent\(j\)/);
+  assert.match(groupDiscovery, /\{value:"other",label:"Other"\}/);
+  assert.match(groupDiscovery, /ve=n=>e\.jsx\(H,\{\.\.\.n\}\);/);
+  assert.doesNotMatch(groupDiscovery, /featureName:"Study Groups"/);
+  assert.doesNotMatch(groupDiscovery, /\{value:"shit",label:"Shit"\}/);
+
+  assert.doesNotMatch(useGroups, /isPremium\(\)/);
+  assert.match(useGroups, /rpc\("create_community_group"/);
+  assert.match(useGroups, /p_name: t/);
+  assert.match(useGroups, /p_is_public: e\.is_public \?\? !0/);
+  assert.doesNotMatch(useGroups, /from\("groups"\)\.insert/);
+  assert.doesNotMatch(useGroups, /Failed to add owner as member/);
+  assert.match(useGroups, /} = r, s = !0;/);
+  assert.match(useGroups, /const i = !0;/);
+  assert.match(useGroups, /e = !0;/);
+
+  assert.match(communityHub, /function ze\(\)\{const t=!0,n=E\(i=>i\.userId\);/);
+  assert.match(communityHub, /Join with Code/);
+  assert.match(communityHub, /Create Group/);
+  assert.match(communityHub, /window\.prompt\("Enter invite code or invite link"\)/);
+  assert.match(communityHub, /window\.location\.href="\/invite\/"\+encodeURIComponent\(s\)/);
+  assert.match(communityHub, /Number\.isFinite\(Number\(o\?\.weekly_hours\)\)/);
+  assert.match(communityHub, /const __v=Number\.isFinite\(Number\(r\)\)\?Number\(r\):0/);
+  assert.match(communityHub, /dr=t=>e\.jsx\(Ae,\{\.\.\.t\}\);/);
+  assert.doesNotMatch(communityHub, /featureName:"Community Hub"/);
+
+  assert.match(singleGroup, /isotope:group-tour-seen:/);
+  assert.match(singleGroup, /localStorage\.setItem\(__tourKey,"1"\)/);
+  assert.match(singleGroup, /localStorage\.removeItem\(__tourKey\)/);
+  assert.match(singleGroup, /function Vs\(t\)\{const r=!0;return we\(\{/);
+  assert.match(singleGroup, /function Qs\(t\)\{const r=!0;return we\(\{/);
+  assert.match(singleGroup, /function Zs\(t\)\{const r=!0;return we\(\{/);
+  assert.match(singleGroup, /function ea\(t\)\{const r=!0;return we\(\{/);
+  assert.match(singleGroup, /function aa\(t,r="daily"\)\{const s=!0;return we\(\{/);
+  assert.match(singleGroup, /function ra\(t\)\{const r=!0;return we\(\{/);
+  assert.match(singleGroup, /Ga=t=>e\.jsx\(Aa,\{\.\.\.t\}\)/);
+  assert.doesNotMatch(singleGroup, /featureName:"Group Details"/);
+
+  assert.match(leaderboard, /function O\(\{period:s,limit:r=50,groupId:t\}\)\{const c=!0,n=s==="daily";/);
+  assert.match(leaderboard, /Number\.isFinite\(Number\(a\.hours\)\)\?Number\(a\.hours\):0/);
+  assert.match(leaderboard, /Number\.isFinite\(Number\(e\.currentUserRank\.hours\)\)\?Number\(e\.currentUserRank\.hours\):0/);
+  assert.match(leaderboard, /function U\(\)\{const s=!0,r=k\(t=>t\.userId\);/);
+  assert.doesNotMatch(leaderboard, /isPremium\(\)/);
+});
+
+test('apply-android-patches adds Android analytics render stability and app-only links', () => {
+  const wwwDir = runPrepareWww();
+  runApplyPatches(wwwDir);
+
+  const assetsDir = path.join(wwwDir, 'assets');
+  const indexFile = fs.readdirSync(assetsDir).find((name) => /^index-.*\.js$/.test(name) && fs.readFileSync(path.join(assetsDir, name), 'utf8').includes('vendor-sentry-VzeXdCeF.js'));
+  const analyticsFile = fs.readdirSync(assetsDir).find((name) => /^Analytics-.*\.js$/.test(name));
+  const analyticsPeriodFile = fs.readdirSync(assetsDir).find((name) => /^AnalyticsPeriod-.*\.js$/.test(name));
+  const sessionLogFile = fs.readdirSync(assetsDir).find((name) => /^SessionLogTable-.*\.js$/.test(name));
+  const dashboardHeaderFile = fs.readdirSync(assetsDir).find((name) => /^DashboardHeader-.*\.js$/.test(name));
+  const headwayFile = fs.readdirSync(assetsDir).find((name) => /^HeadwayUpdatesButton-.*\.js$/.test(name));
+  const settingsFile = fs.readdirSync(assetsDir).find((name) => /^SettingsLayout-.*\.js$/.test(name));
+  assert.ok(indexFile, 'index chunk should exist');
+  assert.ok(analyticsFile, 'Analytics chunk should exist');
+  assert.ok(analyticsPeriodFile, 'AnalyticsPeriod chunk should exist');
+  assert.ok(sessionLogFile, 'SessionLogTable chunk should exist');
+  assert.ok(dashboardHeaderFile, 'DashboardHeader chunk should exist');
+  assert.ok(headwayFile, 'Headway chunk should exist');
+  assert.ok(settingsFile, 'Settings chunk should exist');
+
+  const index = fs.readFileSync(path.join(assetsDir, indexFile), 'utf8');
+  const analytics = fs.readFileSync(path.join(assetsDir, analyticsFile), 'utf8');
+  const analyticsPeriod = fs.readFileSync(path.join(assetsDir, analyticsPeriodFile), 'utf8');
+  const sessionLog = fs.readFileSync(path.join(assetsDir, sessionLogFile), 'utf8');
+  const dashboardHeader = fs.readFileSync(path.join(assetsDir, dashboardHeaderFile), 'utf8');
+  const headway = fs.readFileSync(path.join(assetsDir, headwayFile), 'utf8');
+  const settings = fs.readFileSync(path.join(assetsDir, settingsFile), 'utf8');
+  const focusBgImport = fs.readFileSync(path.join(wwwDir, 'focus-bg-import.js'), 'utf8');
+
+  assert.match(index, /__ISO_IS_ANDROID__\) return !1/);
+  assert.match(analytics, /__androidStable/);
+  assert.match(analytics, /Math\.min\(0,x\+1\)/);
+  assert.match(analyticsPeriod, /__ISO_IS_ANDROID__\?!1:ie\(\)/);
+  assert.match(sessionLog, /h\.slice\(0,120\)/);
+  assert.match(sessionLog, /layout:typeof window<"u"&&window\.__ISO_IS_ANDROID__\?!1:!0/);
+  assert.match(dashboardHeader, /https:\/\/isotopeaiapp\.featurebase\.app\//);
+  assert.match(dashboardHeader, /left-\[max\(0\.75rem,env\(safe-area-inset-left\)\)\]/);
+  assert.match(dashboardHeader, /max-h-\[min\(18rem,calc\(100dvh-16rem\)\)\]/);
+  assert.match(dashboardHeader, /r\.slice\(0,8\)/);
+  assert.match(dashboardHeader, /items-start justify-between gap-3/);
+  assert.match(dashboardHeader, /className: "min-w-0"/);
+  assert.match(dashboardHeader, /max-w-\[6\.5rem\]/);
+  assert.match(dashboardHeader, /Latest 8 shown/);
+  assert.doesNotMatch(dashboardHeader, /https:\/\/isotope\.featurebase\.app/);
+  assert.match(headway, /account: "7eeYY7"/);
+  assert.match(headway, /__ISO_IS_ANDROID__ \? null : a\.persistentStorageGranted/);
+  assert.doesNotMatch(headway, /account: "JRVAXJ"/);
+  assert.match(settings, /children: "Notifications"/);
+  assert.doesNotMatch(settings, /Browser Notifications/);
+  assert.match(settings, /Grant permission to receive alerts/);
+  assert.match(focusBgImport, /FileReader/);
+  assert.match(focusBgImport, /readAsDataURL\(file\)/);
+  assert.match(focusBgImport, /window\.__ISO_IS_ANDROID__/);
+});
+
+test('Android native project exposes notification icon, launcher logo, Floating Timer, and keyboard contracts', () => {
   const manifest = fs.readFileSync(path.join(ROOT, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
   const activity = fs.readFileSync(path.join(ROOT, 'android/app/src/main/java/in/isotopeai/app/MainActivity.java'), 'utf8');
+  const service = fs.readFileSync(path.join(ROOT, 'android/app/src/main/java/in/isotopeai/app/FloatingTimerService.java'), 'utf8');
   const notificationIcon = fs.readFileSync(path.join(ROOT, 'android/app/src/main/res/drawable/ic_notification.xml'), 'utf8');
   const launcherForeground = fs.readFileSync(path.join(ROOT, 'android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml'), 'utf8');
   const launcherBackground = fs.readFileSync(path.join(ROOT, 'android/app/src/main/res/values/ic_launcher_background.xml'), 'utf8');
   const capacitorConfig = fs.readFileSync(path.join(ROOT, 'capacitor.config.json'), 'utf8');
+  const styles = fs.readFileSync(path.join(ROOT, 'android/app/src/main/res/values/styles.xml'), 'utf8');
 
-  assert.match(manifest, /android:supportsPictureInPicture="true"/);
   assert.match(manifest, /android:resizeableActivity="true"/);
   assert.match(manifest, /android:windowSoftInputMode="adjustResize"/);
+  assert.match(manifest, /android\.permission\.SYSTEM_ALERT_WINDOW/);
+  assert.match(manifest, /android:name="\.FloatingTimerService"/);
   assert.match(activity, /addJavascriptInterface\(new IsotopeAndroidInterface\(\), "IsotopeAndroid"\)/);
-  assert.match(activity, /enterPictureInPictureMode/);
+  assert.match(activity, /startFloatingTimer/);
+  assert.match(activity, /requestOverlayPermission/);
+  assert.match(activity, /replayFloatingTimerActions/);
   assert.match(activity, /public void onStart\(\)/);
+  assert.match(activity, /public void onResume\(\)/);
+  assert.match(activity, /webView\.resumeTimers\(\)/);
+  assert.match(activity, /__isoAndroidForceRepaint/);
   assert.doesNotMatch(activity, /protected void onStart\(\)/);
+  assert.match(service, /TYPE_APPLICATION_OVERLAY/);
+  assert.match(service, /startForeground/);
   assert.match(notificationIcon, /strokeColor="#FFFFFFFF"/);
   assert.match(launcherForeground, /A78BFA/);
   assert.match(launcherBackground, /#111827/);
+  assert.match(styles, /postSplashScreenTheme/);
+  assert.match(styles, /android:windowBackground">#09090B/);
   assert.match(capacitorConfig, /"smallIcon": "ic_notification"/);
   assert.doesNotMatch(capacitorConfig, /"sound": "beep"/);
 });

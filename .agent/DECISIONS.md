@@ -178,6 +178,82 @@
 
 ---
 
+## DEC-019 — Floating Timer overlay replaces system PiP timer UI
+
+**Date:** 2026-06-30
+**Context:** The previous Android timer window used a fake `documentPictureInPicture` bridge and Android system Picture-in-Picture. User testing confirmed this did not behave like the desktop timer and could not provide directly clickable timer controls.
+
+**Options considered:**
+1. Keep system PiP and add more CSS/DOM patching.
+2. Use Android system PiP RemoteActions only.
+3. Build an Android overlay service named Floating Timer.
+
+**Chosen:** Build an Android Floating Timer overlay using `WindowManager` and `TYPE_APPLICATION_OVERLAY`.
+
+**Why:** Android system PiP cannot host arbitrary clickable application UI. RemoteActions are exposed through the system PiP menu, not as a desktop-equivalent timer card. The requested experience requires Display-over-other-apps permission and a native overlay service.
+
+**Consequences:**
+- App must request `SYSTEM_ALERT_WINDOW` through the Android settings permission flow.
+- A foreground service notification is required while the overlay is active.
+- The WebView remains the source of truth for timer/question state; native renders a validated snapshot and sends safe enum actions back.
+- System PiP remains only a reduced fallback in `MainActivity`, not the primary timer-window implementation.
+
+**Files affected:** `android-floating-timer-bridge.js`, `MainActivity.java`, `FloatingTimerService.java`, `AndroidManifest.xml`, `scripts/prepare-www.js`, `scripts/apply-android-patches.js`
+**Reversible:** Yes, but only by replacing the overlay with another native implementation that supports direct interaction.
+
+---
+
+## DEC-020 — Grapheme-safe focus icon repair in Android compatibility layer
+
+**Date:** 2026-06-30
+**Context:** The compiled production App bundle normalized focus-type icons with UTF-16 `.slice(0, 4)`, which can split compound emoji and preserve corrupted replacement-character data.
+
+**Chosen:** Install a grapheme-safe normalizer before the App bundle loads and patch the compiled normalizer to call it.
+
+**Why:** The authored source for the exact production bundle is not compiled locally in this wrapper repo; the APK packages the pinned `isotope-code/public` assets. A targeted compatibility patch preserves the real UI while repairing local/cloud/imported profile data before rendering.
+
+**Consequences:**
+- Built-in invalid icon values fall back to canonical icons.
+- Valid custom emoji and custom focus types are preserved.
+- Stored corrupted Android profile data is rewritten once, only when a repair is needed.
+
+**Files affected:** `android-floating-timer-bridge.js`, `scripts/apply-android-patches.js`
+
+---
+
+## DEC-021 — Android WebView render recovery and Android-only Analytics stabilization
+
+**Date:** 2026-07-01
+**Context:** User testing reported the Focus page still sometimes opens to a full black screen, and Analytics also black-screens when switching Monthly views to inspect past sessions.
+
+**Chosen:** Add Android-gated native/WebView recovery and reduce heavy Android-only chart/render pressure without changing the IsotopeAI UI source.
+
+**Why:** The black screen pattern matches Android WebView compositor/activity resume failure under heavy animated chart/blur/table rendering. The APK packages pinned compiled production assets, so the wrapper must stabilize those assets through native lifecycle hooks and exact patch-contract tests.
+
+**Consequences:**
+- `MainActivity.onResume()` resumes WebView timers, invalidates the surface, and invokes `window.__isoAndroidForceRepaint`.
+- `android-bridge.js` dispatches `isotope:android-resume`, installs Android render recovery CSS, and reloads only when the React root is blank.
+- Analytics patches disable Android Sentry/replay startup, force reduce-motion/performance behavior on Android, disable chart animation on Android, and cap rendered Session Log rows to 120 while preserving source data.
+- Runtime proof still requires a GitHub-built APK and device/WebView evidence.
+
+**Files affected:** `MainActivity.java`, `styles.xml`, `android-bridge.js`, `scripts/apply-android-patches.js`, `test/prepare-patches.test.mjs`
+
+---
+
+## DEC-022 — Profile saves must deep-merge cloud profile_data
+
+**Date:** 2026-07-01
+**Context:** Onboarding academics/exam/subjects could be saved first and then overwritten by later partial profile updates from the Android bridge.
+
+**Chosen:** `handlePostProfile()` reads the existing row, deep-merges incoming `profile_data`, upserts the merged row, and persists `user_onboarding.completed=true` only when the merged profile says onboarding is complete.
+
+**Why:** PostgREST partial profile writes from multiple compiled bundles must not destroy unrelated profile settings or create sync loops. Onboarding completion must be a verified upsert, not inferred from row existence.
+
+**Files affected:** `android-bridge.js`, `test/android-bridge.test.mjs`
+**Reversible:** Yes, once isotope-code authored source ships a safe normalizer and the Android patch can be removed.
+
+---
+
 ## DEC-009 — src/App.tsx is a placeholder; DO NOT use it
 
 **Date:** 2026-06-28
@@ -228,15 +304,15 @@
 **Chosen:** Keep the compiled IsotopeAI UI as source of truth, but wire Android-only behavior through Capacitor/native contracts:
 - Capacitor Network drives Android online state and the patched `useOnlineStatus` bundle.
 - Capacitor LocalNotifications drives scheduled focus notifications with a real `ic_notification` resource.
-- `MainActivity` exposes an `IsotopeAndroid` JavaScript interface for Focus Picture-in-Picture.
-- Android manifest/activity resources own PiP, keyboard resize, launcher icon, and notification resources.
+- `MainActivity` exposes an `IsotopeAndroid` JavaScript interface for Floating Timer overlay control, reduced system-PiP fallback, keyboard/app-shell behavior, and notification resource contracts.
+- Android manifest/activity resources own overlay permissions, reduced PiP fallback, keyboard resize, launcher icon, and notification resources.
 - `android-bridge.js` owns app back-button handling and device font-scale startup application.
 
 **Why:** These behaviors cannot be proven by browser APIs inside a WebView. The APK must act like an Android app while preserving the existing compiled UI.
 
 **Consequences:**
-- `scripts/apply-android-patches.js` now has explicit patch-contract tests for online status, Focus PiP, Settings Font Size, and native resource requirements.
-- Device/emulator evidence is still required before marking cloud sync, notification delivery, PiP, and keyboard/back behavior fully fixed.
+- `scripts/apply-android-patches.js` now has explicit patch-contract tests for online status, Floating Timer, Settings Font Size, and native resource requirements.
+- Device/emulator evidence is still required before marking cloud sync, notification delivery, Floating Timer, and keyboard/back behavior fully fixed.
 
 ---
 
@@ -332,3 +408,43 @@
 - New/incomplete users route to onboarding from `readyNeedsOnboarding`.
 - A temporary bootstrap failure still blocks routing instead of guessing.
 - Regression tests fail if the Auth boot-state refresh or AppAccessGate stale-state guard disappears.
+
+---
+
+## DEC-018 — Android sync bridge owns direct Supabase function interception and canonical backup storage
+
+**Date:** 2026-06-30
+**Context:** The APK could log in, but cloud sync/community/session features still appeared disconnected. The compiled app can call both `/__supa/functions/v1/*` and the absolute Supabase project URL `/functions/v1/*`. The Android bridge only handled the first form. Several bridge handlers also forwarded raw edge-function payloads to SQL RPCs, and backup/import/snapshot handlers did not maintain canonical cloud objects.
+
+**Chosen:**
+- Intercept both `/__supa/functions/v1/*` and `${SUPA_URL}/functions/v1/*` in `android-bridge.js`.
+- Transform compiled browser payloads to exact SQL RPC signatures before calling PostgREST RPC endpoints.
+- Return `ok:false` on non-2xx RPC/storage failures.
+- Store user backups canonically in Supabase Storage:
+  - `userId/backups/latest.json`
+  - `userId/backups/history/*.json`
+  - `userId/cloud-snapshot/latest.json`
+  - imports archived under `userId/imports/`
+- Preserve `BLOCKED_EMPTY_OVERWRITE`.
+- Delete only current-user stale `.json` archive files after verified upload/readback, using user JWT and never service-role credentials.
+
+**Why:** The packaged Android app has no Node server. The bridge must provide the same contracts the compiled web app expects, and it must do so with user-scoped Supabase Auth/RLS rather than fake success responses.
+
+**Consequences:**
+- `android-bridge.js` is now intentionally part of the current repair scope.
+- Runtime failure after this point should be investigated as a real Supabase/RLS/Storage policy or network error, not silently masked.
+- Unit tests cover payload mapping and backup safety, but real APK testing is still required.
+
+---
+
+## DEC-020 — Do not delete community role/admin labels as "admin panel" cruft
+
+**Date:** 2026-06-30
+**Context:** User asked to remove admin panel/useless things. Static inspection found no packaged `/admin` or `/__admin` route in the Android public assets. Server-only admin cleanup pages exist in `isotope-code/server.mjs`, but that server is not packaged into the APK. Some `admin` strings in the APK are legitimate community group roles.
+
+**Chosen:** Do not remove community owner/admin/member role code from the APK. Continue excluding server-only admin pages from Android packaging.
+
+**Why:** Removing community role labels would break community authorization/UI semantics and would not remove an admin panel from the packaged APK because that panel is server-only.
+
+**Consequences:**
+- Future cleanup should target proven packaged routes/files, not raw string matches for `admin`.
