@@ -227,8 +227,10 @@ test('apply-android-patches unlocks community group actions on Android', () => {
   const leaderboard = fs.readFileSync(path.join(assetsDir, leaderboardFile), 'utf8');
 
   assert.match(groupDiscovery, /Join with Code/);
-  assert.match(groupDiscovery, /window\.prompt\("Enter invite code or invite link"\)/);
-  assert.match(groupDiscovery, /window\.location\.href="\/invite\/"\+encodeURIComponent\(j\)/);
+  // "Join with Code" opens the native Android join modal instead of window.prompt()
+  // (window.prompt() renders unusably inside a Capacitor WebView).
+  assert.match(groupDiscovery, /window\.IsotopeAndroidCommunity&&typeof window\.IsotopeAndroidCommunity\.openJoinModal==="function"\?window\.IsotopeAndroidCommunity\.openJoinModal\(\):void 0/);
+  assert.doesNotMatch(groupDiscovery, /window\.prompt\("Enter invite code or invite link"\)/);
   assert.match(groupDiscovery, /\{value:"other",label:"Other"\}/);
   assert.match(groupDiscovery, /ve=n=>e\.jsx\(H,\{\.\.\.n\}\);/);
   assert.doesNotMatch(groupDiscovery, /featureName:"Study Groups"/);
@@ -247,8 +249,8 @@ test('apply-android-patches unlocks community group actions on Android', () => {
   assert.match(communityHub, /function ze\(\)\{const t=!0,n=E\(i=>i\.userId\);/);
   assert.match(communityHub, /Join with Code/);
   assert.match(communityHub, /Create Group/);
-  assert.match(communityHub, /window\.prompt\("Enter invite code or invite link"\)/);
-  assert.match(communityHub, /window\.location\.href="\/invite\/"\+encodeURIComponent\(s\)/);
+  assert.match(communityHub, /window\.IsotopeAndroidCommunity&&typeof window\.IsotopeAndroidCommunity\.openJoinModal==="function"\?window\.IsotopeAndroidCommunity\.openJoinModal\(\):void 0/);
+  assert.doesNotMatch(communityHub, /window\.prompt\("Enter invite code or invite link"\)/);
   assert.match(communityHub, /Number\.isFinite\(Number\(o\?\.weekly_hours\)\)/);
   assert.match(communityHub, /const __v=Number\.isFinite\(Number\(r\)\)\?Number\(r\):0/);
   assert.match(communityHub, /dr=t=>e\.jsx\(Ae,\{\.\.\.t\}\);/);
@@ -309,13 +311,15 @@ test('apply-android-patches adds Android analytics render stability and app-only
   assert.match(sessionLog, /h\.slice\(0,120\)/);
   assert.match(sessionLog, /layout:typeof window<"u"&&window\.__ISO_IS_ANDROID__\?!1:!0/);
   assert.match(dashboardHeader, /https:\/\/isotopeaiapp\.featurebase\.app\//);
-  assert.match(dashboardHeader, /left-\[max\(0\.75rem,env\(safe-area-inset-left\)\)\]/);
-  assert.match(dashboardHeader, /max-h-\[min\(18rem,calc\(100dvh-16rem\)\)\]/);
-  assert.match(dashboardHeader, /r\.slice\(0,8\)/);
+  // Positioning is intentionally left untouched to match isotope-code source:
+  // the panel uses `absolute right-0 top-full mt-2` (opens toward the LEFT of
+  // the bell button) with its own bounded scroll area, exactly as upstream
+  // ships it. See scripts/apply-android-patches.js for the rationale.
+  assert.match(dashboardHeader, /className: "absolute right-0 top-full mt-2 w-\[min\(20rem,calc\(100vw-1\.5rem\)\)\]/);
+  assert.match(dashboardHeader, /max-h-\[min\(24rem,calc\(100dvh-9rem\)\)\] overflow-y-auto/);
   assert.match(dashboardHeader, /items-start justify-between gap-3/);
   assert.match(dashboardHeader, /className: "min-w-0"/);
   assert.match(dashboardHeader, /max-w-\[6\.5rem\]/);
-  assert.match(dashboardHeader, /Latest 8 shown/);
   assert.doesNotMatch(dashboardHeader, /https:\/\/isotope\.featurebase\.app/);
   assert.match(headway, /account: "7eeYY7"/);
   assert.match(headway, /__ISO_IS_ANDROID__ \? null : a\.persistentStorageGranted/);
