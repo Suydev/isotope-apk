@@ -800,7 +800,7 @@ patchFile(communityHubBundle, [
 patchFile(singleGroupBundle, [
   [
     'function Ma({groupId:t,isOwner:r,isEnabled:s=!0}){const{hasSeenTour:a,setHasSeenTour:l}=Ut(),i=a[t]??!1,n=g.useCallback(()=>{',
-    'function Ma({groupId:t,isOwner:r,isEnabled:s=!0}){const{hasSeenTour:a,setHasSeenTour:l}=Ut(),__tourUid=typeof window<"u"&&window.__ISO_CURRENT_USER_ID__||"anon",__tourKey="group-tour:"+__tourUid+":"+(t||"global")+":v1",__tourSeen=typeof window<"u"&&window.localStorage&&window.localStorage.getItem(__tourKey)==="1",i=__tourSeen||!!(a[t]??!1),n=g.useCallback(()=>{',
+    'function Ma({groupId:t,isOwner:r,isEnabled:s=!0}){const{hasSeenTour:a,setHasSeenTour:l}=Ut(),__tourUid=typeof window<"u"&&window.__ISO_CURRENT_USER_ID__||"anon",__tourKey="isotope:group-tour-seen:"+__tourUid+":"+(t||"global")+":v1",__tourSeen=typeof window<"u"&&window.localStorage&&window.localStorage.getItem(__tourKey)==="1",i=__tourSeen||!!(a[t]??!1),n=g.useCallback(()=>{',
     true
   ],
   [
