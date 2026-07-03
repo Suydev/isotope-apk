@@ -875,13 +875,14 @@ patchFile(useLeaderboardBundle, [
 console.log('\n=== Patching Community Events (suppress Events tab on Android) ===');
 const communityEventsBundle = findAsset('CommunityHub-');
 
-// Filter the events/calendar tab from the hub tab list
+// Filter the events/calendar tab from the hub tab list.
+// This runs after the CommunityHub navigation/action patch, so target only
+// the surviving tab-map expression instead of the original full JSX block.
 patchFile(communityEventsBundle, [
-  // Remove events tab from tab list by filtering id: "events" or "calendar"
   [
     'h.map(r=>e.jsxs("button",{onClick:()=>t(r.id)',
     '(typeof window<"u"&&window.__ISO_IS_ANDROID__?h.filter(r=>r.id!=="events"&&r.id!=="calendar"):h).map(r=>e.jsxs("button",{onClick:()=>t(r.id)',
-    false
+    true
   ],
 ], 'CommunityHub events tab suppression');
 
