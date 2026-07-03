@@ -204,7 +204,7 @@ test('apply-android-patches fixes invite route slug fallback', () => {
   assert.doesNotMatch(inviteRoute, /m\.success&&o\(`\/community\/group\/\\$\\{m\.group_slug\\}`\)/);
 });
 
-test('apply-android-patches unlocks community group actions on Android', () => {
+test('apply-android-patches keeps upstream group creation and unlocks community actions', () => {
   const wwwDir = runPrepareWww();
   runApplyPatches(wwwDir);
 
@@ -237,11 +237,11 @@ test('apply-android-patches unlocks community group actions on Android', () => {
   assert.doesNotMatch(groupDiscovery, /\{value:"shit",label:"Shit"\}/);
 
   assert.doesNotMatch(useGroups, /isPremium\(\)/);
-  assert.match(useGroups, /rpc\("create_community_group"/);
-  assert.match(useGroups, /p_name: t/);
-  assert.match(useGroups, /p_is_public: e\.is_public \?\? !0/);
-  assert.doesNotMatch(useGroups, /from\("groups"\)\.insert/);
-  assert.doesNotMatch(useGroups, /Failed to add owner as member/);
+  assert.doesNotMatch(useGroups, /rpc\("create_community_group"/);
+  assert.match(useGroups, /from\("groups"\)\.insert/);
+  assert.match(useGroups, /from\("group_members"\)\.insert/);
+  assert.match(useGroups, /role: "owner"/);
+  assert.match(useGroups, /Failed to add owner as member/);
   assert.match(useGroups, /} = r, s = !0;/);
   assert.match(useGroups, /const i = !0;/);
   assert.match(useGroups, /e = !0;/);

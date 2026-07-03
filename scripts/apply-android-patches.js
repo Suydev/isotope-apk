@@ -686,53 +686,9 @@ patchFile(groupDiscoveryBundle, [
 ], 'GroupDiscovery bundle');
 
 patchFile(useGroupsBundle, [
-  [
-    [
-      '            const {',
-      '                data: n,',
-      '                error: u',
-      '            } = await o.from("groups").insert({ ...e,',
-      '                name: t,',
-      '                description: s,',
-      '                owner_id: i,',
-      '                member_count: 0',
-      '            }).select("id, name, description, cover_url, logo_url, category, slug, member_count, owner_id, is_public, created_at").single();',
-      '            if (u) throw u;',
-      '            const {',
-      '                error: l',
-      '            } = await o.from("group_members").insert({',
-      '                group_id: n.id,',
-      '                user_id: i,',
-      '                role: "owner"',
-      '            });',
-      '            return l && console.error("[useCreateGroup] Failed to add owner as member:", l), n'
-    ].join('\n'),
-    [
-      '            const {',
-      '                data: n,',
-      '                error: u',
-      '            } = await o.rpc("create_community_group", {',
-      '                p_name: t,',
-      '                p_description: s || null,',
-      '                p_category: e.category || "community",',
-      '                p_is_public: e.is_public ?? !0,',
-      '                p_slug: e.slug || null,',
-      '                p_logo_url: e.logo_url || null,',
-      '                p_cover_url: e.cover_url || null,',
-      '                p_settings: e.settings || {}',
-      '            });',
-      '            if (u) throw u;',
-      '            const l = Array.isArray(n) ? n[0] : n;',
-      '            if (!l) throw new Error("Group creation returned no id.");',
-      '            const {',
-      '                data: _,',
-      '                error: G',
-      '            } = await o.from("groups").select("id, name, description, cover_url, logo_url, category, slug, member_count, owner_id, is_public, created_at").eq("id", l).single();',
-      '            if (G) throw G;',
-      '            return _'
-    ].join('\n'),
-    true
-  ],
+  // Keep isotope-code's working group-creation mutation unchanged.
+  // Do not replace its groups/group_members inserts with the
+  // unavailable create_community_group RPC.
   [
     '    } = r, s = c(n => n.isPremium());',
     '    } = r, s = !0;',
