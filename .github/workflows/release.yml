@@ -22,6 +22,9 @@ jobs:
     name: Build APK/AAB and Create or Update GitHub Release
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: isotope-apk
     concurrency:
       group: release-${{ github.ref_name }}
       cancel-in-progress: false
@@ -32,6 +35,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          path: isotope-apk
 
       - name: 🏷️ Get tag info
         id: tag
@@ -68,7 +72,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: isotope-apk/package-lock.json
 
       - name: ☕ Setup JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v5
@@ -104,14 +108,14 @@ jobs:
         env:
           REPO_DIR: ${{ github.workspace }}/isotope-code
           SOURCE_DIR: ${{ github.workspace }}/isotope-code/public
-          WWW_DIR: ${{ github.workspace }}/www
-          BRIDGE_FILE: ${{ github.workspace }}/android-bridge.js
+          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
+          BRIDGE_FILE: ${{ github.workspace }}/isotope-apk/android-bridge.js
         run: node scripts/prepare-www.js
 
       - name: 🩹 Apply Android bundle and native patches
         env:
-          WWW_DIR: ${{ github.workspace }}/www
-          ANDROID_DIR: ${{ github.workspace }}/android
+          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
+          ANDROID_DIR: ${{ github.workspace }}/isotope-apk/android
         run: node scripts/apply-android-patches.js
 
       - name: 🔄 Sync Capacitor
@@ -119,16 +123,14 @@ jobs:
 
       - name: 🩹 Re-apply native patches after Capacitor sync
         env:
-          WWW_DIR: ${{ github.workspace }}/www
-          ANDROID_DIR: ${{ github.workspace }}/android
+          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
+          ANDROID_DIR: ${{ github.workspace }}/isotope-apk/android
         run: node scripts/apply-android-patches.js
 
       - name: 🔧 Make Gradle wrapper executable
-        working-directory: android
         run: chmod +x gradlew
 
       - name: 🏗️ Build Release APK
-        working-directory: android
         run: ./gradlew assembleRelease --no-daemon --stacktrace
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false"
