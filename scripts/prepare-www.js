@@ -199,11 +199,11 @@ html = replaceOptional(html, /<meta\s+name="mobile-web-app-capable"\s+content="y
 if (!html.includes('id="isotope-boot-splash"')) {
   const splashMarkup = [
     '    <style id="isotope-boot-splash-style">',
-    '      html, body { background: #0c0c0e; }',
+    '      html, body { background: #0a0a0a; }',
     '      #isotope-boot-splash {',
     '        position: fixed; inset: 0; z-index: 2147483647;',
     '        display: flex; flex-direction: column; align-items: center; justify-content: center;',
-    '        gap: 16px; background: #0c0c0e;',
+    '        gap: 16px; background: #0a0a0a;',
     '        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;',
     '        transition: opacity 0.35s ease;',
     '      }',
