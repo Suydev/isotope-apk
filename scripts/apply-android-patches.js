@@ -1400,21 +1400,19 @@ patchFile(sessionLogBundle, [
 
 patchFile(dashboardHeaderBundle, [
   ['window.open("https://isotope.featurebase.app", "_blank")', 'window.open("https://isotopeaiapp.featurebase.app/", "_blank")', false],
-  [
-    'className: "absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"',
-    'className: "fixed right-[max(0.75rem,env(safe-area-inset-right))] left-auto top-[calc(env(safe-area-inset-top)+4.5rem)] w-[min(22rem,calc(100vw-1.5rem))] max-h-[min(80dvh,36rem)] flex flex-col bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[90]"',
-    false
-  ],
-  [
-    'className: "max-h-[min(24rem,calc(100dvh-9rem))] overflow-y-auto"',
-    'className: "flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y"',
-    false
-  ],
-  [
-    '}) : r.map(t => {',
-    '}) : r.map(t => {',
-    false
-  ],
+  // NOTE: Do NOT change the panel's positioning scheme from the original source.
+  // isotope-code already anchors the panel with `absolute right-0 top-full mt-2` —
+  // right-0 means the panel's RIGHT edge aligns with the bell button, so the panel
+  // itself expands/opens toward the LEFT. Width is already capped via
+  // calc(100vw-1.5rem) so it can never overflow the viewport horizontally.
+  // A prior Android-only "fixed + safe-area-inset" positioning patch was a
+  // deviation from source and is the likely cause of the panel appearing to open
+  // on the wrong side / off-screen on tablets. We keep the panel's own vertical
+  // scroll (max-h-[min(24rem,calc(100dvh-9rem))] overflow-y-auto) exactly as
+  // isotope-code ships it — no positioning patch needed here.
+], 'DashboardHeader app links (positioning intentionally left untouched to match isotope-code)');
+
+patchFile(dashboardHeaderBundle, [
   [
     'className: "p-4 border-b border-zinc-200 dark:border-white/10 flex items-center justify-between bg-zinc-50/50 dark:bg-white/[0.02]"',
     'className: "p-3 border-b border-zinc-200 dark:border-white/10 flex items-start justify-between gap-3 bg-zinc-50/50 dark:bg-white/[0.02]"',

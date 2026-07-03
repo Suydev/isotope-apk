@@ -185,6 +185,100 @@ html = replaceOptional(html, /<meta\s+name="apple-mobile-web-app-status-bar-styl
 html = replaceOptional(html, /<meta\s+name="apple-mobile-web-app-title"\s+content="[^"]*"\s*\/>\s*/i, '', 'apple PWA title meta');
 html = replaceOptional(html, /<meta\s+name="mobile-web-app-capable"\s+content="yes"\s*\/>\s*/i, '', 'mobile web-app capable meta');
 
+// 5f. Persistent loading screen — isotope-code ships `<div id="root"></div>` with
+// NO inline splash markup, so on native Android (no browser chrome, no address
+// bar loading indicator) users can see a completely blank/white screen during:
+//   - initial WebView boot + bridge script execution
+//   - Supabase auth bootstrap / session restore
+//   - React bundle parse + first paint
+//   - route transitions before lazy chunks resolve
+// This inline splash is pure HTML/CSS with zero JS dependencies, so it paints
+// before ANY script (even android-bridge.js) executes. It is removed by a tiny
+// inline script once the real app has painted content into #root (MutationObserver
+// on #root, plus a hard timeout fallback so it can never get stuck forever).
+if (!html.includes('id="isotope-boot-splash"')) {
+  const splashMarkup = [
+    '    <style id="isotope-boot-splash-style">',
+    '      html, body { background: #0c0c0e; }',
+    '      #isotope-boot-splash {',
+    '        position: fixed; inset: 0; z-index: 2147483647;',
+    '        display: flex; flex-direction: column; align-items: center; justify-content: center;',
+    '        gap: 16px; background: #0c0c0e;',
+    '        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;',
+    '        transition: opacity 0.35s ease;',
+    '      }',
+    '      #isotope-boot-splash.isotope-boot-splash--hidden {',
+    '        opacity: 0; pointer-events: none;',
+    '      }',
+    '      #isotope-boot-splash .isotope-boot-splash__logo {',
+    '        width: 64px; height: 64px; border-radius: 18px;',
+    '        background: linear-gradient(135deg, #f97316, #fb923c);',
+    '        display: flex; align-items: center; justify-content: center;',
+    '        font-size: 30px; font-weight: 800; color: #fff;',
+    '        box-shadow: 0 8px 24px rgba(249, 115, 22, 0.35);',
+    '        animation: isotope-boot-pulse 1.6s ease-in-out infinite;',
+    '      }',
+    '      #isotope-boot-splash .isotope-boot-splash__title {',
+    '        color: #fff; font-size: 15px; font-weight: 700; letter-spacing: 0.01em;',
+    '      }',
+    '      #isotope-boot-splash .isotope-boot-splash__spinner {',
+    '        width: 28px; height: 28px; border-radius: 50%;',
+    '        border: 3px solid rgba(255,255,255,0.12); border-top-color: #f97316;',
+    '        animation: isotope-boot-spin 0.8s linear infinite;',
+    '      }',
+    '      @keyframes isotope-boot-spin { to { transform: rotate(360deg); } }',
+    '      @keyframes isotope-boot-pulse {',
+    '        0%, 100% { transform: scale(1); }',
+    '        50% { transform: scale(1.06); }',
+    '      }',
+    '    </style>',
+    '    <script id="isotope-boot-splash-script">',
+    '      (function () {',
+    '        try {',
+    '          function removeSplash() {',
+    '            var el = document.getElementById("isotope-boot-splash");',
+    '            if (!el) return;',
+    '            el.classList.add("isotope-boot-splash--hidden");',
+    '            setTimeout(function () { if (el && el.parentNode) el.parentNode.removeChild(el); }, 400);',
+    '          }',
+    '          window.__isoRemoveBootSplash = removeSplash;',
+    '          document.addEventListener("DOMContentLoaded", function () {',
+    '            var root = document.getElementById("root");',
+    '            if (!root) return;',
+    '            if (root.childNodes.length > 0) { removeSplash(); return; }',
+    '            var observer = new MutationObserver(function () {',
+    '              if (root.childNodes.length > 0) {',
+    '                observer.disconnect();',
+    '                removeSplash();',
+    '              }',
+    '            });',
+    '            observer.observe(root, { childList: true });',
+    '          });',
+    '          // Hard fallback: never let the splash block the app forever, even if',
+    '          // React fails to mount (e.g. a runtime error before first render).',
+    '          setTimeout(removeSplash, 12000);',
+    '        } catch (e) {',
+    '          var el = document.getElementById("isotope-boot-splash");',
+    '          if (el && el.parentNode) el.parentNode.removeChild(el);',
+    '        }',
+    '      })();',
+    '    </script>',
+  ].join('\n');
+  html = html.replace(/<head>/i, '<head>\n' + splashMarkup);
+
+  const splashBody = [
+    '  <div id="isotope-boot-splash">',
+    '    <div class="isotope-boot-splash__logo">I</div>',
+    '    <div class="isotope-boot-splash__title">IsotopeAI</div>',
+    '    <div class="isotope-boot-splash__spinner"></div>',
+    '  </div>',
+  ].join('\n');
+  html = html.replace(/<div id="root"><\/div>/, '<div id="root"></div>\n' + splashBody);
+  console.log('  ✓ Persistent boot splash screen injected (removed on first React paint, 12s hard fallback)');
+} else {
+  console.log('  ○ Boot splash already present in index.html');
+}
+
 fs.writeFileSync(indexDest, html, 'utf8');
 console.log('  ✓ index.html patched');
 
