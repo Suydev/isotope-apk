@@ -873,3 +873,120 @@ test('focus timer native scheduling cancels previous completion notification fir
   assert.equal(scheduled[0].notifications[0].extra.data.kind, 'focus-complete');
   assert.equal(scheduled[0].notifications[0].smallIcon, 'ic_notification');
 });
+
+test('group leaderboard normalizes points field from RPC response', async () => {
+  const userId = '11111111-1111-4111-8111-111111111111';
+  const rpcBodies = [];
+  const storageHandler = createStorageSupabaseHandler(userId, {}, async (url, init) => {
+    if (url.includes('/rest/v1/rpc/get_group_leaderboard')) {
+      rpcBodies.push(JSON.parse(init.body));
+      // RPC returns points (integer) per Supabase schema — no hours/score
+      return jsonResponse([
+        { rank: 1, user_id: userId, username: 'alice', points: 360, name: 'Alice' },
+        { rank: 2, user_id: 'other-user', username: 'bob', points: 0, name: 'Bob' },
+        { rank: 3, user_id: 'third-user', username: 'carol', name: 'Carol' }, // points missing
+      ]);
+    }
+    return null;
+  });
+  const harness = createBridgeHarness(storageHandler);
+  installSession(harness.localStorage, makeSession(userId));
+
+  const { data } = await fetchJson(harness.window, `${SUPA_URL}/functions/v1/get-group-leaderboard`, {
+    method: 'POST',
+    body: JSON.stringify({ groupId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', limit: 5 }),
+  });
+
+  assert.equal(data.ok, true);
+  assert.equal(Array.isArray(data.rankings), true);
+  assert.equal(data.rankings.length, 3);
+
+  // Points must be numeric, never NaN
+  for (const row of data.rankings) {
+    assert.equal(Number.isFinite(row.points), true, `points NaN for ${row.username}`);
+    assert.equal(Number.isFinite(row.rank), true, `rank NaN for ${row.username}`);
+    assert.equal(Number.isFinite(row.hours), true, `hours NaN for ${row.username}`);
+    assert.equal(Number.isFinite(row.total_hours), true, `total_hours NaN for ${row.username}`);
+  }
+
+  assert.equal(data.rankings[0].points, 360);
+  assert.equal(data.rankings[1].points, 0);
+  assert.equal(data.rankings[2].points, 0); // missing → 0, not NaN
+  assert.equal(data.rankings[0].rank, 1);
+});
+
+test('bridge exposes canonical invite URL helpers', () => {
+  const harness = createBridgeHarness(defaultSupabaseHandler());
+
+  // __ISO_INVITE_DOMAIN__ must be the canonical domain, never localhost
+  assert.equal(harness.window.__ISO_INVITE_DOMAIN__, 'https://isotopeai.in');
+
+  // __isoGetInviteUrl must produce canonical URLs
+  const webUrl = harness.window.__isoGetInviteUrl('abc123');
+  const appUrl = harness.window.__isoGetInviteUrl('abc123', 'app');
+  assert.equal(webUrl, 'https://isotopeai.in/invite/abc123');
+  assert.equal(appUrl, 'isotopeai://invite/abc123');
+  assert.equal(harness.window.__isoGetInviteUrl(''), null);
+  assert.equal(harness.window.__isoGetInviteUrl(null), null);
+});
+
+test('IsotopeAndroidCommunity.openJoinModal is callable', () => {
+  const harness = createBridgeHarness(defaultSupabaseHandler());
+  assert.ok(harness.window.IsotopeAndroidCommunity, 'IsotopeAndroidCommunity namespace missing');
+  assert.equal(
+    typeof harness.window.IsotopeAndroidCommunity.openJoinModal,
+    'function',
+    'openJoinModal must be a function'
+  );
+});
+
+test('__ISO_CURRENT_USER_ID__ is seeded from persisted session on init', () => {
+  const userId = '22222222-2222-4222-8222-222222222222';
+  // Create a harness with a session pre-installed in localStorage
+  const calls = [];
+  const localStorage = new MemoryStorage();
+  const session = makeSession(userId);
+  localStorage.setItem('isotope-auth-token', JSON.stringify(session));
+
+  const document = {
+    addEventListener() {},
+    dispatchEvent() { return true; },
+    querySelector() { return null; },
+    createElement() { return { style: {}, set textContent(v) {}, get textContent() { return ''; } }; },
+    documentElement: { style: {} },
+    head: { appendChild() {} },
+  };
+  const window = {
+    Capacitor: { Plugins: {} },
+    location: { protocol: 'https:', origin: 'https://app.local', pathname: '/' },
+    history: { back() {} },
+    localStorage,
+    sessionStorage: new MemoryStorage(),
+    document,
+    navigator: { userAgent: 'Android' },
+    addEventListener() {},
+    dispatchEvent() { return true; },
+    setTimeout,
+    clearTimeout,
+    console,
+  };
+  window.window = window;
+  const context = {
+    window, localStorage, sessionStorage: window.sessionStorage,
+    document, navigator: window.navigator, console, URL, Response,
+    CustomEvent: class CustomEvent { constructor(t, i) { this.type = t; this.detail = i?.detail; } },
+    Event: class Event { constructor(t) { this.type = t; } },
+    KeyboardEvent: class KeyboardEvent { constructor(t, i) { this.type = t; this.key = i?.key; } },
+    setTimeout, clearTimeout,
+    fetch: async (url, init = {}) => {
+      calls.push(url);
+      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  };
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(BRIDGE_PATH, 'utf8'), context, { filename: BRIDGE_PATH });
+
+  // The bridge should have read the userId from localStorage during init
+  assert.equal(context.window.__ISO_CURRENT_USER_ID__, userId,
+    `Expected userId ${userId}, got ${context.window.__ISO_CURRENT_USER_ID__}`);
+});

@@ -16,7 +16,7 @@
   'use strict';
 
   // ── Constants ───────────────────────────────────────────────────────────────
-  var APP_VERSION    = '3.3.8';
+  var APP_VERSION    = '3.3.9';
   var SUPA_URL       = 'https://vteqquoqvksshmfhuepu.supabase.co';
   var SUPA_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0ZXFxdW9xdmtzc2htZmh1ZXB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwODU2NzUsImV4cCI6MjA5NTY2MTY3NX0.ZkRislOhJRQUjVa1y5ixu-xBhlgkXWWyZKI_CClWj64';
 
@@ -37,6 +37,26 @@
   window.__ISO_ANON__      = SUPA_ANON_KEY;
   window.__ISO_IS_ANDROID__ = true;
   window.__ISO_VERSION__   = APP_VERSION;
+  window.__ISO_INVITE_DOMAIN__ = 'https://isotopeai.in';
+
+  // Canonical invite URL generator — never uses window.location.origin
+  window.__isoGetInviteUrl = function (code, type) {
+    var clean = String(code || '').trim();
+    if (!clean) return null;
+    if (type === 'app') return 'isotopeai://invite/' + clean;
+    return 'https://isotopeai.in/invite/' + clean;
+  };
+
+  // Seed current user ID from persisted session (updated on login)
+  window.__ISO_CURRENT_USER_ID__ = (function () {
+    try {
+      var raw = localStorage.getItem('isotope-auth-token') ||
+                localStorage.getItem('sb-vteqquoqvksshmfhuepu-auth-token');
+      if (!raw) return '';
+      var p = JSON.parse(raw);
+      return (p && p.user && p.user.id) || '';
+    } catch (e) { return ''; }
+  })();
 
   // Signal to pwa-local.js that server is "online" (no node server needed)
   window.__ISO_ANDROID_NATIVE__ = true;
@@ -76,6 +96,117 @@
   window.__isoIsOnline = function () {
     return window.__ISO_ANDROID_ONLINE__ !== false;
   };
+
+  // ── Community namespace — Join-with-Code modal (replaces window.prompt) ────
+  window.IsotopeAndroidCommunity = (function () {
+    function openJoinModal() {
+      try {
+        var existing = document.getElementById('__iso_join_modal');
+        if (existing) existing.remove();
+
+        var overlay = document.createElement('div');
+        overlay.id = '__iso_join_modal';
+        overlay.style.cssText = [
+          'position:fixed;inset:0;z-index:9999;',
+          'background:rgba(0,0,0,0.65);',
+          'display:flex;align-items:center;justify-content:center;',
+          'padding:1.5rem;box-sizing:border-box;'
+        ].join('');
+
+        var card = document.createElement('div');
+        card.style.cssText = [
+          'background:#0e0e11;',
+          'border:1px solid rgba(255,255,255,0.1);',
+          'border-radius:1.25rem;',
+          'width:100%;max-width:22rem;',
+          'padding:1.5rem;',
+          'box-shadow:0 8px 32px rgba(0,0,0,0.5);',
+          'display:flex;flex-direction:column;gap:1rem;',
+          'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;'
+        ].join('');
+
+        card.innerHTML = [
+          '<h2 style="margin:0;font-size:1.125rem;font-weight:700;color:#fff;">Join with Code</h2>',
+          '<p style="margin:0;font-size:0.875rem;color:#a1a1aa;line-height:1.4;">',
+          'Paste an invite code or an invite link to join a group.</p>',
+          '<input id="__iso_join_input" type="text"',
+          ' placeholder="Code or invite link..."',
+          ' autocomplete="off" autocorrect="off" spellcheck="false"',
+          ' style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.13);',
+          'border-radius:0.75rem;padding:0.75rem 1rem;color:#fff;font-size:1rem;',
+          'outline:none;width:100%;box-sizing:border-box;" />',
+          '<div id="__iso_join_error" style="display:none;color:#ef4444;font-size:0.8rem;margin-top:-0.5rem;"></div>',
+          '<div style="display:flex;gap:0.75rem;">',
+          '<button id="__iso_join_cancel"',
+          ' style="flex:1;padding:0.625rem;background:rgba(255,255,255,0.07);',
+          'border:1px solid rgba(255,255,255,0.1);border-radius:0.75rem;',
+          'color:#a1a1aa;font-size:0.875rem;font-weight:600;cursor:pointer;">Cancel</button>',
+          '<button id="__iso_join_submit"',
+          ' style="flex:2;padding:0.625rem;background:#7c3aed;border:none;',
+          'border-radius:0.75rem;color:#fff;font-size:0.875rem;font-weight:700;cursor:pointer;">',
+          'Join Group</button>',
+          '</div>'
+        ].join('');
+
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+
+        var inp = document.getElementById('__iso_join_input');
+        var errEl = document.getElementById('__iso_join_error');
+        setTimeout(function () { try { inp && inp.focus(); } catch (e) {} }, 80);
+
+        function dismiss() { try { overlay.remove(); } catch (e) {} }
+
+        function showErr(msg) {
+          if (!errEl) return;
+          errEl.textContent = msg;
+          errEl.style.display = 'block';
+          if (inp) inp.style.borderColor = '#ef4444';
+        }
+
+        function submit() {
+          var val = (inp && inp.value || '').trim();
+          if (!val) { showErr('Please enter an invite code or link.'); return; }
+          // Extract code from full URL or bare code
+          var code = val.replace(/[?#].*$/, '').split(/[\/\\]/).filter(Boolean).pop();
+          if (!code) { showErr('Could not parse invite code.'); return; }
+          dismiss();
+          try {
+            // Prefer React-router navigation (no full reload) when available
+            if (window.__iso_navigate && typeof window.__iso_navigate === 'function') {
+              window.__iso_navigate('/invite/' + encodeURIComponent(code));
+            } else if (window.history && typeof window.history.pushState === 'function') {
+              window.history.pushState({}, '', '/invite/' + encodeURIComponent(code));
+              window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+            } else {
+              window.location.href = '/invite/' + encodeURIComponent(code);
+            }
+          } catch (e) {
+            window.location.href = '/invite/' + encodeURIComponent(code);
+          }
+        }
+
+        document.getElementById('__iso_join_cancel').onclick = dismiss;
+        document.getElementById('__iso_join_submit').onclick = submit;
+        overlay.onclick = function (ev) { if (ev.target === overlay) dismiss(); };
+        if (inp) {
+          inp.onkeydown = function (ev) {
+            if (ev.key === 'Enter') submit();
+            if (ev.key === 'Escape') dismiss();
+          };
+        }
+      } catch (e) {
+        // Fallback: native prompt
+        var val = window.prompt('Enter invite code or invite link');
+        if (val) {
+          var code = String(val).trim().split(/[\/\\]/).filter(Boolean).pop();
+          if (code) window.location.href = '/invite/' + encodeURIComponent(code);
+        }
+      }
+    }
+
+    return { openJoinModal: openJoinModal };
+  })();
 
   try {
     Object.defineProperty(navigator, 'onLine', {
@@ -1375,6 +1506,10 @@
             localStorage.setItem('isotope-last-jwt', d.access_token);
             if (d.refresh_token) localStorage.setItem('isotope-last-rt', d.refresh_token);
           } catch (e) {}
+          // Keep current-user-ID global in sync for community features
+          try {
+            if (d.user && d.user.id) window.__ISO_CURRENT_USER_ID__ = d.user.id;
+          } catch (e) {}
           return jsonResponse({ ok: true, session: session, user: d.user });
         } else {
           var errMsg = d.error_description || d.msg || d.message || d.error || 'Login failed';
@@ -2209,7 +2344,21 @@
       p_limit: intFrom(body && body.limit, 20, 1, 100)
     };
     return rpcPost('/rest/v1/rpc/get_group_leaderboard', rpcBody, 'Group leaderboard RPC failed', function (rows) {
-      var rankings = Array.isArray(rows) ? rows : [];
+      var raw = Array.isArray(rows) ? rows : [];
+      // Normalize every row: RPC returns `points` (integer); ensure no NaN
+      var rankings = raw.map(function (row, idx) {
+        var pts  = Number.isFinite(Number(row.points))       ? Number(row.points)       : 0;
+        var hrs  = Number.isFinite(Number(row.hours))        ? Number(row.hours)        : pts / 3600;
+        var thrs = Number.isFinite(Number(row.total_hours))  ? Number(row.total_hours)  : hrs;
+        var rnk  = Number.isFinite(Number(row.rank))         ? Number(row.rank)         : idx + 1;
+        return Object.assign({}, row, {
+          rank:        rnk,
+          points:      pts,
+          hours:       hrs,
+          total_hours: thrs,
+          score:       Number.isFinite(Number(row.score)) ? Number(row.score) : pts
+        });
+      });
       return {
         ok: true,
         rankings: rankings,

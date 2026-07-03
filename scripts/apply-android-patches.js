@@ -674,7 +674,7 @@ const useLeaderboardBundle = findAsset('useLeaderboard-');
 patchFile(groupDiscoveryBundle, [
   [
     'e.jsxs("button",{onClick:()=>f(!0),className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white shadow-lg shadow-brand-500/25 transition-colors hover:bg-brand-700 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Create Group"]})',
-    'e.jsxs("div",{className:"flex w-full flex-col gap-2 sm:w-auto sm:flex-row",children:[e.jsxs("button",{onClick:()=>{const t=window.prompt("Enter invite code or invite link");if(t){const j=String(t).trim().split(/[\\\\/]/).filter(Boolean).pop();j&&(window.location.href="/invite/"+encodeURIComponent(j))}},className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2 font-bold text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Join with Code"]}),e.jsxs("button",{onClick:()=>f(!0),className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white shadow-lg shadow-brand-500/25 transition-colors hover:bg-brand-700 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Create Group"]})]})',
+    'e.jsxs("div",{className:"flex w-full flex-col gap-2 sm:w-auto sm:flex-row",children:[e.jsxs("button",{onClick:()=>{typeof window!=="undefined"&&window.IsotopeAndroidCommunity&&typeof window.IsotopeAndroidCommunity.openJoinModal==="function"?window.IsotopeAndroidCommunity.openJoinModal():void 0},className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2 font-bold text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Join with Code"]}),e.jsxs("button",{onClick:()=>f(!0),className:"flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white shadow-lg shadow-brand-500/25 transition-colors hover:bg-brand-700 sm:w-auto",children:[e.jsx(B,{className:"w-4 h-4"}),"Create Group"]})]})',
     true
   ],
   ['{value:"shit",label:"Shit"}', '{value:"other",label:"Other"}', true],
@@ -772,7 +772,7 @@ patchFile(useGroupsBundle, [
 patchFile(communityHubBundle, [
   [
     'e.jsx("div",{className:"responsive-scroll-x relative flex max-w-full gap-1 overflow-x-auto rounded-2xl bg-zinc-100 p-1.5 dark:bg-white/5 md:max-w-[min(100%,46rem)]",children:h.map(r=>e.jsxs("button",{onClick:()=>t(r.id),onMouseEnter:()=>j(r.id),onMouseLeave:()=>j(null),className:"relative z-10 flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-zinc-600 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white lg:px-4",children:[v===r.id&&e.jsx(Q.div,{layoutId:"navPill",className:"absolute inset-0 bg-white dark:bg-white/10 shadow-sm rounded-xl -z-10",initial:!1,transition:{type:"spring",stiffness:400,damping:30}}),e.jsx(r.icon,{className:`w-4 h-4 ${v===r.id?r.color:"text-zinc-400"}`}),e.jsx("span",{className:"hidden xl:inline",children:r.label})]},r.id))})',
-    'e.jsxs("div",{className:"flex w-full flex-col gap-2 md:w-auto",children:[e.jsx("div",{className:"responsive-scroll-x relative flex max-w-full gap-1 overflow-x-auto rounded-2xl bg-zinc-100 p-1.5 dark:bg-white/5 md:max-w-[min(100%,46rem)]",children:h.map(r=>e.jsxs("button",{onClick:()=>t(r.id),onMouseEnter:()=>j(r.id),onMouseLeave:()=>j(null),className:"relative z-10 flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-zinc-600 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white lg:px-4",children:[v===r.id&&e.jsx(Q.div,{layoutId:"navPill",className:"absolute inset-0 bg-white dark:bg-white/10 shadow-sm rounded-xl -z-10",initial:!1,transition:{type:"spring",stiffness:400,damping:30}}),e.jsx(r.icon,{className:`w-4 h-4 ${v===r.id?r.color:"text-zinc-400"}`}),e.jsx("span",{className:"hidden xl:inline",children:r.label})]},r.id))}),e.jsxs("div",{className:"grid grid-cols-2 gap-2",children:[e.jsx("button",{onClick:()=>{const r=window.prompt("Enter invite code or invite link");if(r){const s=String(r).trim().split(/[\\\\/]/).filter(Boolean).pop();s&&(window.location.href="/invite/"+encodeURIComponent(s))}},className:"h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-bold text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10",children:"Join with Code"}),e.jsx("button",{onClick:()=>t("discovery"),className:"h-10 rounded-xl bg-brand-600 px-3 text-xs font-bold text-white shadow-lg shadow-brand-500/20 transition-colors hover:bg-brand-700",children:"Create Group"})]})]})',
+    'e.jsxs("div",{className:"flex w-full flex-col gap-2 md:w-auto",children:[e.jsx("div",{className:"responsive-scroll-x relative flex max-w-full gap-1 overflow-x-auto rounded-2xl bg-zinc-100 p-1.5 dark:bg-white/5 md:max-w-[min(100%,46rem)]",children:h.map(r=>e.jsxs("button",{onClick:()=>t(r.id),onMouseEnter:()=>j(r.id),onMouseLeave:()=>j(null),className:"relative z-10 flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-zinc-600 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white lg:px-4",children:[v===r.id&&e.jsx(Q.div,{layoutId:"navPill",className:"absolute inset-0 bg-white dark:bg-white/10 shadow-sm rounded-xl -z-10",initial:!1,transition:{type:"spring",stiffness:400,damping:30}}),e.jsx(r.icon,{className:`w-4 h-4 ${v===r.id?r.color:"text-zinc-400"}`}),e.jsx("span",{className:"hidden xl:inline",children:r.label})]},r.id))}),e.jsxs("div",{className:"grid grid-cols-2 gap-2",children:[e.jsx("button",{onClick:()=>{typeof window!=="undefined"&&window.IsotopeAndroidCommunity&&typeof window.IsotopeAndroidCommunity.openJoinModal==="function"?window.IsotopeAndroidCommunity.openJoinModal():void 0},className:"h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-bold text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10",children:"Join with Code"}),e.jsx("button",{onClick:()=>t("discovery"),className:"h-10 rounded-xl bg-brand-600 px-3 text-xs font-bold text-white shadow-lg shadow-brand-500/20 transition-colors hover:bg-brand-700",children:"Create Group"})]})]})',
     true
   ],
   [
@@ -800,7 +800,7 @@ patchFile(communityHubBundle, [
 patchFile(singleGroupBundle, [
   [
     'function Ma({groupId:t,isOwner:r,isEnabled:s=!0}){const{hasSeenTour:a,setHasSeenTour:l}=Ut(),i=a[t]??!1,n=g.useCallback(()=>{',
-    'function Ma({groupId:t,isOwner:r,isEnabled:s=!0}){const{hasSeenTour:a,setHasSeenTour:l}=Ut(),__tourKey="isotope:group-tour-seen:"+(t||"global"),__tourSeen=typeof window<"u"&&window.localStorage&&window.localStorage.getItem(__tourKey)==="1",i=__tourSeen||!!(a[t]??!1),n=g.useCallback(()=>{',
+    'function Ma({groupId:t,isOwner:r,isEnabled:s=!0}){const{hasSeenTour:a,setHasSeenTour:l}=Ut(),__tourUid=typeof window<"u"&&window.__ISO_CURRENT_USER_ID__||"anon",__tourKey="group-tour:"+__tourUid+":"+(t||"global")+":v1",__tourSeen=typeof window<"u"&&window.localStorage&&window.localStorage.getItem(__tourKey)==="1",i=__tourSeen||!!(a[t]??!1),n=g.useCallback(()=>{',
     true
   ],
   [
@@ -853,7 +853,7 @@ patchFile(singleGroupBundle, [
 patchFile(useLeaderboardBundle, [
   [
     'return e={...e,rankings:Array.isArray(e.rankings)?e.rankings.filter(w):[],currentUserRank:w(e.currentUserRank)?e.currentUserRank:void 0},',
-    'return e={...e,rankings:Array.isArray(e.rankings)?e.rankings.filter(w).map((a,o)=>({...a,rank:Number.isFinite(Number(a.rank))?Number(a.rank):o+1,hours:Number.isFinite(Number(a.hours))?Number(a.hours):0,total_hours:Number.isFinite(Number(a.total_hours))?Number(a.total_hours):Number.isFinite(Number(a.hours))?Number(a.hours):0,score:Number.isFinite(Number(a.score))?Number(a.score):0,total_sessions:Number.isFinite(Number(a.total_sessions))?Number(a.total_sessions):0})):[],currentUserRank:w(e.currentUserRank)?{...e.currentUserRank,rank:Number.isFinite(Number(e.currentUserRank.rank))?Number(e.currentUserRank.rank):void 0,hours:Number.isFinite(Number(e.currentUserRank.hours))?Number(e.currentUserRank.hours):0,total_hours:Number.isFinite(Number(e.currentUserRank.total_hours))?Number(e.currentUserRank.total_hours):Number.isFinite(Number(e.currentUserRank.hours))?Number(e.currentUserRank.hours):0,score:Number.isFinite(Number(e.currentUserRank.score))?Number(e.currentUserRank.score):0,total_sessions:Number.isFinite(Number(e.currentUserRank.total_sessions))?Number(e.currentUserRank.total_sessions):0}:void 0},',
+    'return e={...e,rankings:Array.isArray(e.rankings)?e.rankings.filter(w).map((a,o)=>({...a,rank:Number.isFinite(Number(a.rank))?Number(a.rank):o+1,points:Number.isFinite(Number(a.points))?Number(a.points):0,hours:Number.isFinite(Number(a.hours))?Number(a.hours):0,total_hours:Number.isFinite(Number(a.total_hours))?Number(a.total_hours):Number.isFinite(Number(a.hours))?Number(a.hours):0,score:Number.isFinite(Number(a.score))?Number(a.score):Number.isFinite(Number(a.points))?Number(a.points):0,total_sessions:Number.isFinite(Number(a.total_sessions))?Number(a.total_sessions):0})):[],currentUserRank:w(e.currentUserRank)?{...e.currentUserRank,rank:Number.isFinite(Number(e.currentUserRank.rank))?Number(e.currentUserRank.rank):void 0,points:Number.isFinite(Number(e.currentUserRank.points))?Number(e.currentUserRank.points):0,hours:Number.isFinite(Number(e.currentUserRank.hours))?Number(e.currentUserRank.hours):0,total_hours:Number.isFinite(Number(e.currentUserRank.total_hours))?Number(e.currentUserRank.total_hours):Number.isFinite(Number(e.currentUserRank.hours))?Number(e.currentUserRank.hours):0,score:Number.isFinite(Number(e.currentUserRank.score))?Number(e.currentUserRank.score):0,total_sessions:Number.isFinite(Number(e.currentUserRank.total_sessions))?Number(e.currentUserRank.total_sessions):0}:void 0},',
     true
   ],
   [
@@ -867,6 +867,44 @@ patchFile(useLeaderboardBundle, [
     true
   ],
 ], 'useLeaderboard bundle');
+
+// ── 6d. Community Events — suppress Events tab on Android ────────────────────
+// Events tables exist in DB but the UI tab causes confusion on mobile devices.
+// Remove it from the CommunityHub tab list without touching DB tables.
+
+console.log('\n=== Patching Community Events (suppress Events tab on Android) ===');
+const communityEventsBundle = findAsset('CommunityHub-');
+
+// Filter the events/calendar tab from the hub tab list
+patchFile(communityEventsBundle, [
+  // Remove events tab from tab list by filtering id: "events" or "calendar"
+  [
+    'h.map(r=>e.jsxs("button",{onClick:()=>t(r.id)',
+    '(typeof window<"u"&&window.__ISO_IS_ANDROID__?h.filter(r=>r.id!=="events"&&r.id!=="calendar"):h).map(r=>e.jsxs("button",{onClick:()=>t(r.id)',
+    false
+  ],
+], 'CommunityHub events tab suppression');
+
+// ── 6e. Invite URL — use canonical isotopeai.in domain, not window.location.origin ─
+console.log('\n=== Patching invite share URL generation ===');
+const groupInviteBundle = findAsset('GroupInviteGenerator-') || findAsset('useGroupInvites-') || findAsset('useInvites-');
+
+patchFile(groupInviteBundle, [
+  // Fix: window.location.origin + "/invite/" → canonical domain
+  [
+    'window.location.origin+"/invite/"',
+    '(typeof window<"u"&&window.__ISO_INVITE_DOMAIN__?window.__ISO_INVITE_DOMAIN__:window.location.origin)+"/invite/"',
+    false
+  ],
+  // Also cover cases where the origin is interpolated in a template literal
+  [
+    '`${window.location.origin}/invite/',
+    '`${typeof window<"u"&&window.__ISO_INVITE_DOMAIN__?window.__ISO_INVITE_DOMAIN__:window.location.origin}/invite/',
+    false
+  ],
+], 'GroupInviteGenerator canonical URL');
+
+
 
 // ── 6c. Notification store — native scheduled notifications ─────────────────
 
@@ -1364,17 +1402,17 @@ patchFile(dashboardHeaderBundle, [
   ['window.open("https://isotope.featurebase.app", "_blank")', 'window.open("https://isotopeaiapp.featurebase.app/", "_blank")', false],
   [
     'className: "absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"',
-    'className: "fixed left-[max(0.75rem,env(safe-area-inset-left))] right-auto top-[calc(env(safe-area-inset-top)+4.5rem)] w-[min(19rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-9rem)] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[90]"',
+    'className: "fixed right-[max(0.75rem,env(safe-area-inset-right))] left-auto top-[calc(env(safe-area-inset-top)+4.5rem)] w-[min(22rem,calc(100vw-1.5rem))] max-h-[min(80dvh,36rem)] flex flex-col bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[90]"',
     false
   ],
   [
     'className: "max-h-[min(24rem,calc(100dvh-9rem))] overflow-y-auto"',
-    'className: "max-h-[min(18rem,calc(100dvh-16rem))] overflow-y-auto overscroll-contain touch-pan-y custom-scrollbar"',
+    'className: "flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y"',
     false
   ],
   [
     '}) : r.map(t => {',
-    '}) : (typeof window<"u"&&window.__ISO_IS_ANDROID__?r.slice(0,8):r).map(t => {',
+    '}) : r.map(t => {',
     false
   ],
   [
@@ -1413,10 +1451,7 @@ patchFile(dashboardHeaderBundle, [
       '                                            className: "p-3 bg-zinc-50 dark:bg-white/5 border-t border-zinc-200 dark:border-white/10",',
       '                                            children: e.jsxs("div", {',
       '                                                className: "space-y-2",',
-      '                                                children: [r.length > 8 && e.jsx("p", {',
-      '                                                    className: "text-center text-[10px] font-semibold uppercase tracking-widest text-zinc-400 dark:text-zinc-500",',
-      '                                                    children: typeof window<"u"&&window.__ISO_IS_ANDROID__?"Latest 8 shown":"Scroll for more"',
-      '                                                }), e.jsx("button", {',
+      '                                                children: [e.jsx("button", {',
       '                                                    onClick: w,',
       '                                                    className: "w-full py-2 text-xs font-bold text-zinc-500 hover:text-red-500 transition-colors uppercase tracking-widest",',
       '                                                    children: "Clear All"',
