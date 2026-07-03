@@ -3676,3 +3676,492 @@
 
   console.log('[IsotopeAI] Android bridge initialized — version ' + APP_VERSION);
 })();
+
+// === IsotopeAI Android notification dropdown parity: start ===
+(() => {
+  "use strict";
+
+  if (
+    typeof window === "undefined" ||
+    typeof document === "undefined" ||
+    typeof document.querySelectorAll !== "function"
+  ) {
+    return;
+  }
+
+  const STYLE_ID = "isotope-android-notification-style";
+  const PANEL_ATTR = "data-isotope-android-notification-panel";
+  const SCROLLER_ATTR = "data-isotope-android-notification-scroller";
+  const ENHANCED_ATTR = "data-isotope-android-notification-enhanced";
+
+  let scheduled = false;
+
+  const isElement = (value) =>
+    Boolean(
+      value &&
+      value.nodeType === 1 &&
+      typeof value.querySelector === "function"
+    );
+
+  const isHtmlElement = (value) =>
+    Boolean(
+      isElement(value) &&
+      value.style &&
+      typeof value.setAttribute === "function"
+    );
+
+  function isAndroidApp() {
+    return Boolean(
+      window.__ISO_IS_ANDROID__ ||
+      window.Capacitor?.isNativePlatform?.() ||
+      window.Capacitor?.getPlatform?.() === "android"
+    );
+  }
+
+  function installStyles() {
+    if (document.getElementById(STYLE_ID)) {
+      return;
+    }
+
+    const style = document.createElement("style");
+
+    style.id = STYLE_ID;
+    style.textContent = `
+      [${PANEL_ATTR}="true"] {
+        position: fixed !important;
+        right: auto !important;
+        margin-top: 0 !important;
+        width: min(20rem, calc(100vw - 1.5rem)) !important;
+        max-width: calc(100vw - 1.5rem) !important;
+        overflow: hidden !important;
+        overscroll-behavior: contain;
+        z-index: 2147483000 !important;
+        transform: none !important;
+        isolation: isolate;
+      }
+
+      [${SCROLLER_ATTR}="true"] {
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        overscroll-behavior-y: contain;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
+      }
+    `;
+
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function findNotificationPanel() {
+    for (const heading of document.querySelectorAll("h3")) {
+      if (heading.textContent?.trim() !== "Notifications") {
+        continue;
+      }
+
+      const header = heading.parentElement?.parentElement;
+      const panel = header?.parentElement;
+
+      if (
+        isHtmlElement(panel) &&
+        panel
+          .querySelector("button")
+          ?.textContent
+          ?.includes("Mark all as read")
+      ) {
+        return panel;
+      }
+    }
+
+    return null;
+  }
+
+  function findBellButton(panel) {
+    const wrapper = panel.parentElement;
+
+    if (!wrapper) {
+      return null;
+    }
+
+    for (const child of wrapper.children) {
+      if (
+        isHtmlElement(child) &&
+        child.tagName === "BUTTON" &&
+        child.querySelector(".lucide-bell")
+      ) {
+        return child;
+      }
+    }
+
+    return wrapper.querySelector("button");
+  }
+
+  function findScroller(panel) {
+    for (const child of panel.children) {
+      if (
+        isHtmlElement(child) &&
+        child.classList?.contains("overflow-y-auto")
+      ) {
+        return child;
+      }
+    }
+
+    const fallback = panel.children?.[1];
+
+    return isHtmlElement(fallback)
+      ? fallback
+      : null;
+  }
+
+  function keepTouchInsideScroller(scroller) {
+    if (scroller.getAttribute(ENHANCED_ATTR) === "true") {
+      return;
+    }
+
+    scroller.setAttribute(ENHANCED_ATTR, "true");
+
+    let previousTouchY = 0;
+
+    scroller.addEventListener(
+      "touchstart",
+      (event) => {
+        previousTouchY =
+          event.touches[0]?.clientY ?? 0;
+      },
+      {
+        passive: true,
+      }
+    );
+
+    scroller.addEventListener(
+      "touchmove",
+      (event) => {
+        const currentTouchY =
+          event.touches[0]?.clientY ?? previousTouchY;
+
+        const movingDown =
+          currentTouchY > previousTouchY;
+
+        const movingUp =
+          currentTouchY < previousTouchY;
+
+        const atTop =
+          scroller.scrollTop <= 0;
+
+        const atBottom =
+          Math.ceil(
+            scroller.scrollTop +
+            scroller.clientHeight
+          ) >= scroller.scrollHeight;
+
+        if (
+          scroller.scrollHeight <= scroller.clientHeight ||
+          (atTop && movingDown) ||
+          (atBottom && movingUp)
+        ) {
+          event.preventDefault();
+        }
+
+        event.stopPropagation();
+        previousTouchY = currentTouchY;
+      },
+      {
+        passive: false,
+      }
+    );
+
+    scroller.addEventListener(
+      "wheel",
+      (event) => {
+        event.stopPropagation();
+      },
+      {
+        passive: true,
+      }
+    );
+  }
+
+  function positionPanel(
+    panel,
+    bellButton,
+    scroller
+  ) {
+    const viewport = window.visualViewport;
+
+    const viewportLeft =
+      viewport?.offsetLeft ?? 0;
+
+    const viewportTop =
+      viewport?.offsetTop ?? 0;
+
+    const viewportWidth =
+      viewport?.width ?? window.innerWidth;
+
+    const viewportHeight =
+      viewport?.height ?? window.innerHeight;
+
+    const edge = 12;
+    const gap = 8;
+
+    // Matches:
+    // w-[min(20rem,calc(100vw-1.5rem))]
+    const panelWidth = Math.max(
+      1,
+      Math.min(
+        320,
+        viewportWidth - edge * 2
+      )
+    );
+
+    const bellRect =
+      bellButton.getBoundingClientRect();
+
+    const preferredLeft =
+      viewportLeft +
+      bellRect.right -
+      panelWidth;
+
+    const minimumLeft =
+      viewportLeft + edge;
+
+    const maximumLeft =
+      viewportLeft +
+      viewportWidth -
+      panelWidth -
+      edge;
+
+    const left = Math.min(
+      Math.max(
+        preferredLeft,
+        minimumLeft
+      ),
+      Math.max(
+        minimumLeft,
+        maximumLeft
+      )
+    );
+
+    let top =
+      viewportTop +
+      bellRect.bottom +
+      gap;
+
+    let availableHeight =
+      viewportTop +
+      viewportHeight -
+      top -
+      edge;
+
+    if (availableHeight < 180) {
+      top = viewportTop + edge;
+
+      availableHeight =
+        viewportTop +
+        viewportHeight -
+        top -
+        edge;
+    }
+
+    availableHeight = Math.max(
+      120,
+      availableHeight
+    );
+
+    panel.style.left =
+      `${Math.round(left)}px`;
+
+    panel.style.top =
+      `${Math.round(top)}px`;
+
+    panel.style.width =
+      `${Math.round(panelWidth)}px`;
+
+    panel.style.maxHeight =
+      `${Math.round(availableHeight)}px`;
+
+    const header =
+      panel.firstElementChild;
+
+    const headerHeight =
+      isHtmlElement(header)
+        ? header.getBoundingClientRect().height
+        : 73;
+
+    // Matches the HTML5 max-h of 24rem.
+    const scrollerHeight = Math.min(
+      384,
+      Math.max(
+        120,
+        Math.floor(
+          availableHeight -
+          headerHeight
+        )
+      )
+    );
+
+    scroller.style.maxHeight =
+      `${scrollerHeight}px`;
+  }
+
+  function enhanceNotificationPanel() {
+    scheduled = false;
+
+    if (!isAndroidApp()) {
+      return;
+    }
+
+    const panel =
+      findNotificationPanel();
+
+    if (!panel) {
+      return;
+    }
+
+    const bellButton =
+      findBellButton(panel);
+
+    const scroller =
+      findScroller(panel);
+
+    if (
+      !isHtmlElement(bellButton) ||
+      !isHtmlElement(scroller)
+    ) {
+      return;
+    }
+
+    installStyles();
+
+    panel.setAttribute(
+      PANEL_ATTR,
+      "true"
+    );
+
+    scroller.setAttribute(
+      SCROLLER_ATTR,
+      "true"
+    );
+
+    keepTouchInsideScroller(scroller);
+
+    positionPanel(
+      panel,
+      bellButton,
+      scroller
+    );
+  }
+
+  function scheduleEnhancement() {
+    if (scheduled) {
+      return;
+    }
+
+    scheduled = true;
+
+    const run =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : (callback) =>
+            window.setTimeout(callback, 0);
+
+    run(enhanceNotificationPanel);
+  }
+
+  function start() {
+    if (!isAndroidApp()) {
+      return;
+    }
+
+    scheduleEnhancement();
+
+    const root =
+      document.body ||
+      document.documentElement;
+
+    if (
+      root &&
+      typeof MutationObserver !== "undefined"
+    ) {
+      const observer =
+        new MutationObserver(
+          scheduleEnhancement
+        );
+
+      observer.observe(root, {
+        childList: true,
+        subtree: true,
+      });
+    }
+
+    window.addEventListener(
+      "resize",
+      scheduleEnhancement,
+      {
+        passive: true,
+      }
+    );
+
+    window.addEventListener(
+      "scroll",
+      scheduleEnhancement,
+      {
+        passive: true,
+      }
+    );
+
+    window.visualViewport?.addEventListener(
+      "resize",
+      scheduleEnhancement,
+      {
+        passive: true,
+      }
+    );
+
+    window.visualViewport?.addEventListener(
+      "scroll",
+      scheduleEnhancement,
+      {
+        passive: true,
+      }
+    );
+
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target =
+          isElement(event.target)
+            ? event.target
+            : null;
+
+        const button =
+          target?.closest?.("button");
+
+        if (
+          button
+            ?.querySelector
+            ?.(".lucide-bell")
+        ) {
+          window.setTimeout(
+            scheduleEnhancement,
+            0
+          );
+        }
+      },
+      true
+    );
+  }
+
+  if (
+    document.readyState === "loading"
+  ) {
+    document.addEventListener(
+      "DOMContentLoaded",
+      start,
+      {
+        once: true,
+      }
+    );
+  } else {
+    start();
+  }
+})();
+// === IsotopeAI Android notification dropdown parity: end ===
