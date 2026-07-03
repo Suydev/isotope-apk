@@ -26,6 +26,12 @@ jobs:
       cancel-in-progress: false
 
     steps:
+      # ── Checkout this repo (Capacitor wrapper + bridge) ───────────────────
+      - name: ⬇️ Checkout isotope-apk
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - name: 🏷️ Get tag info
         id: tag
         run: |
@@ -47,12 +53,6 @@ jobs:
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      # ── Checkout this repo (Capacitor wrapper + bridge) ───────────────────
-      - name: ⬇️ Checkout isotope-apk
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       # ── Checkout source assets from isotope-code (public repo) ───────────
       - name: ⬇️ Checkout isotope-code (source assets)
