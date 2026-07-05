@@ -1,0 +1,8 @@
+FILE IDENTITY (path=public/assets/vendor-supabase-DAiUAuun.js, size=299750, SHA-256=b2e4ae83d38ffc0f0af91266bd0f8a5667fbe08bbe0c4c8d98572098cbf880cb, minified=yes)
+PURPOSE (Supabase Vendor Chunk)
+ACTIVE OR STALE (active)
+CHUNK FAMILY (Vendor-Supabase)
+DUPLICATE STATUS (None)
+SECURITY NOTES (No obvious keys found in head snippet)
+FINDINGS (BUNDLE-OK)
+FINAL VERDICT (Verified)

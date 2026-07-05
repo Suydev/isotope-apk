@@ -1,0 +1,38 @@
+AUDIT REPORT: /tmp/isotope-repo/public/assets/Syllabus-DZSnov0t.js
+================================================================================
+
+1. IDENTITY
+--------------------------------------------------------------------------------
+Module Name: Syllabus
+Inferred Role: Manages curriculum structure, topics, and possibly content organization.
+
+2. API ENDPOINTS
+--------------------------------------------------------------------------------
+No /api/ or /__admin/ or /__auth/ endpoints found in this specific bundle.
+
+3. CREDENTIAL SCAN
+--------------------------------------------------------------------------------
+1083:"))), j.key === "
+
+4. DANGEROUS PATTERNS
+--------------------------------------------------------------------------------
+No dangerous patterns found.
+
+5. EXTERNAL URLS
+--------------------------------------------------------------------------------
+696:https://... (Partial URL match)
+
+6. STORAGE KEYS
+--------------------------------------------------------------------------------
+No localStorage or sessionStorage usage found.
+
+7. FEATURE FLAGS & CONSTANTS
+--------------------------------------------------------------------------------
+No feature flags or version strings found.
+
+8. FINDINGS
+--------------------------------------------------------------------------------
+[INFO] Minimal security footprint in this bundle.
+[INFO] Audit complete for Syllabus.
+
+

@@ -1,0 +1,51 @@
+AUDIT REPORT: /tmp/isotope-repo/public/assets/useAIStore-B2cv1FZz.js
+================================================================================
+
+1. IDENTITY
+   - Module: useAIStore
+   - Purpose: Zustand state management for AI features (insights, analysis, prompts).
+   - Key Functions: generateDailyInsight, autoRunDailyInsights, clearDailyInsight.
+   - UI Contexts: /dashboard, /tasks, /study, /exams, /analytics.
+
+2. DEPENDENCIES BUNDLED
+   - Zustand (Store management)
+   - date-fns (Date utilities: vs, Oe, Vt, xs, Is)
+   - Groq / OpenAI compatible API interface
+   - Google Generative AI (Gemini) fingerprints
+
+3. API ENDPOINTS
+   - https://api.groq.com/openai/v1
+   - https://generativelanguage.googleapis.com/v1beta
+   - /dashboard
+   - /tasks
+   - /study
+   - /exams
+   - /analytics
+
+4. CREDENTIAL SCAN
+   - "ai_api_key_" (Key prefix/ref)
+   - Authorization: Bearer ${t}
+   - Authorization: Bearer ${this.api
+   - No hardcoded secrets found in bundle; keys appear to be loaded from user settings.
+
+5. SENSITIVE PATTERNS
+   - eval(): 0 occurrences
+   - setTimeout() used for debouncing/delaying insight generation.
+   - console.error() used for logging failed AI runs.
+
+6. DATA PERSISTENCE
+   - Storage Key: "ai-storage"
+   - Persistence: Zustand persist middleware (localStorage).
+   - Persistent Fields: settings, conversations, studyStrategy, dailyInsights, lastAutoRunDate.
+
+7. FEATURE FLAGS / CONSTANTS
+   - commanderBriefing, taskPlanner, syllabusAdvisor, examStrategy, weeklySummary, swotInsight.
+   - Hardcoded tactical AI prompts for each insight category.
+
+8. FINDINGS
+   - [LOW] Hardcoded AI Prompts: Detailed prompts revealing internal logic are exposed in the bundle.
+   - [INFO] Use of External AI APIs: Direct calls to Groq and Google AI endpoints.
+   - [INFO] Token Handling: Authorization headers indicate bearer token usage, likely sourced from user-provided keys.
+
+================================================================================
+END OF AUDIT

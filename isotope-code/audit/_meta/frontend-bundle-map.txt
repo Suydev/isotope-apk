@@ -1,0 +1,20 @@
+Entry HTML: index.html
+Entry JS bundle: index-BPYJFSVW.js (referenced via sw.js and transitive imports)
+Main CSS bundle: assets/index-CrO6t5EW.css (from index.html)
+Vendor chunks and their sizes:
+- vendor-react-BfU3Zn2J.js: 367320
+- vendor-supabase-DAiUAuun.js: 299750
+- vendor-sentry-VzeXdCeF.js: 671458
+- vendor-icons-CqruUz7g.js: 154131
+- vendor-charts-CFLJvnG7.js: 684509
+Duplicate bundle families:
+- App: App-pJGjDiPw.js (active), App-Bcp_57Ks.js (stale proxy)
+- vendor-supabase: vendor-supabase-DAiUAuun.js (active), vendor-supabase-CdzVlbop.js (stale proxy)
+- vendor-query: vendor-query-Rjz85D0S.js (active), vendor-query-Dco3bNuU.js (stale proxy)
+Service worker cached asset list:
+- index-CrO6t5EW.css
+- index-BPYJFSVW.js
+- vendor-react-BfU3Zn2J.js
+- vendor-supabase-CdzVlbop.js
+- App-pJGjDiPw.js
+Bundle status: mix of active and stale proxies.

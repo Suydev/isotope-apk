@@ -1,0 +1,63 @@
+AUDIT: /tmp/isotope-repo/public/sw.js
+===============================
+
+1. PURPOSE & ARCHITECTURE
+-------------------------
+'sw.js' is the Service Worker for the IsotopeAI PWA (Progressive Web App). It is responsible for offline capability, asset caching, and ensuring that "Runtime Glue" (critical boot scripts) is always available and up-to-date. It uses a "Network-First" strategy for navigation and core scripts, and a "Cache-First" strategy for static assets like images and fonts.
+
+Architecture:
+- Event-driven (install, activate, message, fetch).
+- Uses dual caches: SHELL_CACHE for the core app shell and RUNTIME_CACHE for other assets.
+- Explicitly handles "Runtime Glue" (scripts like restore-and-launch.js) to ensure the boot process is resilient.
+
+2. EXECUTION CONTEXT
+--------------------
+- Runs in a SERVICE WORKER context (separate from the main thread).
+- Global scope is 'self'.
+
+3. FUNCTION INVENTORY
+---------------------
+- isApiLike(url): Identifies requests that should never be cached (API, Auth, Admin).
+- isCacheableAsset(request, url): Filters for static assets (JS, CSS, Images, Fonts) on the same origin.
+- isRuntimeGlue(url): Identifies critical scripts that require a Network-First strategy to allow for emergency updates.
+- cacheFirst(request): Strategy: Return from cache if available, otherwise fetch and cache.
+- networkFirstStatic(request): Strategy: Try network with 'no-store', fall back to cache. Updates cache on success.
+- networkFirstNavigation(request): Strategy: Try network for document navigation, update SHELL_CACHE with index.html, fall back to cached index/offline.html.
+
+4. DATA FLOWS
+-------------
+- READS: Network requests, Cache Storage.
+- WRITES: Cache Storage ('isotope-local-shell-*', 'isotope-local-runtime-*').
+- MESSAGES: Sends 'ISOTOPE_SW_READY' and 'ISOTOPE_SW_VERSION' to clients. Receives 'SKIP_WAITING', 'GET_VERSION', 'CLEAR_ISOTOPE_CACHES'.
+
+5. ERROR HANDLING
+-----------------
+- Navigations: If the network fails and no shell is cached, it returns a 503 Response with a plain text message.
+- Static Assets: networkFirstStatic falls back to cache on any fetch error.
+- Message handling: try/catch around postMessage to handle detached clients.
+
+6. CREDENTIAL HANDLING
+----------------------
+- networkFirstStatic preserves 'credentials: request.credentials' when cloning requests.
+- Does not store tokens or sensitive data in caches.
+
+8. RACE CONDITIONS
+------------------
+- 'activate' event correctly uses 'clients.claim()' and deletes old caches to prevent stale cache interactions.
+- 'skipWaiting' is handled via message and during install to ensure the new worker takes control immediately.
+
+9. OFFLINE / CACHE BEHAVIOUR
+----------------------------
+- Cache Versioning: Uses APP_VERSION and a 12-char APP_SHA (injected by server) in cache names to ensure clean updates.
+- Pre-caching: SHELL_URLS are pre-cached during the 'install' event with { cache: 'reload' } to bypass browser HTTP cache.
+- Stale Responses: Assets in RUNTIME_CACHE stay until a version change.
+- Cache Busting: networkFirstStatic uses 'cache: no-store' in the fetch call to ensure it gets fresh data from the server.
+
+11. FINDINGS
+------------
+- [INFO] Line 113: 'cache.put(request, response.clone())' in cacheFirst doesn't check for response.ok = true for non-opaque responses, though it filters for same-origin which usually implies ok responses are desired.
+- [LOW] Line 133: If networkFirstStatic fails and no cache exists, it does a final 'fetch(request)'. This is redundant if the first fetch failed due to a network error.
+- [LOW] Line 156: SHELL_URLS list is large and manually maintained. If a file is renamed in the build process but not updated here, the SW installation will fail (due to addAll's atomic nature).
+- [INFO] Line 5: APP_VERSION and APP_SHA are placeholders. The audit assumes these are correctly replaced by the server at delivery time.
+
+VERDICT: A well-implemented Service Worker. The distinction between "Runtime Glue" and "Static Assets" shows a sophisticated understanding of PWA boot resilience. The strategy for navigation (falling back to index.html) correctly supports SPA routing.

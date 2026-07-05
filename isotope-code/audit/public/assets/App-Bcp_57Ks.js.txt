@@ -1,0 +1,8 @@
+FILE IDENTITY (path=public/assets/App-Bcp_57Ks.js, size=35, SHA-256=960efda9be6c71fd86a1685b3a73ae9312fd115451277c0b14889b263f9f62ad, minified=yes)
+PURPOSE (App Entry Proxy)
+ACTIVE OR STALE (stale)
+CHUNK FAMILY (App)
+DUPLICATE STATUS (Proxy to App-pJGjDiPw.js)
+SECURITY NOTES (No obvious keys found in head snippet)
+FINDINGS (BUNDLE-OK)
+FINAL VERDICT (Verified)

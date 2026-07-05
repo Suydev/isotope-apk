@@ -1,0 +1,26 @@
+FILE IDENTITY
+  Path: /tmp/isotope-repo/VERSION
+  Audit Path: audit/VERSION.txt
+  Commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+  Tracked: Yes
+  Type: Metadata
+  Size: 182 bytes
+  SHA-256: dedaf4a0fc39eb0f85550d95cbd5d1bade5477d569086b06abdbfc28ba71ea76
+
+PURPOSE
+  Stores the current version, commit SHA, last commit message, and update timestamp for the release.
+
+KEY SETTINGS
+  - version: 3.3.8
+  - sha: 41825c04f0aaca8a3e5828e7d32078368f4c3dfd
+  - message: ci: include env example in release archives
+  - updated_at: 2026-06-12T04:47:41.814Z
+
+SECURITY AND PRIVACY
+  - No security or privacy concerns.
+
+FINDINGS
+  - CONFIG-005; Severity: INFO; Evidence: Useful for identifying the exact build deployed.
+
+FINAL VERDICT
+  - PASS: Standard version tracking file.

@@ -1,0 +1,58 @@
+FILE IDENTITY
+- path: public/manifest.json
+- audit path: audit/public/manifest.json.txt
+- commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+- tracked: true
+- type: JSON (Web Manifest)
+- MIME: application/json
+- size: 3653
+- SHA-256: 9a84aba21851cc81a73582836a980fd32cdeb86270fac9fbd227cd3df62383df
+- encoding: UTF-8
+- executable: false
+- generated/authored: Authored
+
+PURPOSE
+Defines the PWA manifest, including app name, icons, theme colors, and shortcuts for installation on mobile and desktop.
+
+ROLE IN THE APPLICATION
+- Subsystem: PWA
+- Runtime stage: Installation
+- Active/legacy: Active
+
+REFERENCES AND CONSUMERS
+- Referenced in index.html.
+
+INTERNAL STRUCTURE
+- App metadata (name, description).
+- Icon definitions (192x192, 512x512).
+- PWA shortcuts (Dashboard, Focus, Analytics).
+- Display modes and theme colors.
+
+INPUTS
+- N/A
+
+OUTPUTS AND SIDE EFFECTS
+- Instructs the browser on how to display the app when installed.
+
+DATA FLOW
+1. Browser reads manifest.
+2. Browser shows "Install" prompt.
+3. App icons and theme are applied to the OS-level app shell.
+
+SECURITY AND PRIVACY
+- Publicly accessible file; contains no secrets.
+
+OFFLINE AND LOCAL-FIRST BEHAVIOUR
+- Essential for PWA "Add to Home Screen" functionality.
+
+PERFORMANCE
+- Small static file.
+
+FINDINGS
+- MF-001: Short name 'Isotope' matches brand. (Severity: INFO, Status: CONFIRMED)
+
+POSITIVE OBSERVATIONS
+- Complete manifest with shortcuts and high-quality icons.
+
+FINAL VERDICT
+Standard-compliant and complete PWA manifest.

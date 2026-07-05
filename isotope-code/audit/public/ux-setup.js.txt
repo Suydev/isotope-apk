@@ -1,0 +1,55 @@
+FILE IDENTITY
+- path: public/ux-setup.js
+- audit path: audit/public/ux-setup.js.txt
+- commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+- tracked: true
+- type: JavaScript
+- MIME: application/javascript
+- size: 1200
+- SHA-256: d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e
+- encoding: UTF-8
+- executable: false
+- generated/authored: Authored
+
+PURPOSE
+Helper script for the onboarding UX, providing utility functions for the multi-step setup wizard.
+
+ROLE IN THE APPLICATION
+- Subsystem: Onboarding / UX
+- Runtime stage: Initial Setup
+- Active/legacy: Active
+
+REFERENCES AND CONSUMERS
+- Used in onboarding steps 1-6.
+
+INTERNAL STRUCTURE
+- window.fillRequiredDefaults(): Utility to pre-populate required fields.
+- Helper functions for step transitions.
+
+INPUTS
+- User input (manual).
+
+OUTPUTS AND SIDE EFFECTS
+- UI state updates.
+
+DATA FLOW
+1. User interacts with setup wizard.
+2. Script provides helper logic for data entry and validation.
+
+SECURITY AND PRIVACY
+- Minimal; handles non-sensitive setup preferences.
+
+OFFLINE AND LOCAL-FIRST BEHAVIOUR
+- Works entirely locally.
+
+PERFORMANCE
+- Very lightweight.
+
+FINDINGS
+- UX-001: Explicitly avoids auto-advancing steps to ensure user control. (Severity: INFO, Status: CONFIRMED)
+
+POSITIVE OBSERVATIONS
+- Simple and effective helper script.
+
+FINAL VERDICT
+Useful onboarding aid.

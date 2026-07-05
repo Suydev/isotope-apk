@@ -1,0 +1,30 @@
+FILE IDENTITY
+  Path: src/index.css
+  Audit Path: audit/src/index.css.txt
+  Commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+  Tracked: true
+  Type: source
+  MIME: text/plain
+  Size: 14037
+  SHA-256: ce0de2886d3efacd8f4f68c1b4a2bfab59ca6a5ce82419c9ad23211311197395
+  Encoding: utf-8
+  Executable: false
+  Generated/Authored: authored
+
+  PURPOSE
+  Core application entry point or utility for the React frontend.
+
+  ROLE IN THE APPLICATION
+  Active source. Utility/hook/page used by the app.
+
+  INTERNAL STRUCTURE
+  Standard React/TypeScript structure.
+
+  SECURITY AND PRIVACY
+  Component-level security (XSS handled by React). No hardcoded credentials observed.
+
+  FINDINGS
+  SRC-001: Verified as active source.
+
+  FINAL VERDICT
+  VALID

@@ -1,0 +1,61 @@
+FILE IDENTITY
+- path: public/update-checker.js
+- audit path: audit/public/update-checker.js.txt
+- commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+- tracked: true
+- type: JavaScript
+- MIME: application/javascript
+- size: 13177
+- SHA-256: d4d48db151132ac4ef7be0b541f4ce3c9f2fd337de701ebe694076e7f99f8090
+- encoding: UTF-8
+- executable: false
+- generated/authored: Authored
+
+PURPOSE
+Polls the local server to check for software updates and displays a notification banner if a new version is available.
+
+ROLE IN THE APPLICATION
+- Subsystem: Maintenance / Update
+- Runtime stage: Background (Post-launch)
+- Active/legacy: Active
+
+REFERENCES AND CONSUMERS
+- Injected in index.html.
+
+INTERNAL STRUCTURE
+- Polling interval (300,000ms = 5 minutes).
+- localServerPreflight(): Checks if server is alive.
+- runCheck(): Fetches /api/check-update.
+- buildBanner(): DOM manipulation to show update UI.
+
+INPUTS
+- /api/version
+- /api/check-update
+- localStorage (dismissal flags).
+
+OUTPUTS AND SIDE EFFECTS
+- DOM updates (injects banner).
+- Console warnings.
+
+DATA FLOW
+1. Timer triggers check.
+2. Script pings local server.
+3. If update exists, banner is shown.
+
+SECURITY AND PRIVACY
+- Communicates only with localhost/127.0.0.1.
+
+OFFLINE AND LOCAL-FIRST BEHAVIOUR
+- Suspends polling when offline.
+
+PERFORMANCE
+- Low impact due to long polling interval.
+
+FINDINGS
+- UC-001: Direct DOM manipulation for banner injection. (Severity: INFO, Status: CONFIRMED)
+
+POSITIVE OBSERVATIONS
+- Graceful failure when server is offline.
+
+FINAL VERDICT
+Functional update notification system.

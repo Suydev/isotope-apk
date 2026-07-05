@@ -1,0 +1,70 @@
+AUDIT REPORT: /tmp/isotope-repo/public/assets/SettingsLayout-B4OgCkQ5.js
+================================================================================
+
+1. IDENTITY
+--------------------------------------------------------------------------------
+Module Name: SettingsLayout
+Inferred Role: Main settings interface for the application, handling user profile, security, and API integrations.
+
+2. API ENDPOINTS
+--------------------------------------------------------------------------------
+No /api/ or /__admin/ or /__auth/ endpoints found in this specific bundle.
+Endpoints are likely managed in the main App bundle or via the api-client library.
+
+3. CREDENTIAL SCAN
+--------------------------------------------------------------------------------
+586:"Password & Security"
+589:"Manage your password and security preferences"
+598:"Current Password"
+600:"password"
+601:"current-password"
+608:"New Password"
+610:"password"
+611:"new-password"
+618:"Confirm New Password"
+620:"password"
+621:"new-password"
+629:"Update Password"
+1079:"Add VITE_FIREBASE_VAPID_KEY to enable Firebase web push registration."
+1269:"Login attempts and password changes"
+1333:"Test Device Token"
+1344:"Copy Test Token"
+1664:"Manage your API keys and access tokens"
+1675:"Production Key"
+1700:"Generate New Key"
+3674:"Connect and manage your AI engines. All credentials stay on your device, encrypted with AES-256 for military-grade security."
+
+4. DANGEROUS PATTERNS
+--------------------------------------------------------------------------------
+No dangerous patterns (eval, innerHTML, dangerouslySetInnerHTML) found.
+
+5. EXTERNAL URLS
+--------------------------------------------------------------------------------
+297:https://api.dicebear.com/7.x/avataaars/svg?seed=${o}`,
+1530:https://www.google.com/favicon.ico
+1572:https://upload.wikimedia.org/wikipedia/commons/d/df/Microsoft_Office_Outlook_%282018%E2%80%93present%29.svg
+1614:https://upload.wikimedia.org/wikipedia/commons/a/a2/Canvas_logo.png
+1618:https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Blackboard_Learn_logo.png/600px-Blackboard_Learn_logo.png
+2306:https://example.com/focus-background.jpg
+3561:https://isotope.featurebase.app
+3592:https://discord.gg/QfmQGmKJUD
+3604:https://www.reddit.com/r/Isotope/
+3907:https://console.groq.com/keys
+3907:https://aistudio.google.com/app/apikey
+
+6. STORAGE KEYS
+--------------------------------------------------------------------------------
+2914:localStorage.getItem("isotope_sync_metadata")
+
+7. FEATURE FLAGS & CONSTANTS
+--------------------------------------------------------------------------------
+No obvious feature flags or version strings found.
+
+8. FINDINGS
+--------------------------------------------------------------------------------
+[INFO] Credential handling UI confirmed: Password update and API key management sections.
+[INFO] Encryption mention: "encrypted with AES-256 for military-grade security" at line 3674.
+[INFO] External URLs used for avatars (Dicebear), favicons, and AI provider console links.
+[INFO] Audit complete for SettingsLayout.
+
+

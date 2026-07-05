@@ -1,0 +1,28 @@
+ISOTOPE CONSOLIDATED SECURITY FINDINGS
+======================================
+
+1. CRITICAL / BLOCKER FINDINGS
+- None observed in current audit run.
+
+2. HIGH SEVERITY FINDINGS
+- SUPABASE_SERVICE_ROLE_KEY Exposure: The service-role key must never reach the browser. Grep analysis shows it is handled in server.mjs but excluded from client-side bundles. (Verified: server.mjs has blocked-variable list for browser exposure).
+- /api/restart: Previously identified as a potential issue, it is now a legacy no-op returning 'manual-command-required', requiring physical access or isotope CLI for restarts.
+
+3. MEDIUM SEVERITY FINDINGS
+- CSRF Protection: Admin panel POST routes in server.mjs lack explicit CSRF tokens. While SameSite=Strict cookies are used, which mitigates many attacks, explicit CSRF protection is recommended for state-changing operations.
+- Backup structure: public/backup.json contains a data structure. It appears to be a template/sample (exportedAt: 2026-01-01) rather than real user data.
+
+4. LOW / INFO FINDINGS
+- .env.example: Contains a real Supabase anon key and URL. This is public by design for open-source self-hosting ease of use.
+- Admin Cookie: Set with HttpOnly and SameSite=Strict. Secure flag is not set by default (likely for local dev compatibility over HTTP). Recommendation: Enable Secure flag if HTTPS is detected.
+
+5. POSITIVE SECURITY OBSERVATIONS
+- SECURITY DEFINER functions in SQL are correctly paired with 'SET search_path = public' to prevent search path hijacking.
+- RLS policies are pervasive across tables (checked in isotope-complete.sql).
+- GitHub workflows follow principle of least privilege where possible, though some use contents: write for releases (justified).
+
+EVIDENCE GATHERED:
+- Admin Cookie: 'Set-Cookie': 'iso_admin=...; Path=/__admin; HttpOnly; SameSite=Strict; Max-Age=86400' (Line 5675)
+- Restart API: 'restart: manual-command-required' (Line 6002)
+- SQL Security: SECURITY DEFINER + search_path observed in schema files.
+- Backup Sample: public/backup.json contains placeholder values ("name": "").

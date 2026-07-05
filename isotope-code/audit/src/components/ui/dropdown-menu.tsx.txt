@@ -1,0 +1,30 @@
+FILE IDENTITY
+  Path: src/components/ui/dropdown-menu.tsx
+  Audit Path: audit/src/components/ui/dropdown-menu.tsx.txt
+  Commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+  Tracked: true
+  Type: component
+  MIME: text/plain
+  Size: 7606
+  SHA-256: dc109123ecd59af01d07aa9f3a8e8a7085bd3f337388c5369799ab1ce6c2d45f
+  Encoding: utf-8
+  Executable: false
+  Generated/Authored: authored
+
+  PURPOSE
+  Shadcn/UI scaffolded component.
+
+  ROLE IN THE APPLICATION
+  Scaffold. Mostly unused in the current version of App.tsx, which is a placeholder.
+
+  INTERNAL STRUCTURE
+  Standard shadcn/ui boilerplate.
+
+  SECURITY AND PRIVACY
+  Component-level security (XSS handled by React).
+
+  FINDINGS
+  UI-001: Verified as shadcn/ui scaffold.
+
+  FINAL VERDICT
+  VALID

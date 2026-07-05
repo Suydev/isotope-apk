@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.local
+dist/
+build/
+.vite/
+.cache/
+.DS_Store
+.isotope/logs/
+.isotope/tmp/
+artifacts/
+/screenshot
+/screenshot.zip
+/screenshots/*.zip

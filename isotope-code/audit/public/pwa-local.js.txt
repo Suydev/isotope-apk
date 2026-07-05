@@ -1,0 +1,58 @@
+FILE IDENTITY
+- path: public/pwa-local.js
+- audit path: audit/public/pwa-local.js.txt
+- commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+- tracked: true
+- type: JavaScript
+- MIME: application/javascript
+- size: 2145
+- SHA-256: 7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8
+- encoding: UTF-8
+- executable: false
+- generated/authored: Authored
+
+PURPOSE
+Manages PWA registration and lifecycle events specifically for local server environments. It handles the 'beforeinstallprompt' and service worker updates.
+
+ROLE IN THE APPLICATION
+- Subsystem: PWA
+- Runtime stage: Startup
+- Active/legacy: Active
+
+REFERENCES AND CONSUMERS
+- Referenced in index.html.
+
+INTERNAL STRUCTURE
+- Service Worker registration.
+- Install prompt handling (deferring and triggering).
+- Offline status detection and reporting.
+
+INPUTS
+- Navigator.serviceWorker API.
+
+OUTPUTS AND SIDE EFFECTS
+- Service Worker installation.
+- Custom events ('isotope:pwa-installed').
+
+DATA FLOW
+1. Browser fires PWA events.
+2. Script captures and manages state.
+3. Script notifies app of installation status.
+
+SECURITY AND PRIVACY
+- Standard PWA management.
+
+OFFLINE AND LOCAL-FIRST BEHAVIOUR
+- Essential for making the local server app behave like a native desktop app.
+
+PERFORMANCE
+- Minimal impact.
+
+FINDINGS
+- PL-001: Specifically tuned for localhost/127.0.0.1 PWA requirements. (Severity: INFO, Status: CONFIRMED)
+
+POSITIVE OBSERVATIONS
+- Clean implementation of PWA installation flow.
+
+FINAL VERDICT
+Reliable PWA manager.

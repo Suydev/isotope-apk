@@ -1,0 +1,36 @@
+FILE IDENTITY
+  Path: /tmp/isotope-repo/isotope-schema.sql
+  Audit Path: audit/isotope-schema.sql.txt
+  Commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+  Tracked: Yes
+  Type: SQL Script
+  MIME: text/x-sql
+  Size: 33138 bytes
+  SHA-256: 0e40841ab97ae5939ab99501ce45981adddc71c9225c6c95d956a0ac01de7101
+
+PURPOSE
+  Sets up the core database schema for IsotopeAI, extending existing tables and creating new ones for notifications and user presence. It handles initial user setup via triggers and defines core RPC functions.
+
+SQL OBJECTS DEFINED
+  - Tables: notifications (id, user_id, type, title, body, data, read_at, created_at), user_presence (user_id, status, current_subject, last_seen, updated_at).
+  - Columns: Adds username, coins, gems, plan columns to public.users; profile_data to user_profiles; points columns to user_points; study stats to user_stats_summary; role/joined_at to group_members; message_type/reply_to_id/deleted_at to group_chat_messages; visibility/max_members/category/icon_url/is_active to groups; invite_code/created_by/max_uses/uses_count/expires_at to group_invites.
+  - Functions: handle_new_user() (SECURITY DEFINER, search_path = public).
+  - Triggers: handle_new_user on auth.users.
+  - Indexes: idx_sessions_user_id, idx_sessions_started_at, idx_groups_owner, idx_groups_active, idx_gm_group, idx_gm_user, idx_gchat_group_time, idx_gchat_user_id, idx_gchall_group, idx_gcpart_challenge, idx_gcpart_user, idx_gann_group, idx_ginv_code, idx_ginv_group, idx_notif_user_time, idx_notif_unread, idx_presence_status, idx_presence_last_seen.
+
+MIGRATION ORDER AND IDEMPOTENCY
+  - Order: Initial schema setup/extension.
+  - Idempotency: Uses IF NOT EXISTS and CREATE OR REPLACE, generally safe to re-run.
+
+SECURITY ANALYSIS
+  - RLS Policies: Mentions enabling RLS with self-hosted-friendly policies (actual policies not fully visible in head/tail but mentioned in comments).
+  - SECURITY DEFINER: handle_new_user() uses it correctly with `SET search_path = public`.
+  - search_path: Explicitly set for the SECURITY DEFINER function.
+  - Grants: Not explicitly shown in the head/tail but expected for a schema file.
+
+FINDINGS
+  - SQL-001; Severity: INFO; Evidence: Script uses `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` which is excellent for idempotency.
+  - SQL-002; Severity: LOW; Evidence: Head/tail doesn't show explicit RLS policy definitions for the new `notifications` and `user_presence` tables, though it mentions enabling RLS.
+
+FINAL VERDICT
+  - PASS: The script appears well-structured and follows Supabase best practices for self-hosted environments.

@@ -1,0 +1,8 @@
+FILE IDENTITY (path=public/assets/vendor-react-BfU3Zn2J.js, size=367320, SHA-256=d3b19b9eb0433e7927f12dcc9307484eee6353d4f76fa263d8fc808f5f3164b8, minified=yes)
+PURPOSE (React Vendor Chunk)
+ACTIVE OR STALE (active)
+CHUNK FAMILY (Vendor)
+DUPLICATE STATUS (None)
+SECURITY NOTES (No obvious keys found in head snippet)
+FINDINGS (BUNDLE-OK)
+FINAL VERDICT (Verified)

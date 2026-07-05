@@ -1,0 +1,30 @@
+FILE IDENTITY
+  Path: src/App.tsx
+  Audit Path: audit/src/App.tsx.txt
+  Commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+  Tracked: true
+  Type: source
+  MIME: text/plain
+  Size: 1164
+  SHA-256: 1331ae5174f9bbec4eb3a2a724c2f02b12ddb8bda7d6c3d910011919662c99c2
+  Encoding: utf-8
+  Executable: false
+  Generated/Authored: authored
+
+  PURPOSE
+  Core application entry point or utility for the React frontend.
+
+  ROLE IN THE APPLICATION
+  Active source. Entry point for the Vite build.
+
+  INTERNAL STRUCTURE
+  Standard React/TypeScript structure.
+
+  SECURITY AND PRIVACY
+  Component-level security (XSS handled by React). No hardcoded credentials observed.
+
+  FINDINGS
+  SRC-001: Verified as active source.
+
+  FINAL VERDICT
+  VALID

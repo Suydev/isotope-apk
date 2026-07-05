@@ -1,0 +1,47 @@
+FILE IDENTITY
+- original path: server/backup-manager.mjs
+- audit path: audit/server/backup-manager.mjs.txt
+- audited commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+- tracked or untracked: tracked
+- file type: JavaScript/ESM module
+- MIME type: text/javascript
+- size in bytes: 15440 (approx based on content)
+- SHA-256: ba88384793e647161231fec6cb48a1846ba39f48aafdc342e9adea073254a1ef
+- text encoding: utf-8
+
+PURPOSE
+The `backup-manager.mjs` module provides a high-level abstraction for managing user backups and cloud snapshots stored in Supabase Storage. It handles downloading, uploading, listing, and normalizing backup data, as well as logic for "finding the best" backup to restore.
+
+ROLE IN THE APPLICATION
+It is utilized by the main server to orchestrate backup/restore operations requested by the client. It ensures that backups follow a canonical format and implements a retention policy (cleanup) for old or duplicate backups.
+
+REFERENCES
+- `./public/sync/backup-normalizer.js`: Used for data normalization and comparison logic.
+- Supabase Storage API: Targeted via dependency injection.
+
+INTERNAL STRUCTURE
+- `createBackupManager(deps)`: Factory function that returns the manager instance.
+- `findBestCloudBackup`: Scans storage folders to identify the most relevant/recent backup.
+- `writeCanonicalBackup`: Atomically writes a new backup to both 'latest' and 'history' paths.
+- `restoreBestBackup`: Automates the promotion of the best found backup to 'latest'.
+- `cleanupApply`: Executes the deletion of old/redundant backups based on a keep-latest policy.
+
+INPUTS
+- User JWTs for authenticated storage access.
+- Raw or normalized backup JSON data.
+- Configuration options (upsert, timeout, etc.).
+
+OUTPUTS
+- Status objects indicating success/failure of operations.
+- Metadata about backups (hashes, collection counts, richness).
+- Raw backup JSON strings for restoration.
+
+SECURITY
+- Relies on Supabase RLS and Storage policies as it uses `AsUser` variants of storage functions.
+- `assertNoEmptyOverwrite`: Protects against accidentally overwriting rich cloud data with empty local state.
+- Path Isolation: Uses `userId` as a prefix for all storage paths to ensure user data separation.
+
+FINDINGS
+- BKM-001: [MEDIUM] Deterministic History Paths. History file names include a SHA-256 slice, which is good for deduplication but could lead to predictable filenames if combined with weak timestamps.
+- BKM-002: [LOW] Memory Intensive Normalization. `normalizeAnyBackup` is called multiple times on large JSON blobs during listing and comparison, which may impact performance under high load.
+- BKM-003: [INFO] Dry Run Capability. The `cleanupPreview` function provides excellent visibility into what the cleanup task will do before execution.

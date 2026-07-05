@@ -1,0 +1,63 @@
+FILE IDENTITY
+- path: public/auth-bridge.js
+- audit path: audit/public/auth-bridge.js.txt
+- commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+- tracked: true
+- type: JavaScript
+- MIME: application/javascript
+- size: 1845
+- SHA-256: 5046294d137ca258f33e215891338423f03a6c9e03d32845610e7b25b6a71487
+- encoding: UTF-8
+- executable: false
+- generated/authored: Authored
+
+PURPOSE
+Acts as a bridge between the frontend and the local server for authentication purposes, specifically handling the transfer of Supabase session data to the local server's session storage.
+
+ROLE IN THE APPLICATION
+- Subsystem: Authentication / Security
+- Runtime stage: Onboarding / Auth flow
+- Active/legacy: Active
+
+REFERENCES AND CONSUMERS
+- Referenced/injected by server.mjs.
+- Used in the Auth/Login pages.
+
+INTERNAL STRUCTURE
+- function syncAuthToLocal(session): Posts session data to /api/auth/sync.
+- window.IsotopeAuthBridge: Public API.
+
+INPUTS
+- Supabase session object (containing access_token, refresh_token).
+- localStorage (to check existing tokens).
+
+OUTPUTS AND SIDE EFFECTS
+- Fetch POST requests to /api/auth/sync.
+- Sets local server cookies (via API response).
+
+DATA FLOW
+1. Frontend receives Supabase session.
+2. Bridge intercepts/receives session.
+3. Bridge posts session to local server.
+4. Local server validates and sets session cookie.
+
+SECURITY AND PRIVACY
+- Handles sensitive tokens.
+- AUDIT: Does NOT log tokens to console.
+- AUDIT: Uses secure POST requests.
+- AUDIT: Restricted to same-origin requests.
+
+OFFLINE AND LOCAL-FIRST BEHAVIOUR
+- Requires network for initial Supabase auth, but syncs to local server for subsequent offline-capable session management.
+
+PERFORMANCE
+- Minimal overhead; small script.
+
+FINDINGS
+- AB-001: Relies on window global object for exposure. (Severity: INFO, Status: CONFIRMED)
+
+POSITIVE OBSERVATIONS
+- Secure handling of tokens; no logging of sensitive data.
+
+FINAL VERDICT
+Well-implemented bridge for hybrid cloud/local auth.

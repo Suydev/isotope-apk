@@ -1,0 +1,56 @@
+FILE IDENTITY
+- path: public/404.html
+- audit path: audit/public/404.html.txt
+- commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+- tracked: true
+- type: HTML
+- MIME: text/html
+- size: 907
+- SHA-256: 010fc1ce9f3b334ed53518a5da5a35bdc9277a2b52e1104d7426f25545fbdf38
+- encoding: UTF-8
+- executable: false
+- generated/authored: Authored
+
+PURPOSE
+Handles 404 errors, specifically designed for GitHub Pages subdirectory hosting by performing a URL redirect to preserve SPA routing.
+
+ROLE IN THE APPLICATION
+- Subsystem: Routing / Deployment
+- Runtime stage: Navigation error
+- Active/legacy: Active
+
+REFERENCES AND CONSUMERS
+- Web server (GitHub Pages).
+
+INTERNAL STRUCTURE
+- JavaScript redirect logic (preserves path via ?p= query param).
+
+INPUTS
+- window.location
+
+OUTPUTS AND SIDE EFFECTS
+- window.location.replace()
+
+DATA FLOW
+1. User hits a non-existent path.
+2. Server serves 404.html.
+3. Script redirects to /?p=original-path.
+4. Main app restores routing from query param.
+
+SECURITY AND PRIVACY
+- No sensitive data.
+
+OFFLINE AND LOCAL-FIRST BEHAVIOUR
+- Primarily for web hosting; local server handles routes differently.
+
+PERFORMANCE
+- Instant redirect.
+
+FINDINGS
+- NF-001: Tailored for GitHub Pages hosting. (Severity: INFO, Status: CONFIRMED)
+
+POSITIVE OBSERVATIONS
+- Effective workaround for SPA routing on static hosts.
+
+FINAL VERDICT
+Necessary and functional routing helper.

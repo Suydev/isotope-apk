@@ -1,0 +1,54 @@
+FILE IDENTITY
+- path: public/workbox-1d81fbea.js
+- audit path: audit/public/workbox-1d81fbea.js.txt
+- commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+- tracked: true
+- type: JavaScript (Library)
+- MIME: application/javascript
+- size: 18128
+- SHA-256: 017bc7881c15c89816ec31f6e246344237d04a601be2576b5f4481237c154be2
+- encoding: UTF-8
+- executable: false
+- generated/authored: Generated (Minified Workbox core)
+
+PURPOSE
+Provides the Workbox library core, used by the Service Worker (sw.js) to manage caching, routing, and offline strategies.
+
+ROLE IN THE APPLICATION
+- Subsystem: PWA / Caching
+- Runtime stage: Background (Service Worker Context)
+- Active/legacy: Active
+
+REFERENCES AND CONSUMERS
+- Imported by public/sw.js via importScripts().
+
+INTERNAL STRUCTURE
+- Minified Workbox modules including routing, strategies, and cache management.
+
+INPUTS
+- N/A (Self-contained library).
+
+OUTPUTS AND SIDE EFFECTS
+- Exposes workbox global object in the Service Worker context.
+
+DATA FLOW
+1. Loaded by sw.js.
+2. Provides utility functions for request interception and cache storage.
+
+SECURITY AND PRIVACY
+- Standard library; no specific concerns.
+
+OFFLINE AND LOCAL-FIRST BEHAVIOUR
+- Essential library for implementing reliable offline behavior.
+
+PERFORMANCE
+- Minified for production use.
+
+FINDINGS
+- WB-001: Minified third-party library. (Severity: INFO, Status: CONFIRMED)
+
+POSITIVE OBSERVATIONS
+- Efficient, industry-standard library for PWA development.
+
+FINAL VERDICT
+Standard Workbox distribution file.

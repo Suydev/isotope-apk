@@ -1,0 +1,60 @@
+FILE IDENTITY
+- path: public/sync-size-optimizer.js
+- audit path: audit/public/sync-size-optimizer.js.txt
+- commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+- tracked: true
+- type: JavaScript
+- MIME: application/javascript
+- size: 12074
+- SHA-256: 500d6b1e456e9caf871d7b370dc029dbfc3002d65249d9159a981c17a32c9e5f
+- encoding: UTF-8
+- executable: false
+- generated/authored: Authored
+
+PURPOSE
+Optimizes data synchronization by making intelligent decisions based on payload size and compression.
+
+ROLE IN THE APPLICATION
+- Subsystem: Data Sync
+- Runtime stage: Sync process
+- Active/legacy: Active
+
+REFERENCES AND CONSUMERS
+- Used by sync modules to decide whether to upload/download/merge.
+
+INTERNAL STRUCTURE
+- SYNC_SIZE_CONFIG: Thresholds (1MB large file, 50MB max upload).
+- decideSyncStrategy(cloud, local): Core decision logic.
+- compressForUpload(data): Uses CompressionStream (gzip).
+- decompressDownload(blob): Uses DecompressionStream.
+
+INPUTS
+- Local and Cloud data snapshots.
+
+OUTPUTS AND SIDE EFFECTS
+- Sync strategy recommendation.
+- Compressed/Decompressed data blobs.
+
+DATA FLOW
+1. Receives data from both sources.
+2. Compares sizes and ratios.
+3. Returns 'upload', 'download', 'merge', or 'skip'.
+4. Performs compression if strategy is 'upload' and size is large.
+
+SECURITY AND PRIVACY
+- Logic only; ensures data size limits are respected.
+
+OFFLINE AND LOCAL-FIRST BEHAVIOUR
+- Vital for mobile/slow networks to prevent large accidental syncs.
+
+PERFORMANCE
+- Significant benefits by avoiding redundant transfers and using native compression.
+
+FINDINGS
+- SO-001: Uses native CompressionStream API (might need polyfill for older browsers). (Severity: INFO, Status: CONFIRMED)
+
+POSITIVE OBSERVATIONS
+- Intelligent strategy based on size ratios, not just timestamps.
+
+FINAL VERDICT
+Advanced and efficient sync optimizer.

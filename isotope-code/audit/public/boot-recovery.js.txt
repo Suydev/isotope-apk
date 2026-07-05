@@ -1,0 +1,58 @@
+FILE IDENTITY
+- path: public/boot-recovery.js
+- audit path: audit/public/boot-recovery.js.txt
+- commit: 095c2fcf03b5a1a30eddecc0a372c39723a6cfa1
+- tracked: true
+- type: JavaScript
+- MIME: application/javascript
+- size: 4096
+- SHA-256: bc29da769442ef57b11ef5633a693630f5efc35293297a7ea7a3875be4840e6c
+- encoding: UTF-8
+- executable: false
+- generated/authored: Authored
+
+PURPOSE
+Provides emergency recovery tools for the application boot process, allowing users to reset local storage or bypass corrupted states if the main app fails to load.
+
+ROLE IN THE APPLICATION
+- Subsystem: Diagnostics / Recovery
+- Runtime stage: Pre-boot / Error State
+- Active/legacy: Active
+
+REFERENCES AND CONSUMERS
+- Referenced in index.html (as a fallback/recovery script).
+
+INTERNAL STRUCTURE
+- function resetLocalStorage(): Clears all isotope-related keys.
+- function forceReload(): Hard reload bypassing cache.
+- UI event listeners for recovery buttons.
+
+INPUTS
+- LocalStorage keys.
+
+OUTPUTS AND SIDE EFFECTS
+- Clears storage.
+- Reloads the page.
+
+DATA FLOW
+1. User encounters boot error.
+2. User triggers recovery via UI.
+3. Script performs cleanup and reloads.
+
+SECURITY AND PRIVACY
+- Destructive operation (clears user data), but requires user interaction.
+
+OFFLINE AND LOCAL-FIRST BEHAVIOUR
+- Critical for recovering local-first apps from corrupted state.
+
+PERFORMANCE
+- Minimal; only runs on demand or in error states.
+
+FINDINGS
+- BR-001: Provides easy "Reset All" functionality. (Severity: INFO, Status: CONFIRMED)
+
+POSITIVE OBSERVATIONS
+- Excellent defensive programming to handle boot failures.
+
+FINAL VERDICT
+Essential recovery utility.
