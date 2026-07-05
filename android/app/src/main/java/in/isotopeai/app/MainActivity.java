@@ -44,6 +44,8 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         installIsotopeAndroidBridge();
         registerFloatingActionReceiver();
+        // Handle cold-start deep link (app launched from invite/community link)
+        handleDeepLinkIntent(getIntent(), false);
     }
 
     @Override
@@ -77,6 +79,96 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         replayFloatingTimerActions();
+        // Handle warm-start deep link (app already running when link tapped)
+        handleDeepLinkIntent(intent, true);
+    }
+
+    /**
+     * Parses an incoming deep-link intent and routes the WebView to the correct page.
+     * Handles:
+     *   https://isotopeai.in/invite/<code>
+     *   https://www.isotopeai.in/invite/<code>
+     *   https://isotopeai.in/community/<path>
+     *   isotopeai://invite/<code>
+     *
+     * @param intent    the incoming intent
+     * @param immediate true on warm-start (WebView is running); false on cold-start (defer)
+     */
+    private void handleDeepLinkIntent(Intent intent, boolean immediate) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        if (!android.content.Intent.ACTION_VIEW.equals(action)) return;
+        Uri uri = intent.getData();
+        if (uri == null) return;
+
+        String webRoute = resolveDeepLinkRoute(uri);
+        if (webRoute == null) return;
+
+        if (immediate) {
+            navigateWebViewTo(webRoute);
+        } else {
+            // Cold start: defer until the bridge signals the app is ready
+            final String route = webRoute;
+            android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+            handler.postDelayed(() -> navigateWebViewTo(route), 1500);
+        }
+    }
+
+    /**
+     * Converts a deep-link URI into a WebView-internal route string, or null if not a
+     * recognised IsotopeAI deep link.
+     */
+    private String resolveDeepLinkRoute(Uri uri) {
+        String scheme = uri.getScheme();
+        String host   = uri.getHost();
+        String path   = uri.getPath();
+        if (path == null) path = "";
+
+        // Custom scheme: isotopeai://invite/<code>
+        if ("isotopeai".equalsIgnoreCase(scheme)) {
+            String code = path.replaceFirst("^/invite/?", "").trim();
+            if (!code.isEmpty()) return "/invite/" + code;
+            return null;
+        }
+
+        // HTTPS: isotopeai.in or www.isotopeai.in
+        if ("https".equalsIgnoreCase(scheme) &&
+            host != null &&
+            (host.equalsIgnoreCase("isotopeai.in") || host.equalsIgnoreCase("www.isotopeai.in"))) {
+
+            if (path.startsWith("/invite/")) {
+                String code = path.replaceFirst("^/invite/?", "").trim();
+                return code.isEmpty() ? "/community" : "/invite/" + code;
+            }
+            if (path.startsWith("/community")) {
+                return path;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Safely navigates the Capacitor WebView to an internal route using the bridge's
+     * navigation helper, falling back to history.pushState and location.href.
+     */
+    private void navigateWebViewTo(String route) {
+        if (getBridge() == null || getBridge().getWebView() == null) return;
+        String safeRoute = route.replace("'", "\\'").replace("\\", "\\\\");
+        String js = "(function(){"
+            + "try{"
+            + "if(window.__iso_navigate&&typeof window.__iso_navigate==='function'){"
+            + "window.__iso_navigate('" + safeRoute + "');return;"
+            + "}"
+            + "if(window.history&&typeof window.history.pushState==='function'){"
+            + "window.history.pushState({},'','" + safeRoute + "');"
+            + "window.dispatchEvent(new PopStateEvent('popstate',{state:{}}));return;"
+            + "}"
+            + "window.location.href='" + safeRoute + "';"
+            + "}catch(e){window.location.href='" + safeRoute + "';}"
+            + "})();";
+        getBridge().getWebView().post(() ->
+            getBridge().getWebView().evaluateJavascript(js, null)
+        );
     }
 
     private void installIsotopeAndroidBridge() {
