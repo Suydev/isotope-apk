@@ -6,7 +6,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const SOURCE_REPO = path.resolve(ROOT, '../isotope-code');
+// Support both CI layout (../isotope-code) and local layout (./isotope-code)
+const SOURCE_REPO = (() => {
+  const nested = path.resolve(ROOT, 'isotope-code');
+  if (fs.existsSync(nested)) return nested;
+  return path.resolve(ROOT, '../isotope-code');
+})();
 
 function runPrepareWww() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'isotope-latex-www-'));
