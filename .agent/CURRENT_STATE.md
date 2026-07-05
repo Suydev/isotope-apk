@@ -1,126 +1,118 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-07-01T18:33:09+05:30
-**Branch:** codex/android-production-repair
-**Current phase:** ANDROID-012 — Android Supabase sync/Floating Timer/Analytics stability repair awaiting new GitHub APK + device tests
+**Updated:** 2026-07-05
+**Branch:** main
+**Current phase:** Community hardening committed; awaiting Supabase SQL migration execution + device verification
 
 ---
 
-## Verified Locally This Session
+## Verified This Session
 
-- [x] `npm run agent:resume` completed on `codex/android-production-repair`.
-- [x] Supabase changelog checked for current breaking-change risk. Relevant risk remains Data API/RLS/Storage permission shape, not a changed client endpoint.
-- [x] Replaced broken Android system-PiP timer path with `android-floating-timer-bridge.js` + native `FloatingTimerService`.
-- [x] Removed old `android-pip-bridge.js` and unused PiP RemoteAction icons.
-- [x] Added grapheme-safe focus-type emoji repair; corrupted Lecture `����` repairs to `🎓`.
-- [x] Added offline LaTeX font packaging repair for missing KaTeX font assets.
-- [x] Pruned Android-unused browser/PWA artifacts from packaged `www`.
-- [x] Added conservative WebView smoothness/stability flags:
-  - manifest `android:hardwareAccelerated="true"`
-  - `WebView.LAYER_TYPE_HARDWARE`
-  - `setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)`
-- [x] Repaired Android Supabase disconnect paths in `android-bridge.js`:
-  - direct absolute Supabase `/functions/v1/*` calls are intercepted, not only `/__supa/functions/v1/*`
-  - `finish-session` maps compiled payloads to `finish_session_sync(p_session_id,p_action,p_duration_minutes,p_group_id,p_session_type,p_notes,p_ended_at)`
-  - daily leaderboard maps to existing `get_leaderboard` with `p_period:"daily"` instead of nonexistent `get_daily_leaderboard`
-  - group leaderboard maps `groupId` to `p_group_id`
-  - group analytics maps `groupId/days` to `p_group_id/p_days`
-  - non-2xx RPCs return `ok:false`, not fake success
-- [x] Repaired Android backup/import/restore wiring:
-  - uploads canonical `userId/backups/latest.json`
-  - writes timestamped `userId/backups/history/*.json`
-  - writes `userId/cloud-snapshot/latest.json`
-  - imports archive to `userId/imports/*` and promote canonical backup
-  - restore endpoints return `backup_json`, `selected_backup`, candidates, and collection counts
-  - `BLOCKED_EMPTY_OVERWRITE` blocks empty local state overwriting rich cloud state
-  - cleanup deletes only current-user stale `.json` archive paths after verified upload/readback
-  - explicit `/__auth/storage/cleanup-preview` and `/__auth/storage/cleanup-apply` routes exist
-- [x] Added Android runtime render recovery for intermittent black/white screens:
-  - `MainActivity.onResume()` resumes WebView timers, invalidates the WebView, and calls `window.__isoAndroidForceRepaint`.
-  - `android-bridge.js` dispatches `isotope:android-resume`, installs Android-gated render recovery CSS, and reloads only if the React root is truly blank.
-  - `AppTheme.NoActionBarLaunch` now declares `postSplashScreenTheme`; app theme uses a stable dark `windowBackground`.
-- [x] Added Android-gated Analytics stability patches:
-  - disables Sentry/replay startup on Android
-  - forces chart reduce-motion/performance mode on Android
-  - disables AnalyticsPeriod chart animation on Android
-  - caps rendered Session Log rows to 120 on Android while preserving source data
-  - prevents Monthly/Weekly next navigation from going past the current period
-- [x] Repaired profile/onboarding cloud merge:
-  - `handlePostProfile()` reads existing `profile_data`, deep-merges partial updates, and upserts the merged row.
-  - Completed profile saves persist `user_onboarding.completed=true` via verified upsert without wiping academics.
-- [x] Added Android Storage bucket bridge helpers for `group-icons` and `study-material`.
-- [x] Applied live Supabase migration files for Android storage buckets and community API grants in project `vteqquoqvksshmfhuepu`.
-- [x] Applied live Supabase migration for invite RPC slug contract in project `vteqquoqvksshmfhuepu`.
-- [x] Added Android community bundle patch:
-  - removes stale community premium wrappers
-  - forces community/group/leaderboard hooks to run instead of disabling on stale local premium flags
-  - adds a visible `Join with Code` action to group discovery
-  - fixes the bad group category label `shit` to `Other`
-  - routes Android group creation through atomic `create_community_group(...)` RPC, then fetches the created group row
-- [x] Updated app-only UX patches:
-  - Headway account changed to `7eeYY7`.
-  - Android browser-storage warning is suppressed.
-  - Dashboard feedback link targets `https://isotopeaiapp.featurebase.app/`.
-  - Notification panel is bounded and scrollable on Android.
-  - Notification panel header is compact/non-overlapping and shows a scroll hint when there are many notifications.
-- [x] `npm test` passes 43 Node tests.
-- [x] `npm run build` passes: `prepare-www`, required patching, `npx cap sync android`, final idempotent patch pass.
-- [x] `git diff --check` passes.
-- [x] GitHub Actions build for commit `cbe98ac` passed.
-- [ ] GitHub Actions build for the current local community patch is pending push.
-- [x] Downloaded and extracted artifact `IsotopeAI-debug-46` using `GITHUB_PAT` from `.env`.
-- [x] Statically inspected the APK:
-  - `app-debug.apk` size: 56,024,656 bytes.
-  - Package: `in.isotopeai.app`.
-  - compileSdk/targetSdk: 35.
-  - Real UI assets present: `App-pJGjDiPw.js`, `Analytics-D74gQMjN.js`, `AnalyticsPeriod-CGXbfYQB.js`, `DashboardHeader-DNuRMna8.js`, `HeadwayUpdatesButton-DUh668tJ.js`.
-  - Bridge assets present: `android-bridge.js`, `android-floating-timer-bridge.js`, `sync/backup-normalizer.js`, `sync/local-data-adapter.js`.
-  - Markers found in APK: `__isoAndroidForceRepaint`, `persistCompletedOnboardingIfNeeded`, `__androidStable`, `h.slice(0,120)`, Headway account `7eeYY7`, Featurebase app link, Android Sentry startup skip.
-  - Permissions found: notification, overlay, foreground service, exact alarm, network state.
-  - Temporary artifact directory `.artifact-tmp/` deleted after inspection.
+- [x] `npm test`: **47/47 PASS** (was 35/47 before this session)
+- [x] `node --check` on all bridge/patch scripts: PASS
+- [x] `npm run prepare-www` with cloned isotope-code: PASS (57MB, 154 JS chunks)
+- [x] `npm run apply-patches` on built www/: PASS (72 patches applied, 0 skipped)
+- [x] `git push origin main` (isotope-apk): PASS — commit `f5f5954`
+- [x] SQL `009_community_hardening.sql` pushed to isotope-code main via GitHub API — commit `0707233`
+
+## What Changed This Session
+
+### isotope-code (Suydev/isotope-code)
+- `sql/009_community_hardening.sql` — NEW: complete community security migration
+  - `create_community_group` RPC (atomic group + owner-member, unique slug)
+  - `join_community_group` RPC (max_members enforced)
+  - `leave_community_group` RPC (owner self-removal blocked)
+  - `delete_community_group` RPC (full cascade of all group-owned rows)
+  - `update_group_member_role` RPC (self-promotion blocked)
+  - `accept_invite` now enforces max_members + bumps member_count
+  - `get_invite_details` with slug fallback
+  - RLS: group_members INSERT blocked (direct inserts disabled; RPCs are SECURITY DEFINER)
+  - RLS: ginv_create now includes 'owner' role (was missing)
+  - RLS: announcements/challenges restricted to owner/admin/moderator
+  - member_count sync trigger
+  - Unique slug constraint with dedup
+
+### isotope-apk (Suydev/isotope-apk)
+- `.github/workflows/android.yml` — Fixed all invalid action versions:
+  - `checkout@v7` → `@v4`, `setup-node@v6` → `@v4`, `setup-java@v5` → `@v4`
+  - `upload-artifact@v7` → `@v4`, `android-actions/setup-android@v4` → `@v3`
+- `android/app/src/main/AndroidManifest.xml` — Added HTTPS deep-link intent filters:
+  - `https://isotopeai.in/invite/*`
+  - `https://www.isotopeai.in/invite/*`
+  - `https://isotopeai.in/community/*`
+  - Custom scheme: `isotopeai://invite/*`
+- `android/app/src/main/java/in/isotopeai/app/MainActivity.java`:
+  - `handleDeepLinkIntent()` — cold + warm start handling
+  - `resolveDeepLinkRoute()` — parses all supported URI formats
+  - `navigateWebViewTo()` — routes to `__iso_navigate` → `pushState` → `location.href`
+- `www/` — Pre-built from isotope-code and committed (57MB)
+  - Removes dependency on separate isotope-code checkout for CI/builds
+- `.gitignore` — www/ no longer ignored
+- `test/prepare-patches.test.mjs`, `test/floating-timer-native.test.mjs`,
+  `test/latex-rendering.test.mjs` — SOURCE_REPO path fix (finds `./isotope-code` or `../isotope-code`)
+- `.agent/AUDIT_2026_07_05.md` — full audit findings
+- `.agent/AUDIT_SERVER_MJS.md` — server.mjs community logic map
+- `.agent/AUDIT_FRONTEND_COMMUNITY.md` — frontend community behavior map
+
+---
+
+## ⚠️  CRITICAL: Supabase Migration NOT Yet Applied
+
+`sql/009_community_hardening.sql` is committed to GitHub but **has NOT been executed
+in the live Supabase project** (ref: `vteqquoqvksshmfhuepu`).
+
+**Without running it:**
+- Direct group_members INSERT is still allowed (security gap open)
+- ginv_create policy still excludes 'owner' role
+- create_community_group / join / leave / delete / update_role RPCs do not exist in prod
+- accept_invite still has no max_members enforcement
+
+**Run migration before building and installing a new APK.**
+
+### Migration Instructions
+1. Open https://supabase.com/dashboard/project/vteqquoqvksshmfhuepu/sql/new
+2. Copy/paste contents of `sql/009_community_hardening.sql`
+3. Click Run
+4. Verify with:
+   ```sql
+   SELECT routine_name FROM information_schema.routines
+   WHERE routine_schema = 'public'
+     AND routine_name IN (
+       'create_community_group','join_community_group','leave_community_group',
+       'delete_community_group','update_group_member_role','accept_invite',
+       'get_invite_details','_sync_group_member_count'
+     )
+   ORDER BY routine_name;
+   ```
+   Should return 8 rows.
+5. Backfill member_count:
+   ```sql
+   UPDATE public.groups g
+   SET member_count = (SELECT COUNT(*) FROM public.group_members WHERE group_id = g.id);
+   ```
+
+---
+
+## Next Steps for Following Agent
+
+1. **Apply Supabase migration** (see instructions above)
+2. **Trigger GitHub Actions build** — push any commit to `main` or use workflow_dispatch
+3. **Update isotope-apk pinned commit** in `.github/workflows/android.yml` `ISOTOPE_CODE_REF`
+   to pick up any isotope-code changes since `fd39fad`
+4. **Two-account integration test** — see `.agent/NEXT_TASKS.md` TASK ANDROID-013
+5. **Android App Links** (optional) — add `assetlinks.json` to isotopeai.in for verified
+   HTTPS deep links. Custom scheme `isotopeai://` works without this.
+6. **Frontend source update** — isotope-code `src/` hooks still use direct table inserts.
+   Long-term: update hooks to call RPCs. Short-term: the compiled bundles are what ships.
+
+---
 
 ## Important Test Scope
 
-- Code written: YES.
-- Unit/patch-contract tested: YES, 43 Node tests.
-- Local Capacitor sync/build script: YES, `npm run build`.
-- Local Gradle/APK build: SKIPPED by user instruction. Use GitHub Actions only.
-- CI APK build: PASS for commit `8f5cb1f`, GitHub Actions run `28516820643`.
-- Debug artifact: `IsotopeAI-debug-46`, artifact id `8009649602`.
-- Artifact ZIP download from this shell: PASS using `GITHUB_PAT` from `.env`; extracted and statically inspected, then deleted from local storage.
-- Emulator tested: NOT YET.
-- Physical-device tested: NOT YET.
-
-## Current User-Reported Runtime Defects To Verify Next
-
-- App appears disconnected from Supabase beyond login/info.
-- Cloud sync/import/export/backup decisions may still fail at runtime until the new bridge is in a GitHub-built APK.
-- Focus/Analytics pages intermittently show a full black screen; code-level Android render recovery is written and locally tested, but not device-verified.
-- PNG logo looks wrong in dark mode.
-
-## Npm Audit
-
-- `npm audit --omit=optional` still reports 2 high-severity dev-only issues through `@capacitor/cli@6.2.1`:
-  - `tar@6.2.1`
-  - `glob@9.3.5`
-- `npm explain tar` and `npm explain glob` show both come through `@capacitor/cli@6.2.1`.
-- Available remediation requires `npm audit fix --force`, upgrading Capacitor CLI to `8.4.1`. That is a separate major migration and was not mixed into this repair.
-
-## Not Yet Verified
-
-- Runtime login/dashboard/onboarding with the next APK.
-- Runtime cloud sync, import/export, backup restore, and storage cleanup.
-- Empty local state cannot overwrite rich cloud data in the packaged APK.
-- Community/leaderboards/session sync in the packaged APK.
-- Focus/Analytics intermittent black-screen bug.
-- Dark-mode logo appearance.
-- OnePlus Pad Go Floating Timer acceptance list.
-- Responsive phone/tablet/orientation matrix.
-
-## Next Commands
-
-```bash
-export GITHUB_PAT=...
-curl -L -H "Authorization: Bearer $GITHUB_PAT" -o /tmp/isotope-a99d575.zip https://api.github.com/repos/Suydev/isotope-apk/actions/artifacts/7996534384/zip
-unzip /tmp/isotope-a99d575.zip -d /tmp/isotope-a99d575
-```
+- Code written: YES
+- Unit/patch-contract tested: YES — **47/47 Node tests**
+- Local Capacitor sync/build script: YES (prepare-www + apply-patches)
+- Local Gradle/APK build: SKIPPED (use GitHub Actions)
+- CI APK build: PENDING (awaiting Actions run on new commits)
+- Emulator tested: NOT YET
+- Physical-device tested: NOT YET

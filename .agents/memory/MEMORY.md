@@ -1,0 +1,5 @@
+- [Community SQL hardening](community-sql-hardening.md) — RPCs replace direct inserts; group_members INSERT policy removed; ginv_create lacked owner role
+- [www/ pre-built in repo](www-prebuilt.md) — www/ committed to isotope-apk so CI builds don't need separate isotope-code checkout
+- [Workflow action versions](workflow-action-versions.md) — v7/v6/v5 were invalid; correct versions are checkout@v4, setup-node@v4, setup-java@v4, upload-artifact@v4, setup-android@v3
+- [Deep link routing pattern](deep-link-routing.md) — intent filters in manifest + resolveDeepLinkRoute + navigateWebViewTo in MainActivity; custom scheme isotopeai:// as fallback
+- [Test SOURCE_REPO path](test-source-repo-path.md) — all test files must resolve isotope-code as ./isotope-code first, then ../isotope-code for CI
