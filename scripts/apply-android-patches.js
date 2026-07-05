@@ -1369,54 +1369,11 @@ patchFile(dashboardHeaderBundle, [
   // isotope-code ships it — no positioning patch needed here.
 ], 'DashboardHeader app links (positioning intentionally left untouched to match isotope-code)');
 
-patchFile(dashboardHeaderBundle, [
-  [
-    'className: "p-4 border-b border-zinc-200 dark:border-white/10 flex items-center justify-between bg-zinc-50/50 dark:bg-white/[0.02]"',
-    'className: "p-3 border-b border-zinc-200 dark:border-white/10 flex items-start justify-between gap-3 bg-zinc-50/50 dark:bg-white/[0.02]"',
-    false
-  ],
-  [
-    'children: [e.jsxs("div", {\n                                                children: [e.jsx("h3", {',
-    'children: [e.jsxs("div", {\n                                                className: "min-w-0",\n                                                children: [e.jsx("h3", {',
-    false
-  ],
-  [
-    'className: "font-bold text-zinc-900 dark:text-white",\n                                                    children: "Notifications"',
-    'className: "font-bold text-zinc-900 dark:text-white truncate",\n                                                    children: "Notifications"',
-    false
-  ],
-  [
-    'className: "text-xs font-semibold text-brand-500 hover:text-brand-600 transition-colors",\n                                                children: "Mark all as read"',
-    'className: "shrink-0 max-w-[6.5rem] text-right text-[11px] leading-tight font-semibold text-brand-500 hover:text-brand-600 transition-colors",\n                                                children: "Mark all as read"',
-    false
-  ],
-  [
-    [
-      'r.length > 0 && e.jsx("div", {',
-      '                                            className: "p-3 bg-zinc-50 dark:bg-white/5 border-t border-zinc-200 dark:border-white/10",',
-      '                                            children: e.jsx("button", {',
-      '                                                onClick: w,',
-      '                                                className: "w-full py-2 text-xs font-bold text-zinc-500 hover:text-red-500 transition-colors uppercase tracking-widest",',
-      '                                                children: "Clear All"',
-      '                                            })',
-      '                                        })'
-    ].join('\n'),
-    [
-      'r.length > 0 && e.jsx("div", {',
-      '                                            className: "p-3 bg-zinc-50 dark:bg-white/5 border-t border-zinc-200 dark:border-white/10",',
-      '                                            children: e.jsxs("div", {',
-      '                                                className: "space-y-2",',
-      '                                                children: [e.jsx("button", {',
-      '                                                    onClick: w,',
-      '                                                    className: "w-full py-2 text-xs font-bold text-zinc-500 hover:text-red-500 transition-colors uppercase tracking-widest",',
-      '                                                    children: "Clear All"',
-      '                                                })]',
-      '                                            })',
-      '                                        })'
-    ].join('\n'),
-    false
-  ],
-], 'DashboardHeader app links and notifications');
+// Notification panel — intentionally matches isotope-code exactly.
+// No layout patches needed: the isotope-code classes already work perfectly on
+// mobile (p-4 header, items-center, text-xs mark-all button, simple Clear All).
+// Only the Headway changelog account ID is patched (done in headwayBundle below).
+console.log('  ○ Notification panel kept identical to isotope-code (no patch needed)');
 
 patchFile(headwayBundle, [
   ['account: "JRVAXJ"', 'account: "7eeYY7"', true],
