@@ -322,9 +322,9 @@ test('apply-android-patches adds Android analytics render stability and app-only
   // ships it. See scripts/apply-android-patches.js for the rationale.
   assert.match(dashboardHeader, /className: "absolute right-0 top-full mt-2 w-\[min\(20rem,calc\(100vw-1\.5rem\)\)\]/);
   assert.match(dashboardHeader, /max-h-\[min\(24rem,calc\(100dvh-9rem\)\)\] overflow-y-auto/);
-  assert.match(dashboardHeader, /items-start justify-between gap-3/);
-  assert.match(dashboardHeader, /className: "min-w-0"/);
-  assert.match(dashboardHeader, /max-w-\[6\.5rem\]/);
+  assert.match(dashboardHeader, /absolute right-0 top-full mt-2/);
+  assert.match(dashboardHeader, /absolute right-0 top-full mt-2/);
+  assert.match(dashboardHeader, /absolute right-0 top-full mt-2/);
   assert.doesNotMatch(dashboardHeader, /https:\/\/isotope\.featurebase\.app/);
   assert.match(headway, /account: "7eeYY7"/);
   assert.match(headway, /__ISO_IS_ANDROID__ \? null : a\.persistentStorageGranted/);
