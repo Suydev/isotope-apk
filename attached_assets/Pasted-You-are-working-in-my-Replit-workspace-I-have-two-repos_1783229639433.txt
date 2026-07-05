@@ -1,0 +1,253 @@
+You are working in my Replit workspace.
+
+I have two repositories:
+
+- "/home/runner/workspace/workdir/isotope-code"
+- "/home/runner/workspace/workdir/isotope-apk"
+
+Do not only audit. Actively fix the problems.
+
+Main goal: make the Community system production-ready and consistent between web and APK.
+
+Use "isotope-code" as the source of truth. "isotope-apk" must not reimplement web logic through fragile compiled/minified patches unless absolutely necessary for Android-native behavior.
+
+Critical rules
+
+- Do not expose or print secrets.
+- Use "GITHUB_PAT" only from Replit Secrets.
+- Replit may block normal "git push", so use the GitHub REST API for pushing if needed.
+- Do not run destructive commands.
+- Do not run "npm audit fix --force".
+- Keep changes focused and explain every file changed.
+- Run tests after changes.
+- In Replit, use workspace temp dirs for tests:
+
+TMPDIR="$PWD/.replit-tmp" TMP="$PWD/.replit-tmp" TEMP="$PWD/.replit-tmp" npm test
+
+Fix priorities
+
+1. Fix community group creation
+
+Compare:
+
+- "isotope-code"
+- "isotope-apk/scripts/apply-android-patches.js"
+- "isotope-apk/test/prepare-patches.test.mjs"
+
+Fix APK/web divergence.
+
+The APK must not break group creation by replacing the working upstream flow with an unavailable or mismatched RPC unless the live SQL and frontend both use the same RPC contract.
+
+Required result:
+
+- Group creation works on web.
+- Group creation works in APK.
+- Creator becomes owner.
+- "group_members" gets the owner row.
+- Test must reject broken "create_community_group" APK-only rewrites if they do not match upstream.
+- Tests must prove the packaged Android bundle keeps working group creation.
+
+2. Fix Supabase SQL / RLS security
+
+Inspect every SQL file in "isotope-code".
+
+Fix dangerous policies and missing server pieces.
+
+At minimum:
+
+- Prevent users from inserting arbitrary "group_members" rows.
+- Prevent users from promoting themselves to "owner", "admin", or "moderator".
+- Enforce private group access.
+- Enforce "max_members".
+- Allow "owner", "admin", and "moderator" to create invites.
+- Fix invite acceptance.
+- Fix invite usage counting.
+- Fix expired invites.
+- Fix group announcements/challenges so only managers can write.
+- Fix group delete cascade for invites, announcements, milestones, challenges, messages, and members.
+- Add unique group slug handling.
+- Avoid leaking user emails through public user reads.
+- Add safe RPCs where needed.
+
+Create a new migration file such as:
+
+isotope-code/sql/009_community_hardening.sql
+
+Make it idempotent where possible with "CREATE OR REPLACE", "DROP POLICY IF EXISTS", and safe index/constraint handling.
+
+Important: Pushing SQL to GitHub is not enough. At the end, print clear instructions for running the migration in Supabase SQL Editor.
+
+3. Fix upstream community source in isotope-code
+
+Search source and built assets for:
+
+- "create_community_group"
+- "accept_invite"
+- "create_group_invite"
+- "group_members"
+- "groups"
+- "group_invites"
+- "join"
+- "owner"
+- "admin"
+- "moderator"
+- "member_count"
+- "slug"
+- "is_public"
+- "visibility"
+- "max_members"
+
+Fix source-level logic first where source files exist.
+
+Do not rely only on editing compiled "public/assets/*.js" unless this repository only has built assets.
+
+Make frontend behavior match the database contract.
+
+4. Fix APK patch drift
+
+In "isotope-apk/scripts/apply-android-patches.js":
+
+- Remove stale patches.
+- Remove patches that assert broken behavior.
+- Remove dangerous exact-string replacements when better source-level behavior exists.
+- Keep only Android-specific patches:
+  - native notification behavior
+  - Android storage/session bridge
+  - Android join-code modal if needed
+  - Android scrolling/layout fixes
+  - Android WebView fixes
+
+Update "isotope-apk/test/prepare-patches.test.mjs" so it tests correct behavior, not broken behavior.
+
+5. Fix Android invite/deep-link support
+
+Inspect:
+
+- "isotope-apk/android/app/src/main/AndroidManifest.xml"
+- "isotope-apk/android/app/src/main/java/**/MainActivity.*"
+- "isotope-apk/android-bridge.js"
+
+Add proper Android deep-link/app-link handling for invite/community links.
+
+Required result:
+
+- Invite link opens APK from cold start.
+- Invite link opens APK while app is already running.
+- Link routes to the correct community invite/group page.
+- WebView receives the route safely.
+- Do not open arbitrary unsafe external URLs inside privileged WebView context.
+
+6. Fix Android notification dropdown parity
+
+Implement Android notification dropdown behavior matching the HTML5/web version:
+
+- same width
+- same scroll behavior
+- same fixed positioning near the bell
+- same max-height
+- smooth touch scroll
+- no parent page scroll stealing
+- works after resize/orientation change
+
+Prefer adding this in "android-bridge.js" only if upstream web code cannot solve it.
+
+7. Fix release/build reliability
+
+Inspect:
+
+- "isotope-apk/.github/workflows/*.yml"
+- Gradle paths
+- Capacitor sync
+- APK signing
+- artifact upload action versions
+- checkout action versions
+- pinned "isotope-code" commit
+- Node version
+- Java version
+- Android SDK version
+
+Fix broken release YAML and wrong Gradle paths.
+
+Required result:
+
+- Debug/test build works.
+- Release workflow builds from correct directory.
+- Signed APK/AAB flow is possible through repository secrets.
+- No fake/nonexistent action versions.
+
+8. Improve tests
+
+Add or update tests for:
+
+- group creation
+- owner membership
+- invite creation by owner/admin/moderator
+- invite acceptance
+- private group rejection
+- self-promotion rejection
+- max member limit
+- APK bundled group creation behavior
+- Android invite link routing
+- notification dropdown scroll behavior if testable
+- stale patch detection
+
+Do not only test string replacement if runtime behavior can be tested.
+
+9. Run validation
+
+Run in "isotope-code":
+
+npm install || npm ci || true
+npm test || true
+npm run build || true
+
+Run in "isotope-apk":
+
+npm ci
+node --check scripts/apply-android-patches.js
+node --check android-bridge.js
+node --check android-floating-timer-bridge.js
+
+rm -rf .replit-tmp
+mkdir -p .replit-tmp
+
+TMPDIR="$PWD/.replit-tmp" TMP="$PWD/.replit-tmp" TEMP="$PWD/.replit-tmp" npm test
+
+If a command fails because the repo does not provide it, explain that clearly and continue with other validation.
+
+10. Push changes using GitHub API
+
+If tests pass, push using GitHub REST API with "GITHUB_PAT" from Replit Secrets.
+
+Prefer separate commits:
+
+For "Suydev/isotope-code":
+
+fix: harden community server contract
+
+For "Suydev/isotope-apk":
+
+fix: restore community parity on Android
+
+If direct "main" update is blocked, create branches:
+
+fix/community-server-contract
+fix/android-community-parity
+
+Print the commit URLs or PR comparison URLs.
+
+Do not use normal "git push" if Replit blocks it.
+
+Final output required
+
+After fixing, give me:
+
+1. Summary of all problems fixed.
+2. Files changed in "isotope-code".
+3. Files changed in "isotope-apk".
+4. Tests run and results.
+5. Supabase SQL migration deployment instructions.
+6. Commit URLs or branch URLs.
+7. Remaining issues that need manual production verification.
+
+Do the fixes now. Do not stop at an audit.
