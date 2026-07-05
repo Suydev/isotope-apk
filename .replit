@@ -1,0 +1,6 @@
+modules = ["nodejs-20", "java-graalvm22.3", "bash"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
