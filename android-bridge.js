@@ -62,6 +62,84 @@
   window.__ISO_ANDROID_NATIVE__ = true;
   window.__ISO_ANDROID_ONLINE__ = true;
 
+  // ── Runtime error capture — logs to Logcat via console.error ────────────
+  window.__ISO_LAST_RUNTIME_ERROR__ = null;
+  (function installErrorCapture() {
+    var _prevOnerror = window.onerror;
+    window.onerror = function (msg, src, line, col, err) {
+      var entry = {
+        message: String(msg || ''),
+        source: String(src || ''),
+        line: line || 0,
+        col: col || 0,
+        stack: err && err.stack ? String(err.stack) : '',
+        ts: Date.now()
+      };
+      window.__ISO_LAST_RUNTIME_ERROR__ = entry;
+      try {
+        console.error('[IsotopeAndroidRuntime] JS Error: ' + entry.message +
+          ' @ ' + entry.source + ':' + entry.line + '\n' + entry.stack);
+      } catch (e) {}
+      if (typeof _prevOnerror === 'function') _prevOnerror.apply(this, arguments);
+      return false; // allow browser default handling
+    };
+    var _prevUnhandled = window.onunhandledrejection;
+    window.onunhandledrejection = function (event) {
+      var reason = event && event.reason;
+      var entry = {
+        message: reason ? String(reason.message || reason) : 'Unhandled promise rejection',
+        stack: reason && reason.stack ? String(reason.stack) : '',
+        ts: Date.now()
+      };
+      window.__ISO_LAST_RUNTIME_ERROR__ = entry;
+      try {
+        console.error('[IsotopeAndroidRuntime] Unhandled rejection: ' + entry.message +
+          '\n' + entry.stack);
+      } catch (e) {}
+      if (typeof _prevUnhandled === 'function') _prevUnhandled.apply(this, arguments);
+    };
+  })();
+
+  // ── Android tablet layout safety layer ──────────────────────────────────
+  // Adds 'iso-android' class to <html> and injects targeted CSS fixes.
+  // All DOM calls fully guarded — safe in Node.js test environments.
+  (function injectAndroidLayoutLayer() {
+    var styleId = '__iso_android_layout_css';
+    function inject() {
+      if (typeof document === 'undefined') return;
+      // Guard: getElementById may not exist in test mocks
+      if (typeof document.getElementById === 'function' && document.getElementById(styleId)) return;
+      // Guard: classList may not exist on documentElement mock
+      var de = document.documentElement;
+      if (de && de.classList && typeof de.classList.add === 'function') {
+        de.classList.add('iso-android');
+      }
+      // Guard: createElement / head required to inject style
+      if (typeof document.createElement !== 'function' || !document.head) return;
+      var s = document.createElement('style');
+      s.id = styleId;
+      s.textContent = [
+        'html.iso-android [role="dialog"]{max-width:min(92vw,480px)!important;margin:auto!important;}',
+        'html.iso-android [data-radix-popper-content-wrapper]{max-width:min(92vw,480px)!important;}',
+        'html.iso-android [data-notification-panel]{max-height:min(24rem,calc(100dvh - 9rem))!important;overflow-y:auto!important;width:min(20rem,calc(100vw - 1.5rem))!important;right:0!important;left:auto!important;}',
+        'html.iso-android [class*="podium"],[class*="leaderboard"]{max-width:100%!important;overflow-x:hidden!important;}',
+        'html.iso-android [class*="avatar-stack"] [class*="skeleton"]:empty,html.iso-android [class*="avatar-stack"] div:empty{display:none!important;}',
+        'html.iso-android button[class*="p-2"]{min-width:44px!important;min-height:44px!important;}',
+        'html.iso-android [class*="max-h-\\[min\\(24rem"]{max-height:min(24rem,calc(100dvh - 9rem))!important;}',
+      ].join('\n');
+      document.head.appendChild(s);
+    }
+    // Inject immediately if DOM is ready, otherwise wait for DOMContentLoaded
+    if (typeof document !== 'undefined') {
+      if (document.head) {
+        try { inject(); } catch (e) {}
+      } else if (typeof document.addEventListener === 'function') {
+        document.addEventListener('DOMContentLoaded', function () {
+          try { inject(); } catch (e) {}
+        }, { once: true });
+      }
+    }
+  })();
   function getCapacitorPlugin(name) {
     try {
       return window.Capacitor &&

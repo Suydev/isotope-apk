@@ -1,3 +1,0 @@
-App family: App-pJGjDiPw.js (active), App-Bcp_57Ks.js (stale proxy)
-Supabase family: vendor-supabase-DAiUAuun.js (active), vendor-supabase-CdzVlbop.js (stale proxy)
-Query family: vendor-query-Rjz85D0S.js (active), vendor-query-Dco3bNuU.js (stale proxy)

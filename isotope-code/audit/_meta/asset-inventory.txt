@@ -1,8 +1,0 @@
-path, type, size, purpose, active/unused
-public/favicon.svg, SVG, 163, Browser favicon, active
-public/logo-full.svg, SVG, 476, Full brand logo, active
-public/logo-icon.svg, SVG, 476, Icon-only brand logo, active
-public/opengraph.jpg, JPEG, 45405, Social sharing preview, active
-public/bg.mp4, MP4, 4328716, Background ambient video, active
-public/icons/apple-touch-icon.png, PNG, 12902, Apple touch icon, active
-public/sounds/crickets.wav, WAV, 11917352, Ambient sound, active

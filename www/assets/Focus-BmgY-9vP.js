@@ -2084,6 +2084,8 @@ const an = ({
                                 questionsSkipped: Zt.questionsSkipped || 0,
                                 targetQuestions: Zt.targetQuestions || 0,
                                 undoAvailable: !!(Zt.questionActionHistory && Zt.questionActionHistory.length),
+                                pomodoroCycle: Zt.pomodoroCycle || 1,
+                                pomodoroSessionsUntilLongBreak: (at && at.pomodoroSettings && at.pomodoroSettings.sessionsUntilLongBreak) || 4,
                                 theme: s ? "dark" : "light",
                                 route: "/focus"
                             }

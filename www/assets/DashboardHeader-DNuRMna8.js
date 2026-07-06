@@ -2151,11 +2151,10 @@ CRITICAL INSTRUCTIONS:
                                         },
                                         className: "absolute right-0 top-full mt-2 w-[min(20rem,calc(100vw-1.5rem))] bg-white dark:bg-[#0e0e11] border border-zinc-200 dark:border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50",
                                         children: [e.jsxs("div", {
-                                            className: "p-3 border-b border-zinc-200 dark:border-white/10 flex items-start justify-between gap-3 bg-zinc-50/50 dark:bg-white/[0.02]",
+                                            className: "p-4 border-b border-zinc-200 dark:border-white/10 flex items-center justify-between bg-zinc-50/50 dark:bg-white/[0.02]",
                                             children: [e.jsxs("div", {
-                                                className: "min-w-0",
                                                 children: [e.jsx("h3", {
-                                                    className: "font-bold text-zinc-900 dark:text-white truncate",
+                                                    className: "font-bold text-zinc-900 dark:text-white",
                                                     children: "Notifications"
                                                 }), e.jsxs("p", {
                                                     className: "text-xs text-zinc-500 dark:text-zinc-500 dark:text-zinc-400 mt-0.5",
@@ -2163,7 +2162,7 @@ CRITICAL INSTRUCTIONS:
                                                 })]
                                             }), r.length > 0 && e.jsx("button", {
                                                 onClick: H,
-                                                className: "shrink-0 max-w-[6.5rem] text-right text-[11px] leading-tight font-semibold text-brand-500 hover:text-brand-600 transition-colors",
+                                                className: "text-xs font-semibold text-brand-500 hover:text-brand-600 transition-colors",
                                                 children: "Mark all as read"
                                             })]
                                         }), e.jsx("div", {
@@ -2228,13 +2227,10 @@ CRITICAL INSTRUCTIONS:
                                             })
                                         }), r.length > 0 && e.jsx("div", {
                                             className: "p-3 bg-zinc-50 dark:bg-white/5 border-t border-zinc-200 dark:border-white/10",
-                                            children: e.jsxs("div", {
-                                                className: "space-y-2",
-                                                children: [e.jsx("button", {
-                                                    onClick: w,
-                                                    className: "w-full py-2 text-xs font-bold text-zinc-500 hover:text-red-500 transition-colors uppercase tracking-widest",
-                                                    children: "Clear All"
-                                                })]
+                                            children: e.jsx("button", {
+                                                onClick: w,
+                                                className: "w-full py-2 text-xs font-bold text-zinc-500 hover:text-red-500 transition-colors uppercase tracking-widest",
+                                                children: "Clear All"
                                             })
                                         })]
                                     })]

@@ -9,6 +9,7 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
@@ -191,8 +192,8 @@ public class FloatingTimerService extends Service {
         buildOverlayView();
         SharedPreferences prefs = getSharedPreferences(MainActivity.PREFS_FLOATING_TIMER, MODE_PRIVATE);
         layoutParams = new WindowManager.LayoutParams(
-            clampOverlayWidth(prefs.getInt(PREF_WIDTH, dp(340))),
-            clampOverlayHeight(prefs.getInt(PREF_HEIGHT, dp(380))),
+            clampOverlayWidth(prefs.getInt(PREF_WIDTH, dp(300))),
+            clampOverlayHeight(prefs.getInt(PREF_HEIGHT, dp(340))),
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE,
@@ -749,15 +750,22 @@ public class FloatingTimerService extends Service {
     }
 
     private int clampOverlayWidth(int value) {
-        int screen = getResources().getDisplayMetrics().widthPixels;
-        int max = Math.max(dp(320), Math.min(dp(560), screen - dp(24)));
-        return Math.max(dp(280), Math.min(max, value));
+        int config = getResources().getConfiguration().orientation;
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        boolean landscape = (config == Configuration.ORIENTATION_LANDSCAPE);
+        // Landscape on tablet: cap at 36% of screen width to avoid covering content
+        // Portrait/phone: cap at 440dp or screen width – 24dp
+        int max = landscape
+            ? Math.max(dp(280), (int)(screenW * 0.36f))
+            : Math.max(dp(280), Math.min(dp(440), screenW - dp(24)));
+        return Math.max(dp(240), Math.min(max, value));
     }
 
     private int clampOverlayHeight(int value) {
-        int screen = getResources().getDisplayMetrics().heightPixels;
-        int max = Math.max(dp(340), Math.min(dp(720), screen - dp(24)));
-        return Math.max(dp(280), Math.min(max, value));
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        // Never exceed 70% of screen height so content remains visible behind overlay
+        int max = Math.max(dp(240), (int)(screenH * 0.70f));
+        return Math.max(dp(200), Math.min(max, value));
     }
 
     // ─────────────────────────── TimerState ──────────────────────────────────
