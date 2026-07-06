@@ -3,4 +3,5 @@
 - [Workflow action versions](workflow-action-versions.md) — v7/v6/v5 were invalid; correct versions are checkout@v4, setup-node@v4, setup-java@v4, upload-artifact@v4, setup-android@v3
 - [Deep link routing pattern](deep-link-routing.md) — intent filters in manifest + resolveDeepLinkRoute + navigateWebViewTo in MainActivity; custom scheme isotopeai:// as fallback
 - [Test SOURCE_REPO path](test-source-repo-path.md) — all test files must resolve isotope-code as ./isotope-code first, then ../isotope-code for CI
-- [isotope-code checkout & KaTeX gap](isotope-code-checkout.md) — clone into ./isotope-code (gitignored) with GITHUB_PAT; repo's own public/assets is missing 8 referenced KaTeX fonts, breaking prepare-www
+- [isotope-code checkout & KaTeX gap](isotope-code-checkout.md) — clone into ./isotope-code (gitignored) with GITHUB_PAT; KaTeX font gap fixed & pushed upstream (commit 28c02a6)
+- [Nested git repo wipe](nested-git-repo-wipe.md) — cloned repos like isotope-code lose .git between turns; do init+commit+push atomically in one code_execution call

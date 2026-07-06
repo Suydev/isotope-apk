@@ -17,7 +17,7 @@ on:
 env:
   JAVA_VERSION: '17'
   NODE_VERSION: '22'
-  ISOTOPE_CODE_REF: 'fd39fad1384333ad774f19f35b754659a34dae60'
+  ISOTOPE_CODE_REF: '4bc0e8418e4a694a25a7fc7f92a01f2fa7e65201'
 
 jobs:
   build-debug-apk:
