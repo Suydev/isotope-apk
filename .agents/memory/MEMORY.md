@@ -5,3 +5,6 @@
 - [Test SOURCE_REPO path](test-source-repo-path.md) — all test files must resolve isotope-code as ./isotope-code first, then ../isotope-code for CI
 - [isotope-code checkout & KaTeX gap](isotope-code-checkout.md) — clone into ./isotope-code (gitignored) with GITHUB_PAT; KaTeX font gap fixed & pushed upstream (commit 28c02a6)
 - [Nested git repo wipe](nested-git-repo-wipe.md) — cloned repos like isotope-code lose .git between turns; do init+commit+push atomically in one code_execution call
+- [Scroll enabler Node.js guard](scroll-enabler-guard.md) — installScrollEnabler must guard pushState existence; Node test harness has no pushState and crashes the IIFE otherwise
+- [syncFailed boot trap fix](sync-failed-boot-trap.md) — AppAccessGate syncFailed screen must CTA to /auth not / for unauthenticated users; patch is in AppAccessGate patchFile block
+- [Group creation error handling](group-creation-error.md) — useGroups createGroup mutation silently swallowed group_members INSERT failure; now throws so UI surfaces it
