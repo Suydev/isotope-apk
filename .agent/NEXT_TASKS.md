@@ -65,13 +65,31 @@ curl -s -H "Authorization: Bearer $GITHUB_PAT" -H "Accept: application/vnd.githu
 
 ### TASK ANDROID-015 — View All Members button
 **Priority:** P1
-**Status:** TODO
+**Status:** CODE FIX WRITTEN (2026-07-08, GitLab Duo session) — CI + DEVICE UNVERIFIED
 **Objective:** Fix the View All Members button in SingleGroup which is broken on Android.
 
-**What we know:**
-- No fix has been written yet
-- Issue: button tap likely has no onClick handler or navigates to a route that doesn't exist in the Android context
-- Need to find the button in SingleGroup bundle and check its href/onClick
+**Findings (bundle inspection of www/assets/SingleGroup-DU1IhoNK.js):**
+- The earlier hypothesis is DISPROVEN: the button (#view-members-button) has a
+  correct onClick wired to toggleMembersDrawer in the group-ui-preferences store,
+  and the drawer component (Ea) receives isMembersDrawerOpen correctly.
+- Actual Android failure modes found in the drawer render path:
+  1. Drawer animates in via framer-motion spring from x:"100%" with a backdrop
+     fading from opacity:0. Android render-stability patches suppress animations,
+     which can leave the drawer stuck offscreen/invisible after the toggle.
+  2. Android forces performance mode, so EVERY group used the virtualized member
+     list (useVirtualizer with h-full measured scroll heights) — unreliable in the
+     Android WebView and can render an empty drawer.
+
+**Fix applied (branch fix/android-015-view-all-members):**
+- scripts/apply-android-patches.js: 2 new required SingleGroup patches —
+  Android-gated skip of initial offscreen/hidden motion states, and plain
+  (non-virtualized) member list on Android for groups of <= 60 members.
+- www/assets/SingleGroup-DU1IhoNK.js: same edits applied to committed www/.
+
+**Remaining acceptance (NOT yet verified):**
+- [ ] npm test passes (NOT run in this session — no runtime available)
+- [ ] CI build on the branch passes with 0 required-patch failures
+- [ ] Device: tap View All Members → drawer opens with member rows, roles, search
 
 ---
 

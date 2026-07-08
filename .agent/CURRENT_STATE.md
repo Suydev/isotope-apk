@@ -99,5 +99,12 @@
    - Group creation: does the error surface to UI if it fails?
    - Community groups: can you create a group and see it listed?
    - Privacy page scroll: does touch-scroll work on /privacy now?
-4. **View All Members button** — not yet fixed (no code written)
+4. **View All Members button** — ANDROID-015 code fix written (2026-07-08, GitLab Duo
+   session) on branch fix/android-015-view-all-members. Root causes addressed:
+   (a) members drawer framer-motion initial x:"100%"/opacity:0 left it offscreen or
+   invisible when Android suppresses animations; (b) forced Android performance mode
+   pushed every group through the virtualized member list, which can render empty in
+   the Android WebView. Patches added to apply-android-patches.js (required=true) and
+   mirrored into committed www/. npm test NOT executed in that session — verify via
+   CI on the branch, then device.
 5. **Agent context** — this file is up to date as of 2026-07-08

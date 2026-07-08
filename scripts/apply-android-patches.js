@@ -851,6 +851,27 @@ patchFile(singleGroupBundle, [
     '"entrance-exam","class-11","class-12","college","coding","language"',
     false
   ],
+  // ANDROID-015: "View All Members" drawer must render on Android.
+  // The drawer slides in with a framer-motion spring from x:"100%" and fades
+  // its backdrop from opacity:0. Android render-stability patches suppress
+  // animations, which can leave the drawer stuck offscreen/invisible after
+  // the button toggles isMembersDrawerOpen. On Android, skip the initial
+  // offscreen/hidden motion states entirely and render at the final position.
+  [
+    'return t?e.jsx(P,{children:e.jsx(m.div,{initial:n?!1:{opacity:0},animate:{opacity:1},exit:{opacity:0},className:"fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm",onClick:r,children:e.jsxs(m.div,{initial:n?!1:{x:"100%"},animate:{x:0},exit:{x:"100%"},transition:{type:"spring",damping:25,stiffness:300,duration:n?0:void 0},onClick:f=>f.stopPropagation(),',
+    'return t?e.jsx(P,{children:e.jsx(m.div,{initial:n||typeof window<"u"&&window.__ISO_IS_ANDROID__?!1:{opacity:0},animate:{opacity:1},exit:{opacity:0},className:"fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm",onClick:r,children:e.jsxs(m.div,{initial:n||typeof window<"u"&&window.__ISO_IS_ANDROID__?!1:{x:"100%"},animate:{x:0},exit:{x:"100%"},transition:{type:"spring",damping:25,stiffness:300,duration:n||typeof window<"u"&&window.__ISO_IS_ANDROID__?0:void 0},onClick:f=>f.stopPropagation(),',
+    true
+  ],
+  // ANDROID-015: Android forces performance mode, which routes every group
+  // (even 1-2 members) through the virtualized member list. The virtualizer
+  // depends on measured h-full scroll-container heights that are unreliable
+  // in the Android WebView and can render an empty drawer. On Android use
+  // the plain list unless the group is genuinely large.
+  [
+    ',total_hours:f.total_hours})),$=i||E.length>20,B=f=>{switch(f){',
+    ',total_hours:f.total_hours})),$=typeof window<"u"&&window.__ISO_IS_ANDROID__?E.length>60:i||E.length>20,B=f=>{switch(f){',
+    true
+  ],
 ], 'SingleGroup bundle');
 
 patchFile(useLeaderboardBundle, [
