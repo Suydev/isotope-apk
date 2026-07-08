@@ -6,110 +6,79 @@
 
 ### TASK ANDROID-012
 **Priority:** P0
-**Status:** ACTIVE
-**Objective:** Runtime-test the GitHub-built Android Analytics stability + Supabase sync bridge checkpoint on device.
+**Status:** ACTIVE — CI running on c8e2f0f8, waiting for APK artifact
+**Objective:** Runtime-test the current APK on device.
 
-**Acceptance:**
-- Checkpoint is committed and pushed to `codex/android-production-repair`.
-- GitHub Actions completes for the new commit and artifact is downloaded/extracted and statically inspected.
-- OnePlus Pad Go install/runtime checks are recorded.
-- Device evidence distinguishes:
-  - code written
-  - unit tested
-  - CI built
-  - emulator tested
-  - physical-device tested
+**What's in the current build (c8e2f0f8):**
+- pushState guard fix (62/62 tests pass)
+- syncFailed CTA → /auth (login path from black screen)
+- Group creation error now surfaces to UI
+- Supabase community migrations 009+010 applied
+- All existing patches (auth hydration, Floating Timer, Analytics fix, etc.)
 
-**Current evidence:**
-- `npm test`: PASS, 43 tests.
-- `npm run build`: PASS through `prepare-www`, `apply-patches`, `npx cap sync android`, and final idempotent patch pass.
-- `git diff --check`: PASS.
-- Commit `cbe98ac` pushed to `origin/codex/android-production-repair`.
-- GitHub Actions run `28518336667`: PASS.
-- Current local community/notification patch is tested and awaiting push/GitHub Actions APK build.
-- Previous inspected debug artifact: `IsotopeAI-debug-46`, artifact id `8009649602`.
-- Artifact was downloaded with `GITHUB_PAT` from `.env`, extracted, statically inspected, and deleted locally.
-- Latest pushed checkpoint adds Android Analytics black-screen mitigation, profile/onboarding merge repair, storage bucket upload helpers, Headway/feedback link patches, native WebView resume recovery, and live invite RPC slug repair.
-- Current local checkpoint adds Android community group action unlocks, atomic `create_community_group(...)` RPC creation, Join with Code patch coverage, and notification panel header/scroll fixes.
-- Local artifact download from the GitHub API is blocked by HTTP 401 because no `GITHUB_PAT`/`GH_TOKEN`/`gh` auth exists in this shell.
-- Local Gradle/APK build intentionally not run by user instruction; use GitHub Actions for APK assembly.
-
-**Exact next commands:**
+**To get the APK:**
 ```bash
-set -a; . ./.env; set +a
-curl -fL -H "Authorization: Bearer $GITHUB_PAT" -H "Accept: application/vnd.github+json" -o .artifact-tmp/isotope-8f5cb1f.zip https://api.github.com/repos/Suydev/isotope-apk/actions/artifacts/8009649602/zip
-unzip .artifact-tmp/isotope-8f5cb1f.zip -d .artifact-tmp/isotope-8f5cb1f
-adb devices
-adb install -r .artifact-tmp/isotope-8f5cb1f/app-debug.apk
+# Wait for CI run #85 to complete, then:
+curl -s -H "Authorization: Bearer $GITHUB_PAT" -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/Suydev/isotope-apk/actions/runs/28925385191/artifacts" \
+  | node -e "const d=[];process.stdin.on('data',c=>d.push(c));process.stdin.on('end',()=>{const r=JSON.parse(d.join(''));r.artifacts.forEach(a=>console.log(a.id,a.name));});"
 ```
+
+**Device acceptance checklist:**
+- [ ] Login: credentials → loading → dashboard (not back to login)
+- [ ] syncFailed screen shows "Sign In" button pointing to /auth
+- [ ] Group creation: form submit shows error if membership fails, success if it works
+- [ ] Community groups load (no more SupabaseCircuitBreakerError 500)
+- [ ] Privacy/settings page scrolls with touch
+- [ ] Focus timer: Floating Timer overlay opens and is draggable
+- [ ] No black screen on Analytics Monthly switch
+- [ ] Invite deep links open in-app (isotopeai:// scheme)
 
 ---
 
 ### TASK ANDROID-013
 **Priority:** P0
 **Status:** TODO
-**Objective:** Runtime test the newly built APK for Supabase connectivity beyond login.
+**Objective:** Verify Supabase connectivity beyond login on physical device.
 
 **Acceptance:**
-- Login reaches the correct route and stays authenticated.
-- Settings/cloud sync does not falsely say offline while Android is online.
-- Manual backup uploads canonical objects:
-  - `userId/backups/latest.json`
-  - `userId/backups/history/*.json`
-  - `userId/cloud-snapshot/latest.json`
-- Empty fresh local state cannot overwrite rich cloud data (`BLOCKED_EMPTY_OVERWRITE`).
-- Restore returns and applies `backup_json`.
-- Import archives to `userId/imports/*` and promotes canonical backup.
-- Old stale archive files are cleaned only after verified upload/readback.
-- Community leaderboard/group analytics/session sync call real Supabase REST/RPC paths with useful errors on failure.
-- Group icon uploads use `group-icons`; study material uploads use `study-material`.
-- Supabase Storage old archive cleanup is verified against only current-user stale JSON archive paths.
+- Settings/cloud sync does not falsely say offline
+- Manual backup uploads to canonical paths
+- Session sync / leaderboard / group analytics work
+- Community group creation + join flow works end-to-end (2-account test)
 
 ---
 
 ### TASK ANDROID-014
 **Priority:** P0
 **Status:** TODO
-**Objective:** Runtime test Floating Timer and focus page stability on OnePlus Pad Go.
+**Objective:** Runtime test Floating Timer on OnePlus Pad Go.
 
 **Acceptance:**
-- Lecture displays `🎓`.
-- Questions/Practice/Revision session opens Floating Timer.
-- Display-over-other-apps permission flow works.
-- Rounded floating card has no black outer rectangle.
-- Dragging over another app works.
-- Correct/Incorrect/Skip/Undo update the real store counts.
-- Target changes persist.
-- Timer continues while the main app is backgrounded.
-- Expand returns to `/focus`.
-- Close removes service/overlay.
-- No orphan overlay remains after session completion or app restart.
-- Focus/Analytics intermittent black-screen/open failure is retested with route, WebView console, and Logcat evidence.
-- Analytics Monthly past-session switching does not blank the WebView.
+- Questions/Practice/Revision opens Floating Timer
+- Display-over-other-apps permission works
+- Draggable over another app
+- Correct/Incorrect/Skip/Undo update store counts
+- Timer survives backgrounding and process death
 
 ---
 
-### TASK ANDROID-015
+### TASK ANDROID-015 — View All Members button
 **Priority:** P1
 **Status:** TODO
-**Objective:** Repair remaining UI polish after runtime sync/focus evidence.
+**Objective:** Fix the View All Members button in SingleGroup which is broken on Android.
 
-**Acceptance:**
-- Dark-mode launcher/app logo appearance is corrected without replacing the IsotopeAI UI.
-- Keyboard flicker and Android back-button behavior are verified on device and fixed if still present.
-- Smoothness issues are profiled with runtime evidence before further changes.
-- Admin/server-only panels are confirmed absent from packaged APK; community role labels are not removed.
+**What we know:**
+- No fix has been written yet
+- Issue: button tap likely has no onClick handler or navigates to a route that doesn't exist in the Android context
+- Need to find the button in SingleGroup bundle and check its href/onClick
 
 ---
 
 ### TASK ANDROID-016
 **Priority:** P1
 **Status:** TODO
-**Objective:** Run responsive and orientation verification on Android.
-
-**Acceptance:**
-- 360x800, 800x360, 412x915, 600x960, 800x1280, and 1280x800 layouts are checked.
-- Navigation, forms, modals, keyboard insets, safe areas, charts, focus timer, settings, onboarding, and community have no clipping or horizontal overflow.
+**Objective:** Responsive and orientation verification on Android.
 
 ---
 
@@ -117,8 +86,3 @@ adb install -r .artifact-tmp/isotope-8f5cb1f/app-debug.apk
 **Priority:** P2
 **Status:** TODO
 **Objective:** Plan Capacitor 8 migration to resolve dev dependency audit findings.
-
-**Acceptance:**
-- Run separately from the production sync/focus repair.
-- Validate native bridge, patch scripts, Capacitor plugins, Gradle, and GitHub Actions after migration.
-- Do not use `npm audit fix --force` inside the current repair checkpoint.

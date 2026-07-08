@@ -294,6 +294,24 @@ patchFile(accessGateBundle, [
     'if (Y === "syncFailed" && !u) return r.jsx(ne, {',
     true
   ],
+  // Change the syncFailed CTA from "Retry from home" (loops back to /) to
+  // "Sign In" so unauthenticated users can reach /auth and log in even when
+  // the cloud state bootstrap has temporarily failed.
+  [
+    [
+      '            title: "Cloud state is unavailable",',
+      '            description: "Local server not running or Supabase cannot be reached. No trusted completed cloud snapshot is available on this device, so onboarding will not be shown until cloud state is verified.",',
+      '            ctaLabel: "Retry from home",',
+      '            ctaTo: "/"'
+    ].join('\n'),
+    [
+      '            title: "Cloud state is unavailable",',
+      '            description: "Supabase cannot be reached right now. If you have an account, tap Sign In — your session will restore once connected.",',
+      '            ctaLabel: "Sign In",',
+      '            ctaTo: "/auth"'
+    ].join('\n'),
+    true
+  ],
   // The browser cleanup/migration path must not remove Android auth-session
   // keys. The native auth bridge writes these keys for Supabase session restore.
   [
@@ -728,6 +746,15 @@ patchFile(useGroupsBundle, [
       '        e = !0,',
       '        {'
     ].join('\n'),
+    true
+  ],
+  // Fix silent swallow of group_members INSERT failure.
+  // Previously, if the owner membership row failed (e.g. RLS), the mutation
+  // returned the group anyway and the user got no feedback. Now the error is
+  // thrown so the UI shows it and the user can retry.
+  [
+    'return l && console.error("[useCreateGroup] Failed to add owner as member:", l), n',
+    'if (l) { console.error("[useCreateGroup] Failed to add owner as member:", l); throw new Error(l.message || "Failed to add you as group owner. Please try again."); }\n            return n',
     true
   ],
 ], 'useGroups bundle');

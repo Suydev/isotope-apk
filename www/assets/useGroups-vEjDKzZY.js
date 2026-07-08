@@ -284,7 +284,8 @@ function U() {
                 user_id: i,
                 role: "owner"
             });
-            return l && console.error("[useCreateGroup] Failed to add owner as member:", l), n
+            if (l) { console.error("[useCreateGroup] Failed to add owner as member:", l); throw new Error(l.message || "Failed to add you as group owner. Please try again."); }
+            return n
         },
         onSuccess: () => {
             r.invalidateQueries({
