@@ -100,6 +100,13 @@ test('apply-android-patches prevents stale logged-out boot state and preserves A
   assert.equal((accessGate.match(/Y === "readyLoggedOut" && !u/g) || []).length, 1);
   assert.equal((accessGate.match(/Y === "readyLoggedOut"\) return/g) || []).length, 0);
 
+  // syncFailed screen must redirect unauthenticated users to /auth (not /)
+  // so they can log in instead of being trapped on the "Cloud state unavailable" screen.
+  assert.match(accessGate, /Y === "syncFailed" && !u/);
+  assert.match(accessGate, /ctaTo: "\/auth"/);
+  assert.match(accessGate, /ctaLabel: "Sign In"/);
+  assert.doesNotMatch(accessGate, /ctaLabel: "Retry from home"/);
+
   const migrationSet = accessGate.match(/st = new Set\(\[[^\n]+\]\)/)?.[0] || '';
   assert.ok(migrationSet, 'local storage migration cleanup set should exist');
   assert.match(migrationSet, /"isotope-onboarding"/);
@@ -247,6 +254,9 @@ test('apply-android-patches keeps upstream group creation and unlocks community 
   assert.match(useGroups, /from\("group_members"\)\.insert/);
   assert.match(useGroups, /role: "owner"/);
   assert.match(useGroups, /Failed to add owner as member/);
+  // group_members INSERT failure must be thrown (not swallowed) so the UI shows the error
+  assert.match(useGroups, /throw new Error\(l\.message \|\| "Failed to add you as group owner/);
+  assert.doesNotMatch(useGroups, /return l && console\.error\("\[useCreateGroup\]/);
   assert.match(useGroups, /} = r, s = !0;/);
   assert.match(useGroups, /const i = !0;/);
   assert.match(useGroups, /e = !0;/);
