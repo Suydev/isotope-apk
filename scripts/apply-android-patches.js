@@ -842,14 +842,26 @@ patchFile(useLeaderboardBundle, [
     'function U(){const s=!0,r=k(t=>t.userId);',
     true
   ],
-  // Leaderboard podium rank-3 bar height: h-24 (96px) is too short for rank
-  // number + username on tablet landscape — bump to h-32 (128px).
-  [
-    'h=d?"h-48":l===2?"h-36":"h-24"',
-    'h=d?"h-48":l===2?"h-36":"h-32"',
-    false
-  ],
 ], 'useLeaderboard bundle');
+
+// ── 6c-extra. Leaderboard UI — rank-3 podium bar height ──────────────────────
+// The podium height expression lives in the Leaderboard UI bundle, NOT the
+// useLeaderboard data-hook bundle. findAssetContaining targets it precisely.
+// findAsset('Leaderboard-') would also match useLeaderboard- (substring match),
+// so we use content-based lookup to guarantee we hit the right chunk.
+const leaderboardUiBundle = findAssetContaining('Leaderboard-', 'h=d?"h-48"') ||
+                             findAsset('Leaderboard-');
+if (leaderboardUiBundle) {
+  patchFile(leaderboardUiBundle, [
+    // Rank-3 podium bar: h-24 (96px) is too short for rank number + username
+    // on tablet landscape. Raise to h-32 (128px) so text fits without clipping.
+    [
+      'h=d?"h-48":l===2?"h-36":"h-24"',
+      'h=d?"h-48":l===2?"h-36":"h-32"',
+      false
+    ],
+  ], 'Leaderboard UI podium rank-3 height');
+}
 
 // ── 6d. Community Events — suppress Events tab on Android ────────────────────
 // Events tables exist in DB but the UI tab causes confusion on mobile devices.

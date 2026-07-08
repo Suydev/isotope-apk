@@ -146,6 +146,13 @@
   // blocks scrolling on the landing-page static routes. This IIFE listens for
   // navigation and forces native scroll on those pages.
   (function installScrollEnabler() {
+    // Guard: bail out in non-browser environments (Node.js test harness, SSR).
+    // window.history may not exist even when window does (e.g. vm sandbox).
+    if (typeof window === 'undefined' || typeof window.history === 'undefined') return;
+    // One-time install guard — safe to call the outer IIFE multiple times.
+    if (window.__isoScrollEnablerInstalled) return;
+    window.__isoScrollEnablerInstalled = true;
+
     var SCROLLABLE_PATHS = [
       '/privacy', '/about', '/features', '/pricing', '/faq',
       '/terms', '/contact', '/blog'
@@ -197,14 +204,15 @@
 
     window.addEventListener('popstate', onNavigate, { passive: true });
 
-    var _origPushState = history.pushState;
-    history.pushState = function () {
-      _origPushState.apply(this, arguments);
+    // Use window.history explicitly — bare `history` is undefined in Node.js/vm contexts.
+    var _origPushState = window.history.pushState.bind(window.history);
+    window.history.pushState = function () {
+      _origPushState.apply(window.history, arguments);
       setTimeout(onNavigate, 0);
     };
-    var _origReplaceState = history.replaceState;
-    history.replaceState = function () {
-      _origReplaceState.apply(this, arguments);
+    var _origReplaceState = window.history.replaceState.bind(window.history);
+    window.history.replaceState = function () {
+      _origReplaceState.apply(window.history, arguments);
       setTimeout(onNavigate, 0);
     };
 
