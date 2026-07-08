@@ -730,13 +730,6 @@ patchFile(useGroupsBundle, [
     ].join('\n'),
     true
   ],
-  // createGroup: throw when group_members owner insert fails so the error
-  // surfaces to the user instead of silently creating a group without an owner.
-  [
-    'return l && console.error("[useCreateGroup] Failed to add owner as member:", l), n',
-    'if (l) throw l; return n',
-    false
-  ],
 ], 'useGroups bundle');
 
 patchFile(communityHubBundle, [
