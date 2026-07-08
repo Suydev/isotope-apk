@@ -149,6 +149,16 @@
     // Guard: bail out in non-browser environments (Node.js test harness, SSR).
     // window.history may not exist even when window does (e.g. vm sandbox).
     if (typeof window === 'undefined' || typeof window.history === 'undefined') return;
+    // pushState/replaceState may not exist in test harnesses — skip patching history
+    // without crashing; the popstate listener still works in browsers.
+    if (typeof window.history.pushState !== 'function' ||
+        typeof window.history.replaceState !== 'function') {
+      // Still wire the popstate listener so real browsers without history patching work.
+      window.addEventListener('popstate', function onNavigate() {
+        // no-op guard path — real body runs in full install below
+      }, { passive: true });
+      return;
+    }
     // One-time install guard — safe to call the outer IIFE multiple times.
     if (window.__isoScrollEnablerInstalled) return;
     window.__isoScrollEnablerInstalled = true;
