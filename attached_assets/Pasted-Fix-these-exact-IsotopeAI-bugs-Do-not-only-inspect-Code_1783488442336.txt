@@ -1,0 +1,191 @@
+Fix these exact IsotopeAI bugs. Do not only inspect. Code real fixes and verify.
+
+Priority P0 — app-breaking:
+
+1. Black screen boot/route trap
+Problem:
+APK/WebView can turn fully black when opening Focus/Analytics or after community sync failure. User reports reinstall is the only fix.
+
+Hypothesis to verify:
+- local boot state such as syncFailed traps app forever
+- community Supabase 500 trips circuit breaker
+- React route crash causes blank WebView
+
+Code requirements:
+- Add Android JS error capture in android-bridge.js:
+  window.onerror
+  window.onunhandledrejection
+  console marker [IsotopeAndroidRuntime]
+  window.__ISO_LAST_RUNTIME_ERROR__
+- Add WebView console/error logging in native MainActivity/WebView setup.
+- Find and fix actual stack trace.
+- Add safe recovery: app must not stay black forever because of syncFailed/circuit breaker.
+- Add fallback UI with retry/reset instead of blank screen.
+
+Acceptance:
+- Focus page opens.
+- Analytics page opens.
+- Community 500/error shows recoverable error UI, not black screen.
+- Force-kill/reopen does not stay black.
+- No reinstall needed.
+
+2. Supabase 500 on community / group_members RLS recursion
+Problem:
+Community can 500 because old self-referential group_members RLS policies still exist.
+
+Current evidence:
+Supabase screenshot shows leftover policies:
+- group_members_insert_self
+- group_members_update_managed
+- group_members_delete_self_or_managed
+- group_members_read_members
+plus gm_* policies.
+
+Code requirements:
+Create migration:
+supabase/migrations/010_cleanup_group_members_rls.sql
+
+It must drop old duplicate policies and leave only intended compatibility policies:
+- gm_client_insert_compat INSERT
+- gm_read_members SELECT
+- gm_self_delete DELETE
+
+No direct UPDATE policy.
+Role changes must use RPC.
+
+Also verify member_count remains correct:
+stored_member_count = real_member_count.
+
+Acceptance:
+- Supabase community queries no longer 500.
+- group_members policies final list only has expected policies.
+- Member counts still match.
+
+3. Create Group silent failure
+Problem:
+Create Group failed silently before. It now works in isotope-code, but APK contract must be verified.
+
+Code requirements:
+- Inspect isotope-code and current www/assets to identify actual create-group flow.
+- If isotope-code uses direct:
+  groups.insert + group_members.insert
+  then APK must preserve that direct flow.
+- Do not force APK-only create_community_group RPC unless isotope-code also uses it.
+- Add tests preventing APK/source contract drift.
+- Surface visible toast/error if group creation fails.
+
+Acceptance:
+- Web create group works.
+- APK create group works.
+- Owner membership row exists.
+- member_count = 1 after create.
+- Failure shows visible error, not silent fail.
+
+Priority P1 — community UX/runtime:
+
+4. Group card avatars grey
+Problem:
+Your Groups cards show grey/dark placeholder circles instead of real avatars/fallbacks.
+
+Fix:
+- Do not render skeleton circles after load.
+- Show avatar URL if present.
+- Else initials/fallback icon.
+- Max 3 visible + +N.
+- Align with member count.
+
+5. Leaderboard podium broken
+Problem:
+Top 5 Daily podium layout overlaps/truncates. Rank 3 wrong position.
+
+Fix:
+- Responsive podium layout for tablet landscape.
+- Long usernames ellipsis/line-clamp.
+- Avatar/crown/time/rank must not overlap.
+- No horizontal overflow.
+
+6. PRO vs SCHOLAR badge mismatch
+Problem:
+Header shows SCHOLAR while sidebar profile badge shows PRO.
+
+Fix:
+- Find single source of truth for plan/tier.
+- Normalize tier display.
+- Header/sidebar/profile must match.
+- Do not hardcode one component.
+
+7. Invite links open isotopeai.in instead of staying in-app on Android
+Problem:
+Invite links should deep-link inside APK, not kick user to browser/web domain.
+
+Fix:
+- Add Android intent filters/app links if missing.
+- In WebView navigation, intercept isotopeai.in invite/community links and route in-app.
+- Handle /invite, /community/invite, group slug/code routes.
+- Do not break external links.
+
+8. View All Members broken
+Problem:
+Button/card is visible but does not properly open members.
+
+Fix:
+- Make View All Members open modal/list or valid route.
+- Show members with avatar/fallback, role, status.
+- Loading/error states included.
+
+Priority P2 — polish/data cleanup:
+
+9. Privacy/Settings cannot scroll
+Problem:
+Settings/Privacy screens trap scroll or content overflows.
+
+Fix:
+- Ensure main content scroll container works on Android WebView.
+- Respect safe-area and viewport height.
+- No fixed overlay blocking scroll.
+
+10. Bad "shit" category in GroupDiscovery
+Problem:
+Code scan found invalid/offensive category string.
+
+Fix:
+- Remove/replace with valid category.
+- Add guard/validation list.
+- Existing bad data should map to General or sanitized display.
+
+11. CommunityHub Events tab mismatch
+Problem:
+Icon/tab signal exists but Events tab was removed/disabled in isotope-code source, causing confusing APK/web mismatch.
+
+Fix:
+- Either fully restore Events tab route/content or remove icon/button consistently.
+- APK patches must not hide/remove community tabs differently from isotope-code unless documented and tested.
+
+Validation required:
+
+Database:
+Run verification SQL:
+- member count mismatch query returns zero rows
+- create_community_group return contract matches frontend
+- groups_slug_unique constraint absent
+- groups_slug_active_unique index exists
+- group_members policies final list expected only
+
+Code:
+- npm test passes
+- node --check android-bridge.js
+- node --check scripts/apply-android-patches.js
+- Gradle debug APK builds
+
+Live:
+- Open Focus 5 times
+- Open Analytics 5 times
+- Open Community
+- Create group
+- Open group
+- Invite/join another account
+- Leaderboard readable
+- Notifications readable
+- Settings/Privacy scrolls
+- Rotate landscape/portrait
+- No black screen
