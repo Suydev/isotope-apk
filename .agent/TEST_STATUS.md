@@ -81,6 +81,7 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 | Android process-death/reboot notification reliability | UNTESTED | — | — | Requires device evidence |
 | Import/export in packaged APK | UNTESTED | — | — | Requires device evidence |
 | Responsive phone/tablet matrix | UNTESTED | — | — | Requires device/emulator evidence |
+| ANDROID-015 View All Members drawer patches (SingleGroup) | NOT RUN | 2026-07-08 | fix/android-015-view-all-members | Patch entries added and www/ mirrored by inspection only; npm test and apply-patches NOT executed in the GitLab Duo environment — must be verified by CI on the branch |
 
 ---
 
