@@ -756,7 +756,7 @@ const B = new Set,
             to: "/auth",
             replace: !0
         });
-        if (Y === "syncFailed") return r.jsx(ne, {
+        if (Y === "syncFailed" && !u) return r.jsx(ne, {
             eyebrow: "Cached offline mode",
             title: "Cloud state is unavailable",
             description: "Local server not running or Supabase cannot be reached. No trusted completed cloud snapshot is available on this device, so onboarding will not be shown until cloud state is verified.",
