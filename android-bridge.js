@@ -140,6 +140,81 @@
       }
     }
   })();
+
+  // ── Scroll enabler for long-content pages (Privacy, About, Settings, etc.) ──
+  // Android WebView inherits the app's `overflow: hidden` on html/body, which
+  // blocks scrolling on the landing-page static routes. This IIFE listens for
+  // navigation and forces native scroll on those pages.
+  (function installScrollEnabler() {
+    var SCROLLABLE_PATHS = [
+      '/privacy', '/about', '/features', '/pricing', '/faq',
+      '/terms', '/contact', '/blog'
+    ];
+
+    function needsScroll(path) {
+      if (!path) return false;
+      var p = String(path).toLowerCase().split('?')[0];
+      for (var i = 0; i < SCROLLABLE_PATHS.length; i++) {
+        if (p === SCROLLABLE_PATHS[i] || p.indexOf(SCROLLABLE_PATHS[i] + '/') === 0) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function applyScrollFix() {
+      try {
+        var path = window.location.pathname;
+        if (!needsScroll(path)) return;
+        var style = document.getElementById('__iso_scroll_fix__');
+        if (!style) {
+          style = document.createElement('style');
+          style.id = '__iso_scroll_fix__';
+          document.head.appendChild(style);
+        }
+        style.textContent = [
+          'html, body { overflow-y: auto !important; overflow-x: hidden !important; height: auto !important; min-height: 100%; }',
+          '#root, [data-scroll-fix] { overflow-y: auto !important; height: auto !important; -webkit-overflow-scrolling: touch !important; }',
+          '.landing-content, main, article, section { overflow-y: visible !important; }'
+        ].join('\n');
+      } catch (e) {}
+    }
+
+    function removeScrollFix() {
+      try {
+        var style = document.getElementById('__iso_scroll_fix__');
+        if (style) style.textContent = '';
+      } catch (e) {}
+    }
+
+    function onNavigate() {
+      if (needsScroll(window.location.pathname)) {
+        applyScrollFix();
+      } else {
+        removeScrollFix();
+      }
+    }
+
+    window.addEventListener('popstate', onNavigate, { passive: true });
+
+    var _origPushState = history.pushState;
+    history.pushState = function () {
+      _origPushState.apply(this, arguments);
+      setTimeout(onNavigate, 0);
+    };
+    var _origReplaceState = history.replaceState;
+    history.replaceState = function () {
+      _origReplaceState.apply(this, arguments);
+      setTimeout(onNavigate, 0);
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', onNavigate, { once: true });
+    } else {
+      onNavigate();
+    }
+  })();
+
   function getCapacitorPlugin(name) {
     try {
       return window.Capacitor &&

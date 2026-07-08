@@ -1512,7 +1512,7 @@ CRITICAL INSTRUCTIONS:
                                             className: "px-1.5 py-0.5 rounded bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1",
                                             children: [e.jsx(Ke, {
                                                 className: "w-2.5 h-2.5"
-                                            }), "Pro"]
+                                            }), k?.plan_type?(k.plan_type.charAt(0).toUpperCase()+k.plan_type.slice(1)):"Pro"]
                                         }) : e.jsx("div", {
                                             className: "px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-white/10 border border-zinc-200 dark:border-white/10 text-[9px] font-bold text-zinc-500 dark:text-zinc-500 dark:text-zinc-400 uppercase tracking-wider",
                                             children: "Free"

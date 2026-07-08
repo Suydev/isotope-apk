@@ -287,6 +287,13 @@ patchFile(accessGateBundle, [
     'if (Y === "readyLoggedOut" && !u) return r.jsx(z, {',
     true
   ],
+  // Allow authenticated users through even when syncFailed (Supabase temporarily
+  // unreachable). They can use cached local data rather than hit the black screen.
+  [
+    'if (Y === "syncFailed") return r.jsx(ne, {',
+    'if (Y === "syncFailed" && !u) return r.jsx(ne, {',
+    true
+  ],
   // The browser cleanup/migration path must not remove Android auth-session
   // keys. The native auth bridge writes these keys for Supabase session restore.
   [
@@ -723,9 +730,23 @@ patchFile(useGroupsBundle, [
     ].join('\n'),
     true
   ],
+  // createGroup: throw when group_members owner insert fails so the error
+  // surfaces to the user instead of silently creating a group without an owner.
+  [
+    'return l && console.error("[useCreateGroup] Failed to add owner as member:", l), n',
+    'if (l) throw l; return n',
+    false
+  ],
 ], 'useGroups bundle');
 
 patchFile(communityHubBundle, [
+  // Remove store and events from the CommunityHub tab array definition so they
+  // never appear on Android even before the navigation-filter patch runs.
+  [
+    ',{id:"store",label:"Store",icon:ge,color:"text-orange-500"},{id:"events",label:"Events",icon:be,color:"text-emerald-500"}]',
+    ']',
+    false
+  ],
   [
     'e.jsx("div",{className:"responsive-scroll-x relative flex max-w-full gap-1 overflow-x-auto rounded-2xl bg-zinc-100 p-1.5 dark:bg-white/5 md:max-w-[min(100%,46rem)]",children:h.map(r=>e.jsxs("button",{onClick:()=>t(r.id),onMouseEnter:()=>j(r.id),onMouseLeave:()=>j(null),className:"relative z-10 flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-zinc-600 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white lg:px-4",children:[v===r.id&&e.jsx(Q.div,{layoutId:"navPill",className:"absolute inset-0 bg-white dark:bg-white/10 shadow-sm rounded-xl -z-10",initial:!1,transition:{type:"spring",stiffness:400,damping:30}}),e.jsx(r.icon,{className:`w-4 h-4 ${v===r.id?r.color:"text-zinc-400"}`}),e.jsx("span",{className:"hidden xl:inline",children:r.label})]},r.id))})',
     'e.jsxs("div",{className:"flex w-full flex-col gap-2 md:w-auto",children:[e.jsx("div",{className:"responsive-scroll-x relative flex max-w-full gap-1 overflow-x-auto rounded-2xl bg-zinc-100 p-1.5 dark:bg-white/5 md:max-w-[min(100%,46rem)]",children:(typeof window<"u"&&window.__ISO_IS_ANDROID__?h.filter(r=>r.id!=="events"&&r.id!=="calendar"):h).map(r=>e.jsxs("button",{onClick:()=>t(r.id),onMouseEnter:()=>j(r.id),onMouseLeave:()=>j(null),className:"relative z-10 flex h-11 shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-zinc-600 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white lg:px-4",children:[v===r.id&&e.jsx(Q.div,{layoutId:"navPill",className:"absolute inset-0 bg-white dark:bg-white/10 shadow-sm rounded-xl -z-10",initial:!1,transition:{type:"spring",stiffness:400,damping:30}}),e.jsx(r.icon,{className:`w-4 h-4 ${v===r.id?r.color:"text-zinc-400"}`}),e.jsx("span",{className:"hidden xl:inline",children:r.label})]},r.id))}),e.jsxs("div",{className:"grid grid-cols-2 gap-2",children:[e.jsx("button",{onClick:()=>{typeof window!=="undefined"&&window.IsotopeAndroidCommunity&&typeof window.IsotopeAndroidCommunity.openJoinModal==="function"?window.IsotopeAndroidCommunity.openJoinModal():void 0},className:"h-10 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-bold text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10",children:"Join with Code"}),e.jsx("button",{onClick:()=>t("discovery"),className:"h-10 rounded-xl bg-brand-600 px-3 text-xs font-bold text-white shadow-lg shadow-brand-500/20 transition-colors hover:bg-brand-700",children:"Create Group"})]})]})',
@@ -804,6 +825,12 @@ patchFile(singleGroupBundle, [
     'Ga=t=>e.jsx(Aa,{...t})',
     true
   ],
+  // Remove offensive "shit" entry from the edit-group category dropdown.
+  [
+    '"entrance-exam","class-11","class-12","college","coding","language","shit"',
+    '"entrance-exam","class-11","class-12","college","coding","language"',
+    false
+  ],
 ], 'SingleGroup bundle');
 
 patchFile(useLeaderboardBundle, [
@@ -821,6 +848,13 @@ patchFile(useLeaderboardBundle, [
     'function U(){const s=k(t=>t.isPremium()),r=k(t=>t.userId);',
     'function U(){const s=!0,r=k(t=>t.userId);',
     true
+  ],
+  // Leaderboard podium rank-3 bar height: h-24 (96px) is too short for rank
+  // number + username on tablet landscape — bump to h-32 (128px).
+  [
+    'h=d?"h-48":l===2?"h-36":"h-24"',
+    'h=d?"h-48":l===2?"h-36":"h-32"',
+    false
   ],
 ], 'useLeaderboard bundle');
 
@@ -1359,6 +1393,13 @@ patchFile(sessionLogBundle, [
 
 patchFile(dashboardHeaderBundle, [
   ['window.open("https://isotope.featurebase.app", "_blank")', 'window.open("https://isotopeaiapp.featurebase.app/", "_blank")', false],
+  // Sidebar user footer: hardcoded "Pro" badge text → show actual plan_type name
+  // (k is the profile object; k.plan_type = "scholar" | "ranker" | "pro")
+  [
+    '}), "Pro"]',
+    '}), k?.plan_type?(k.plan_type.charAt(0).toUpperCase()+k.plan_type.slice(1)):"Pro"]',
+    false
+  ],
   // NOTE: Do NOT change the panel's positioning scheme from the original source.
   // isotope-code already anchors the panel with `absolute right-0 top-full mt-2` —
   // right-0 means the panel's RIGHT edge aligns with the bell button, so the panel
