@@ -226,17 +226,20 @@ test('apply-android-patches keeps upstream group creation and unlocks community 
   const communityHubFile = fs.readdirSync(assetsDir).find((name) => /^CommunityHub-.*\.js$/.test(name));
   const singleGroupFile = fs.readdirSync(assetsDir).find((name) => /^SingleGroup-.*\.js$/.test(name));
   const leaderboardFile = fs.readdirSync(assetsDir).find((name) => /^useLeaderboard-.*\.js$/.test(name));
+  const leaderboardUiFile = fs.readdirSync(assetsDir).find((name) => /^Leaderboard-.*\.js$/.test(name) && !/^useLeaderboard-/.test(name));
   assert.ok(groupDiscoveryFile, 'GroupDiscovery chunk should exist');
   assert.ok(useGroupsFile, 'useGroups chunk should exist');
   assert.ok(communityHubFile, 'CommunityHub chunk should exist');
   assert.ok(singleGroupFile, 'SingleGroup chunk should exist');
   assert.ok(leaderboardFile, 'useLeaderboard chunk should exist');
+  assert.ok(leaderboardUiFile, 'Leaderboard UI chunk should exist');
 
   const groupDiscovery = fs.readFileSync(path.join(assetsDir, groupDiscoveryFile), 'utf8');
   const useGroups = fs.readFileSync(path.join(assetsDir, useGroupsFile), 'utf8');
   const communityHub = fs.readFileSync(path.join(assetsDir, communityHubFile), 'utf8');
   const singleGroup = fs.readFileSync(path.join(assetsDir, singleGroupFile), 'utf8');
   const leaderboard = fs.readFileSync(path.join(assetsDir, leaderboardFile), 'utf8');
+  const leaderboardUi = fs.readFileSync(path.join(assetsDir, leaderboardUiFile), 'utf8');
 
   assert.match(groupDiscovery, /Join with Code/);
   // "Join with Code" opens the native Android join modal instead of window.prompt()
@@ -270,6 +273,10 @@ test('apply-android-patches keeps upstream group creation and unlocks community 
   assert.match(communityHub, /const __v=Number\.isFinite\(Number\(r\)\)\?Number\(r\):0/);
   assert.match(communityHub, /dr=t=>e\.jsx\(Ae,\{\.\.\.t\}\);/);
   assert.doesNotMatch(communityHub, /featureName:"Community Hub"/);
+  // Store and Events tab definitions must be absent from the Android tab array (no backend for these yet)
+  assert.doesNotMatch(communityHub, /\{id:"store"/);
+  assert.doesNotMatch(communityHub, /\{id:"events"/);
+
 
   assert.match(singleGroup, /isotope:group-tour-seen:/);
   assert.match(singleGroup, /localStorage\.setItem\(__tourKey,"1"\)/);
@@ -288,6 +295,10 @@ test('apply-android-patches keeps upstream group creation and unlocks community 
   assert.match(leaderboard, /Number\.isFinite\(Number\(e\.currentUserRank\.hours\)\)\?Number\(e\.currentUserRank\.hours\):0/);
   assert.match(leaderboard, /function U\(\)\{const s=!0,r=k\(t=>t\.userId\);/);
   assert.doesNotMatch(leaderboard, /isPremium\(\)/);
+
+  // Rank-3 podium bar must be h-32 (raised from h-24) so rank + username text fits on tablet
+  assert.match(leaderboardUi, /h=d\?"h-48":l===2\?"h-36":"h-32"/);
+  assert.doesNotMatch(leaderboardUi, /l===2\?"h-36":"h-24"/);
 });
 
 test('apply-android-patches adds Android analytics render stability and app-only links', () => {
@@ -339,6 +350,8 @@ test('apply-android-patches adds Android analytics render stability and app-only
   assert.match(headway, /account: "7eeYY7"/);
   assert.match(headway, /__ISO_IS_ANDROID__ \? null : a\.persistentStorageGranted/);
   assert.doesNotMatch(headway, /account: "JRVAXJ"/);
+  // Plan badge must render dynamic plan_type, not a hardcoded "Pro" label
+  assert.match(dashboardHeader, /k\?\.plan_type\?/);
   assert.match(settings, /children: "Notifications"/);
   assert.doesNotMatch(settings, /Browser Notifications/);
   assert.match(settings, /Grant permission to receive alerts/);

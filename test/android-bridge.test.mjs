@@ -990,3 +990,52 @@ test('__ISO_CURRENT_USER_ID__ is seeded from persisted session on init', () => {
   assert.equal(context.window.__ISO_CURRENT_USER_ID__, userId,
     `Expected userId ${userId}, got ${context.window.__ISO_CURRENT_USER_ID__}`);
 });
+
+test('installScrollEnabler guard does not throw and skips install when history lacks pushState', () => {
+  // Simulates Node.js/vm test harness where window.history exists but has no pushState/replaceState.
+  // Android WebView always has a full History API, so this guard is harness-only; it must not crash.
+  const localStorage = new MemoryStorage();
+  const document = {
+    addEventListener() {},
+    dispatchEvent() { return true; },
+    querySelector() { return null; },
+    createElement() { return { style: {}, set textContent(v) {}, get textContent() { return ''; } }; },
+    documentElement: { style: {} },
+    head: { appendChild() {} },
+  };
+  const window = {
+    Capacitor: { Plugins: {} },
+    location: { protocol: 'https:', origin: 'https://app.local', pathname: '/privacy' },
+    history: { back() {} }, // no pushState / replaceState
+    localStorage,
+    sessionStorage: new MemoryStorage(),
+    document,
+    navigator: { userAgent: 'Android' },
+    addEventListener() {},
+    dispatchEvent() { return true; },
+    setTimeout,
+    clearTimeout,
+    console,
+  };
+  window.window = window;
+  const context = {
+    window, localStorage, sessionStorage: window.sessionStorage,
+    document, navigator: window.navigator, console, URL, Response,
+    CustomEvent: class CustomEvent { constructor(t, i) { this.type = t; this.detail = i?.detail; } },
+    Event: class Event { constructor(t) { this.type = t; } },
+    KeyboardEvent: class KeyboardEvent { constructor(t, i) { this.type = t; this.key = i?.key; } },
+    setTimeout, clearTimeout,
+    fetch: async () => new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  };
+  vm.createContext(context);
+  // Must not throw even though history has no pushState/replaceState
+  assert.doesNotThrow(() => {
+    vm.runInContext(fs.readFileSync(BRIDGE_PATH, 'utf8'), context, { filename: BRIDGE_PATH });
+  });
+  // Guard bailed before setting the installed flag — scroll enabler should not be installed
+  assert.equal(context.window.__isoScrollEnablerInstalled, undefined,
+    'scroll enabler must not install when pushState is absent');
+  // history must remain unmodified — no pushState monkey-patch
+  assert.equal(context.window.history.pushState, undefined,
+    'history.pushState must remain undefined when the guard bails');
+});
