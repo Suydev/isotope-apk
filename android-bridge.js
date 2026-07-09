@@ -37,14 +37,14 @@
   window.__ISO_ANON__      = SUPA_ANON_KEY;
   window.__ISO_IS_ANDROID__ = true;
   window.__ISO_VERSION__   = APP_VERSION;
-  window.__ISO_INVITE_DOMAIN__ = 'https://isotopeai.in';
+  window.__ISO_INVITE_DOMAIN__ = 'isotopeai:/';
 
   // Canonical invite URL generator — never uses window.location.origin
   window.__isoGetInviteUrl = function (code, type) {
     var clean = String(code || '').trim();
     if (!clean) return null;
     if (type === 'app') return 'isotopeai://invite/' + clean;
-    return 'https://isotopeai.in/invite/' + clean;
+    return (window.__ISO_INVITE_DOMAIN__ || 'https://isotopeai.in') + '/invite/' + clean;
   };
 
   // Seed current user ID from persisted session (updated on login)

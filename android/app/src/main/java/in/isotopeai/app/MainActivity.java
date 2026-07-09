@@ -125,9 +125,19 @@ public class MainActivity extends BridgeActivity {
         if (path == null) path = "";
 
         // Custom scheme: isotopeai://invite/<code>
+        // Android Uri.parse gives host="invite", path="/<code>" for this format,
+        // so we must NOT try to strip "/invite/" from path — path is already just
+        // "/<code>". Use the host to detect the invite route, then read code from path.
         if ("isotopeai".equalsIgnoreCase(scheme)) {
-            String code = path.replaceFirst("^/invite/?", "").trim();
-            if (!code.isEmpty()) return "/invite/" + code;
+            if ("invite".equalsIgnoreCase(host) && !path.isEmpty()) {
+                // isotopeai://invite/<code>  →  host="invite", path="/<code>"
+                String code = path.replaceFirst("^/+", "").trim();
+                if (!code.isEmpty()) return "/invite/" + code;
+            } else if (path.startsWith("/invite/")) {
+                // Fallback: isotopeai:///invite/<code> or isotopeai:/invite/<code>
+                String code = path.replaceFirst("^/invite/?", "").trim();
+                if (!code.isEmpty()) return "/invite/" + code;
+            }
             return null;
         }
 

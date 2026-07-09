@@ -918,13 +918,16 @@ test('group leaderboard normalizes points field from RPC response', async () => 
 test('bridge exposes canonical invite URL helpers', () => {
   const harness = createBridgeHarness(defaultSupabaseHandler());
 
-  // __ISO_INVITE_DOMAIN__ must be the canonical domain, never localhost
-  assert.equal(harness.window.__ISO_INVITE_DOMAIN__, 'https://isotopeai.in');
+  // __ISO_INVITE_DOMAIN__ must be the custom scheme so Android intercepts links
+  // in-app rather than opening the external browser.
+  assert.equal(harness.window.__ISO_INVITE_DOMAIN__, 'isotopeai:/');
 
   // __isoGetInviteUrl must produce canonical URLs
   const webUrl = harness.window.__isoGetInviteUrl('abc123');
   const appUrl = harness.window.__isoGetInviteUrl('abc123', 'app');
-  assert.equal(webUrl, 'https://isotopeai.in/invite/abc123');
+  // Both web and app return the custom scheme on Android; MainActivity handles
+  // isotopeai://invite/<code> and routes into the app.
+  assert.equal(webUrl, 'isotopeai://invite/abc123');
   assert.equal(appUrl, 'isotopeai://invite/abc123');
   assert.equal(harness.window.__isoGetInviteUrl(''), null);
   assert.equal(harness.window.__isoGetInviteUrl(null), null);

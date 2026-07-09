@@ -20,6 +20,9 @@
 - Bridge: get-daily-leaderboard with groupId → routes to group leaderboard RPC
 - **NEW (2026-07-09): useGroupChallenges premium gates removed** — all challenge queries now enabled for all users; 3 gates unlocked (useGroupChallengesWithUpcoming, challengeParticipants, allGroupChallenges)
 - **NEW (2026-07-09): Community data seeded** — 20 challenges and 16 announcements across all 8 groups (migration 012_seed_community_data.sql applied to prod)
+- **NEW (2026-07-09): Invite URL fixed** — android-bridge.js __ISO_INVITE_DOMAIN__ changed from 'https://isotopeai.in' to 'isotopeai:/' so invite links produce isotopeai://invite/CODE deep links handled by MainActivity
+- **NEW (2026-07-09): Deep-link parser fixed** — MainActivity.resolveDeepLinkRoute() now correctly handles isotopeai://invite/CODE (Android parses host="invite", path="/CODE"; old regex was wrong producing /invite//CODE)
+- **NEW (2026-07-09): Community error boundary** — www/Community-DIqF5406.js "Reload community" no longer does window.location.reload(); it correctly clears error state and lets React re-render children
 - All existing patches (auth hydration, Floating Timer, Analytics fix, etc.)
 
 **Device acceptance checklist:**
