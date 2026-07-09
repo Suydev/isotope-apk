@@ -299,6 +299,18 @@ test('apply-android-patches keeps upstream group creation and unlocks community 
   // Rank-3 podium bar must be h-32 (raised from h-24) so rank + username text fits on tablet
   assert.match(leaderboardUi, /h=d\?"h-48":l===2\?"h-36":"h-32"/);
   assert.doesNotMatch(leaderboardUi, /l===2\?"h-36":"h-24"/);
+
+  // useGroupChallenges — all three premium gates must be unlocked
+  const useGroupChallengesFile = fs.readdirSync(assetsDir).find((name) => /^useGroupChallenges-.*\.js$/.test(name));
+  assert.ok(useGroupChallengesFile, 'useGroupChallenges chunk should exist');
+  const useGroupChallenges = fs.readFileSync(path.join(assetsDir, useGroupChallengesFile), 'utf8');
+  // useGroupChallengesWithUpcoming (L), challengeParticipants (B), allGroupChallenges (R)
+  assert.match(useGroupChallenges, /function L\(r\)\{const n=!0,e=h\(t=>t\.userId\);/);
+  assert.match(useGroupChallenges, /function B\(r\)\{const n=!0;/);
+  assert.match(useGroupChallenges, /function R\(r\)\{const n=!0,e=h\(i=>i\.userId\);/);
+  assert.doesNotMatch(useGroupChallenges, /h\(t=>t\.isPremium\(\)\),e=h\(t=>t\.userId\)/);
+  assert.doesNotMatch(useGroupChallenges, /h\(e=>e\.isPremium\(\)\)/);
+  assert.doesNotMatch(useGroupChallenges, /h\(i=>i\.isPremium\(\)\),e=h\(i=>i\.userId\)/);
 });
 
 test('apply-android-patches adds Android analytics render stability and app-only links', () => {

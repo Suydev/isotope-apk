@@ -6,11 +6,11 @@
 
 ### TASK ANDROID-012
 **Priority:** P0
-**Status:** ACTIVE — community 500 fixed; awaiting new APK from CI
+**Status:** ACTIVE — community 500 fixed + challenges unlocked; awaiting new APK from CI
 **Objective:** Runtime-test the current APK on device.
 
 **What's in the latest builds:**
-- pushState guard fix (62/62 tests pass)
+- pushState guard fix (63/63 tests pass)
 - syncFailed CTA → /auth (login path from black screen)
 - Group creation error now surfaces to UI
 - Supabase community migrations 009+010+011 applied
@@ -18,6 +18,8 @@
 - Group categories backfilled (Science/Coding/Languages/etc.)
 - group_challenges now accessible to anon (GRANT applied)
 - Bridge: get-daily-leaderboard with groupId → routes to group leaderboard RPC
+- **NEW (2026-07-09): useGroupChallenges premium gates removed** — all challenge queries now enabled for all users; 3 gates unlocked (useGroupChallengesWithUpcoming, challengeParticipants, allGroupChallenges)
+- **NEW (2026-07-09): Community data seeded** — 20 challenges and 16 announcements across all 8 groups (migration 012_seed_community_data.sql applied to prod)
 - All existing patches (auth hydration, Floating Timer, Analytics fix, etc.)
 
 **Device acceptance checklist:**

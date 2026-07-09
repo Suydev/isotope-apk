@@ -871,6 +871,33 @@ patchFile(useLeaderboardBundle, [
   ],
 ], 'useLeaderboard bundle');
 
+// ── 6b-extra. useGroupChallenges — unlock challenge queries for all users ─────
+// Group challenge lists, participant counts, and the "all group challenges" feed
+// are all premium-gated upstream. On Android every user has full community
+// access (there's no separate subscription tier for community features), so
+// replace each `isPremium()` guard with the literal `true`.
+const useGroupChallengesBundle = findAsset('useGroupChallenges-');
+patchFile(useGroupChallengesBundle, [
+  // useGroupChallengesWithUpcoming — L(r)
+  [
+    'function L(r){const n=h(t=>t.isPremium()),e=h(t=>t.userId);',
+    'function L(r){const n=!0,e=h(t=>t.userId);',
+    true
+  ],
+  // challengeParticipants — B(r)
+  [
+    'function B(r){const n=h(e=>e.isPremium());',
+    'function B(r){const n=!0;',
+    true
+  ],
+  // allGroupChallenges — R(r)
+  [
+    'function R(r){const n=h(i=>i.isPremium()),e=h(i=>i.userId);',
+    'function R(r){const n=!0,e=h(i=>i.userId);',
+    true
+  ],
+], 'useGroupChallenges bundle');
+
 // ── 6c-extra. Leaderboard UI — rank-3 podium bar height ──────────────────────
 // The podium height expression lives in the Leaderboard UI bundle, NOT the
 // useLeaderboard data-hook bundle. findAssetContaining targets it precisely.

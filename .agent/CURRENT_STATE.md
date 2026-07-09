@@ -1,13 +1,24 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-07-08 (session 2)
+**Updated:** 2026-07-09 (session 3)
 **Branch:** main
 **Latest commit:** see `git log --oneline -1`
-**Current phase:** Community 500 fixed; all RLS recursion removed; CI building new APK
+**Current phase:** Community fully unblocked; challenge premium gates removed; seed data applied; CI will build new APK
 
 ---
 
-## Verified This Session (2026-07-08 session 2)
+## Verified This Session (2026-07-09 session 3)
+
+- [x] `npm test`: **63/63 PASS** (maintained throughout all fixes)
+- [x] `useGroupChallenges` premium gates removed — 3 queries now always enabled
+- [x] DB seeded: 20 challenges + 16 announcements across all 8 groups (migration 012)
+- [x] DB schema confirmed: group_challenges and group_announcements columns match bundle queries exactly
+- [x] View All Members (ANDROID-015): not a separate code bug — the Ea/MembersDrawer component is correct; was a victim of the same gm_read_members RLS recursion (fixed in 011)
+- [x] No premium gates in SingleGroup or CommunityHub bundles (all gates were already patched)
+
+---
+
+## Verified Previous Session (2026-07-08 session 2)
 
 - [x] `npm test`: **62/62 PASS** (maintained throughout all fixes)
 - [x] RLS infinite-recursion root cause found and fixed (migration 011)
