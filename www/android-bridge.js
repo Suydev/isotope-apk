@@ -37,20 +37,14 @@
   window.__ISO_ANON__      = SUPA_ANON_KEY;
   window.__ISO_IS_ANDROID__ = true;
   window.__ISO_VERSION__   = APP_VERSION;
-  // Use the custom scheme so Android routes invite links back into the app
-  // instead of opening the external browser.  The MainActivity intent filter
-  // already handles  isotopeai://invite/<code>  →  /invite/<code>  in-app.
-  // For the share-sheet we still generate a human-readable web URL via the
-  // 'web' type so recipients without the app can still follow the link.
   window.__ISO_INVITE_DOMAIN__ = 'isotopeai:/';
 
   // Canonical invite URL generator — never uses window.location.origin
   window.__isoGetInviteUrl = function (code, type) {
     var clean = String(code || '').trim();
     if (!clean) return null;
-    if (type === 'web') return 'https://isotopeai.in/invite/' + clean;
-    // Default (in-app navigation + share) → custom scheme → MainActivity intercepts
-    return 'isotopeai://invite/' + clean;
+    if (type === 'app') return 'isotopeai://invite/' + clean;
+    return (window.__ISO_INVITE_DOMAIN__ || 'https://isotopeai.in') + '/invite/' + clean;
   };
 
   // Seed current user ID from persisted session (updated on login)
@@ -146,6 +140,96 @@
       }
     }
   })();
+
+  // ── Scroll enabler for long-content pages (Privacy, About, Settings, etc.) ──
+  // Android WebView inherits the app's `overflow: hidden` on html/body, which
+  // blocks scrolling on the landing-page static routes. This IIFE listens for
+  // navigation and forces native scroll on those pages.
+  (function installScrollEnabler() {
+    // Guard: bail out in non-browser environments (Node.js test harness, SSR).
+    // window.history may not exist even when window does (e.g. vm sandbox).
+    if (typeof window === 'undefined' || typeof window.history === 'undefined') return;
+    // pushState/replaceState may not exist in test harnesses (Node.js vm sandbox).
+    // Skip all install including history patching in that case — safe because
+    // Android WebView always has a full History API.
+    if (typeof window.history.pushState !== 'function' ||
+        typeof window.history.replaceState !== 'function') {
+      return;
+    }
+    // One-time install guard — safe to call the outer IIFE multiple times.
+    if (window.__isoScrollEnablerInstalled) return;
+    window.__isoScrollEnablerInstalled = true;
+
+    var SCROLLABLE_PATHS = [
+      '/privacy', '/about', '/features', '/pricing', '/faq',
+      '/terms', '/contact', '/blog'
+    ];
+
+    function needsScroll(path) {
+      if (!path) return false;
+      var p = String(path).toLowerCase().split('?')[0];
+      for (var i = 0; i < SCROLLABLE_PATHS.length; i++) {
+        if (p === SCROLLABLE_PATHS[i] || p.indexOf(SCROLLABLE_PATHS[i] + '/') === 0) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function applyScrollFix() {
+      try {
+        var path = window.location.pathname;
+        if (!needsScroll(path)) return;
+        var style = document.getElementById('__iso_scroll_fix__');
+        if (!style) {
+          style = document.createElement('style');
+          style.id = '__iso_scroll_fix__';
+          document.head.appendChild(style);
+        }
+        style.textContent = [
+          'html, body { overflow-y: auto !important; overflow-x: hidden !important; height: auto !important; min-height: 100%; }',
+          '#root, [data-scroll-fix] { overflow-y: auto !important; height: auto !important; -webkit-overflow-scrolling: touch !important; }',
+          '.landing-content, main, article, section { overflow-y: visible !important; }'
+        ].join('\n');
+      } catch (e) {}
+    }
+
+    function removeScrollFix() {
+      try {
+        var style = document.getElementById('__iso_scroll_fix__');
+        if (style) style.textContent = '';
+      } catch (e) {}
+    }
+
+    function onNavigate() {
+      if (needsScroll(window.location.pathname)) {
+        applyScrollFix();
+      } else {
+        removeScrollFix();
+      }
+    }
+
+    window.addEventListener('popstate', onNavigate, { passive: true });
+
+    // Use window.history explicitly — bare `history` is undefined in Node.js/vm contexts.
+    var _origPushState = window.history.pushState.bind(window.history);
+    window.history.pushState = function () {
+      _origPushState.apply(window.history, arguments);
+      setTimeout(onNavigate, 0);
+    };
+    var _origReplaceState = window.history.replaceState.bind(window.history);
+    window.history.replaceState = function () {
+      _origReplaceState.apply(window.history, arguments);
+      setTimeout(onNavigate, 0);
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', onNavigate, { once: true });
+    } else {
+      onNavigate();
+    }
+  })();
+
   function getCapacitorPlugin(name) {
     try {
       return window.Capacitor &&
@@ -399,6 +483,25 @@
     try { document.addEventListener('DOMContentLoaded', installStyles); } catch (e) {}
     try { document.addEventListener('visibilitychange', function () { if (!document.hidden) { forceRepaint('visibilitychange'); checkBlankRoot(); } }); } catch (e) {}
     try { window.addEventListener('focus', function () { forceRepaint('focus'); checkBlankRoot(); }); } catch (e) {}
+    // Android rotates the WebView via onConfigurationChanged (activity is not recreated
+    // because the manifest declares configChanges="orientation|screenSize|..."), which
+    // fires neither 'visibilitychange' nor 'focus'. Without a repaint hook here the
+    // WebView's compositor can leave the screen fully black after rotation with no
+    // built-in recovery. 'orientationchange' fires before layout settles, so also debounce
+    // a 'resize' repaint (resize fires once the new viewport size is applied).
+    try {
+      window.addEventListener('orientationchange', function () {
+        forceRepaint('orientationchange');
+        setTimeout(function () { forceRepaint('orientationchange-settled'); checkBlankRoot(); }, 300);
+      });
+    } catch (e) {}
+    try {
+      var resizeRepaintTimer = null;
+      window.addEventListener('resize', function () {
+        if (resizeRepaintTimer) clearTimeout(resizeRepaintTimer);
+        resizeRepaintTimer = setTimeout(function () { forceRepaint('resize'); checkBlankRoot(); }, 200);
+      });
+    } catch (e) {}
 
     (function installCapacitorResume() {
       var attempts = 0;
@@ -2414,8 +2517,15 @@
   }
 
   // GET /__supa/functions/v1/get-daily-leaderboard
+  // When invoked from SingleGroup with a groupId, route to the group-specific
+  // leaderboard RPC (get_group_leaderboard) so members see group-scoped rankings.
+  // When invoked globally (no groupId), fall back to the global daily leaderboard.
   function handleGetDailyLeaderboard(searchParams, body) {
     body = body || {};
+    var groupId = body.groupId || body.group_id || (searchParams && searchParams.get ? searchParams.get('groupId') : null);
+    if (groupId) {
+      return handleGetGroupLeaderboard(Object.assign({}, body, { groupId: groupId, period: 'daily' }));
+    }
     return handleGetLeaderboard(searchParams, Object.assign({}, body, { period: 'daily' }));
   }
 

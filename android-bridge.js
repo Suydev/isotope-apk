@@ -483,6 +483,25 @@
     try { document.addEventListener('DOMContentLoaded', installStyles); } catch (e) {}
     try { document.addEventListener('visibilitychange', function () { if (!document.hidden) { forceRepaint('visibilitychange'); checkBlankRoot(); } }); } catch (e) {}
     try { window.addEventListener('focus', function () { forceRepaint('focus'); checkBlankRoot(); }); } catch (e) {}
+    // Android rotates the WebView via onConfigurationChanged (activity is not recreated
+    // because the manifest declares configChanges="orientation|screenSize|..."), which
+    // fires neither 'visibilitychange' nor 'focus'. Without a repaint hook here the
+    // WebView's compositor can leave the screen fully black after rotation with no
+    // built-in recovery. 'orientationchange' fires before layout settles, so also debounce
+    // a 'resize' repaint (resize fires once the new viewport size is applied).
+    try {
+      window.addEventListener('orientationchange', function () {
+        forceRepaint('orientationchange');
+        setTimeout(function () { forceRepaint('orientationchange-settled'); checkBlankRoot(); }, 300);
+      });
+    } catch (e) {}
+    try {
+      var resizeRepaintTimer = null;
+      window.addEventListener('resize', function () {
+        if (resizeRepaintTimer) clearTimeout(resizeRepaintTimer);
+        resizeRepaintTimer = setTimeout(function () { forceRepaint('resize'); checkBlankRoot(); }, 200);
+      });
+    } catch (e) {}
 
     (function installCapacitorResume() {
       var attempts = 0;

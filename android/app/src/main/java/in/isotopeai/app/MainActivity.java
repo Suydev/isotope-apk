@@ -74,6 +74,40 @@ public class MainActivity extends BridgeActivity {
         replayFloatingTimerActions();
     }
 
+    /**
+     * The manifest declares configChanges="orientation|screenSize|..." so the Activity is
+     * NOT destroyed/recreated on rotation — Android calls this method instead. Neither
+     * WebView's compositor repaint nor the JS-side 'visibilitychange'/'focus' listeners fire
+     * on a pure rotation, which previously left the screen fully black after portrait &lt;-&gt;
+     * landscape with no recovery until the process was killed/reinstalled. Force the same
+     * invalidate + JS repaint used on onResume so rotation always leaves a rendered frame.
+     */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView == null) return;
+        webView.post(() -> {
+            webView.requestLayout();
+            webView.invalidate();
+            webView.evaluateJavascript(
+                "window.__isoAndroidForceRepaint&&window.__isoAndroidForceRepaint('main-activity:onConfigurationChanged');" +
+                "window.dispatchEvent(new Event('orientationchange'));",
+                null
+            );
+        });
+        // Layout after a rotation can settle a frame or two later than the first post(); repaint
+        // again shortly after so a still-black WebView gets a second forced compositor pass.
+        webView.postDelayed(() -> {
+            webView.requestLayout();
+            webView.invalidate();
+            webView.evaluateJavascript(
+                "window.__isoAndroidForceRepaint&&window.__isoAndroidForceRepaint('main-activity:onConfigurationChanged-settled');",
+                null
+            );
+        }, 350);
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
