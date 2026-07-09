@@ -78,12 +78,24 @@
 - The button exists at id="view-members-button" in SingleGroup bundle
 - Need to find onClick handler `x` and trace what it does
 
+**2026-07-09 investigation (static analysis only, no device repro):** Traced `x` to
+`toggleMembersDrawer` from the module-level, correctly-created (not re-created per render)
+Zustand store in `SingleGroup-DU1IhoNK.js` (`Ut=Wt()(Jt((t,r)=>({...})))`). The members drawer
+component (`Ea`) receives `isOpen:l` (`isMembersDrawerOpen`) and `onClose:x` (the same toggle
+fn) — this wiring looks correct in the compiled bundle; no static bug found. Do not re-guess a
+fix without device evidence (Logcat + screen recording of the tap) — next agent should get
+that evidence first, since two independent static passes found nothing wrong here.
+
 ---
 
 ### TASK ANDROID-016
 **Priority:** P1
-**Status:** TODO
+**Status:** CODE FIX WRITTEN (2026-07-09) — APK RUNTIME UNVERIFIED
 **Objective:** Responsive and orientation verification on Android.
+
+See ISSUE-023 in KNOWN_ISSUES.md — root cause found and fixed (`MainActivity` had no
+`onConfigurationChanged` override, so rotation never triggered the WebView repaint path that
+`onResume` already had). Needs a GitHub-built APK and physical rotation test to close out.
 
 ---
 

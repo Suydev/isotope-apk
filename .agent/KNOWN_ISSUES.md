@@ -2,6 +2,37 @@
 
 ---
 
+## ISSUE-023 — Rotation (portrait↔landscape) leaves WebView permanently black, no recovery
+**Severity:** CRITICAL
+**Status:** CODE FIX WRITTEN + UNIT TESTED (2026-07-09); APK RUNTIME UNVERIFIED
+
+User reported that rotating the device from portrait to landscape (and back) can turn the
+WebView fully black with no way to recover short of a full app reinstall.
+
+**Root cause found:** `AndroidManifest.xml` declares
+`configChanges="orientation|screenSize|..."` on `MainActivity`, so Android does **not**
+destroy/recreate the Activity on rotation — it calls `onConfigurationChanged` instead. That
+method was never overridden, so rotation fired neither the native `onResume` repaint path
+nor the JS-side `visibilitychange`/`focus` listeners that `android-bridge.js` already used to
+force a WebView repaint. A WebView compositor glitch after resize therefore had zero recovery
+hook, matching "no fix until reinstall."
+
+**Current fix:**
+- `MainActivity.onConfigurationChanged` now forces `requestLayout()` + `invalidate()` +
+  `window.__isoAndroidForceRepaint(...)` twice (immediately and again after a 350ms settle
+  delay), mirroring the existing `onResume` recovery path.
+- `android-bridge.js` now also listens for JS-level `orientationchange` and debounced `resize`
+  events and calls `forceRepaint()` + `checkBlankRoot()` (which force-reloads once if `#root`
+  is empty), so recovery no longer depends solely on the native hook firing.
+
+**Evidence:** `npm test` (63/63) unaffected; `npm run build` (prepare-www + apply-patches +
+cap sync) completes cleanly with the new hooks present in `www/android-bridge.js`.
+
+**Remaining risk:** Needs a GitHub-built APK and physical-device rotation test (several
+rotations in Focus, Analytics, and Community) to confirm the black screen cannot recur.
+
+---
+
 ## ISSUE-001 — Destructive email availability check
 **Severity:** CRITICAL
 **Status:** FIXED IN CODE + UNIT TESTED (2026-06-29)
