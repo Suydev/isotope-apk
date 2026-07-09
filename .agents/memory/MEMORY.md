@@ -8,3 +8,4 @@
 - [Scroll enabler Node.js guard](scroll-enabler-guard.md) — installScrollEnabler must guard pushState existence; Node test harness has no pushState and crashes the IIFE otherwise
 - [syncFailed boot trap fix](sync-failed-boot-trap.md) — AppAccessGate syncFailed screen must CTA to /auth not / for unauthenticated users; patch is in AppAccessGate patchFile block
 - [Group creation error handling](group-creation-error.md) — useGroups createGroup mutation silently swallowed group_members INSERT failure; now throws so UI surfaces it
+- [Community challenges unlock](community-challenges-unlock.md) — useGroupChallenges has 3 isPremium() gates (L/B/R fns) that must be patched; minifier-sensitive; 012 seed data applied to prod (expires ~30 days)
