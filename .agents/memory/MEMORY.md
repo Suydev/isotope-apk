@@ -9,3 +9,6 @@
 - [syncFailed boot trap fix](sync-failed-boot-trap.md) — AppAccessGate syncFailed screen must CTA to /auth not / for unauthenticated users; patch is in AppAccessGate patchFile block
 - [Group creation error handling](group-creation-error.md) — useGroups createGroup mutation silently swallowed group_members INSERT failure; now throws so UI surfaces it
 - [Community challenges unlock](community-challenges-unlock.md) — useGroupChallenges has 3 isPremium() gates (L/B/R fns) that must be patched; minifier-sensitive; 012 seed data applied to prod (expires ~30 days)
+- [Missing community DB grants](community-db-grants.md) — group_announcements had ZERO grants (community crash); group_members needs anon SELECT for RLS EXISTS traversal; groups needs INSERT for authenticated; see 013/013b migrations
+- [Bundle patch href vs window.open](bundle-patch-variants.md) — featurebase bug-report link uses href attribute in SettingsLayout, not window.open; DashboardHeader uses window.open; patch both separately
+- [Invite custom scheme](invite-custom-scheme.md) — __ISO_INVITE_DOMAIN__ = 'isotopeai:/' so invite URLs = isotopeai://invite/CODE; MainActivity handles this scheme; web fallback via __isoGetInviteUrl(code,'web')
