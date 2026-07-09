@@ -37,14 +37,20 @@
   window.__ISO_ANON__      = SUPA_ANON_KEY;
   window.__ISO_IS_ANDROID__ = true;
   window.__ISO_VERSION__   = APP_VERSION;
-  window.__ISO_INVITE_DOMAIN__ = 'https://isotopeai.in';
+  // Use the custom scheme so Android routes invite links back into the app
+  // instead of opening the external browser.  The MainActivity intent filter
+  // already handles  isotopeai://invite/<code>  →  /invite/<code>  in-app.
+  // For the share-sheet we still generate a human-readable web URL via the
+  // 'web' type so recipients without the app can still follow the link.
+  window.__ISO_INVITE_DOMAIN__ = 'isotopeai:/';
 
   // Canonical invite URL generator — never uses window.location.origin
   window.__isoGetInviteUrl = function (code, type) {
     var clean = String(code || '').trim();
     if (!clean) return null;
-    if (type === 'app') return 'isotopeai://invite/' + clean;
-    return 'https://isotopeai.in/invite/' + clean;
+    if (type === 'web') return 'https://isotopeai.in/invite/' + clean;
+    // Default (in-app navigation + share) → custom scheme → MainActivity intercepts
+    return 'isotopeai://invite/' + clean;
   };
 
   // Seed current user ID from persisted session (updated on login)

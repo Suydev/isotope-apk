@@ -3590,7 +3590,7 @@ const Gs = () => {
                                 }), " ", "& Badges."]
                             })]
                         }), e.jsxs("a", {
-                            href: "https://isotope.featurebase.app",
+                            href: "https://isotopeaiapp.featurebase.app/",
                             target: "_blank",
                             rel: "noopener noreferrer",
                             className: "w-full sm:w-auto whitespace-nowrap px-8 py-4 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-2xl shadow-lg shadow-brand-500/25 hover:shadow-brand-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3",

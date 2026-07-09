@@ -935,24 +935,28 @@ patchFile(communityEventsBundle, [
   ],
 ], 'CommunityHub events tab suppression');
 
-// ── 6e. Invite URL — use canonical isotopeai.in domain, not window.location.origin ─
+// ── 6e. Invite URL — use isotopeai:// custom scheme so Android routes links
+//        back into the app via MainActivity intent filter instead of opening
+//        the external browser.  android-bridge.js sets __ISO_INVITE_DOMAIN__
+//        to 'isotopeai:/' so  __ISO_INVITE_DOMAIN__ + "/invite/" + code
+//        becomes  isotopeai://invite/<code>  which MainActivity intercepts.
 console.log('\n=== Patching invite share URL generation ===');
 const groupInviteBundle = findAsset('GroupInviteGenerator-') || findAsset('useGroupInvites-') || findAsset('useInvites-');
 
 patchFile(groupInviteBundle, [
-  // Fix: window.location.origin + "/invite/" → canonical domain
+  // Fix: window.location.origin + "/invite/" → app custom scheme
   [
     'window.location.origin+"/invite/"',
     '(typeof window<"u"&&window.__ISO_INVITE_DOMAIN__?window.__ISO_INVITE_DOMAIN__:window.location.origin)+"/invite/"',
     false
   ],
-  // Also cover cases where the origin is interpolated in a template literal
+  // Also cover template literal variant
   [
     '`${window.location.origin}/invite/',
     '`${typeof window<"u"&&window.__ISO_INVITE_DOMAIN__?window.__ISO_INVITE_DOMAIN__:window.location.origin}/invite/',
     false
   ],
-], 'GroupInviteGenerator canonical URL');
+], 'GroupInviteGenerator canonical URL (isotopeai:// custom scheme)');
 
 
 
@@ -1309,6 +1313,8 @@ console.log('\n=== Patching Settings bundle ===');
 const settingsBundle = findAsset('SettingsLayout-');
 
 patchFile(settingsBundle, [
+  // Fix bug report link — bundle uses href attribute, not window.open
+  ['href: "https://isotope.featurebase.app"', 'href: "https://isotopeaiapp.featurebase.app/"', false],
   ['children: "Browser Notifications"', 'children: "Notifications"', true],
   ['"Notifications are blocked by your browser"', '"Notifications are blocked on this device"', true],
   ['"Grand permission to receive alerts"', '"Grant permission to receive alerts"', true],
