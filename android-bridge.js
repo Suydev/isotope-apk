@@ -2498,8 +2498,15 @@
   }
 
   // GET /__supa/functions/v1/get-daily-leaderboard
+  // When invoked from SingleGroup with a groupId, route to the group-specific
+  // leaderboard RPC (get_group_leaderboard) so members see group-scoped rankings.
+  // When invoked globally (no groupId), fall back to the global daily leaderboard.
   function handleGetDailyLeaderboard(searchParams, body) {
     body = body || {};
+    var groupId = body.groupId || body.group_id || (searchParams && searchParams.get ? searchParams.get('groupId') : null);
+    if (groupId) {
+      return handleGetGroupLeaderboard(Object.assign({}, body, { groupId: groupId, period: 'daily' }));
+    }
     return handleGetLeaderboard(searchParams, Object.assign({}, body, { period: 'daily' }));
   }
 

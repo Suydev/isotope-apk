@@ -1,38 +1,45 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-07-08
+**Updated:** 2026-07-08 (session 2)
 **Branch:** main
-**Latest commit:** c8e2f0f — "fix: guard installScrollEnabler against missing pushState in test harness"
-**Current phase:** Bug fixes applied; CI in progress (Run #85/#24 on c8e2f0f8); awaiting APK build and device verification
+**Latest commit:** see `git log --oneline -1`
+**Current phase:** Community 500 fixed; all RLS recursion removed; CI building new APK
 
 ---
 
-## Verified This Session (2026-07-08)
+## Verified This Session (2026-07-08 session 2)
 
-- [x] `npm test`: **62/62 PASS** (was 0/62 before this session — all tests were crashing at bridge init)
-- [x] `node --check` on all bridge/patch scripts: PASS
-- [x] `npm run apply-patches` on committed www/: PASS (all patches idempotent — 0 failures)
-- [x] `git push origin main` (isotope-apk): PASS — commit `c8e2f0f`
-- [x] Supabase migration `009_community_hardening.sql` applied to prod — HTTP 201
-- [x] Supabase migration `010_cleanup_group_members_rls.sql` applied to prod — HTTP 201
-- [x] group_members policies verified: exactly 3 (gm_client_insert_compat INSERT, gm_read_members SELECT, gm_self_delete DELETE)
+- [x] `npm test`: **62/62 PASS** (maintained throughout all fixes)
+- [x] RLS infinite-recursion root cause found and fixed (migration 011)
+- [x] Group categories backfilled (all 8 groups have correct category)
+- [x] group_challenges now accessible for anon role (GRANT applied)
+- [x] Bridge `get-daily-leaderboard` now routes to group leaderboard when groupId present
+- [x] Supabase migration `011_fix_rls_recursion.sql` applied to prod
 
-## What Changed This Session (2026-07-08)
+---
 
-### Root Cause Fixed: Test Suite 0/62 → 62/62
-- `android-bridge.js` `installScrollEnabler` IIFE called `window.history.pushState.bind()` before checking existence
-- Node.js test harness has `history: { back() {} }` only — no pushState
-- **Fix:** added guard `typeof window.history.pushState !== 'function'` at top of IIFE — early return in non-browser envs
+## Root Cause of "Failed to load groups" 500 Error
 
-### Supabase Migrations Applied
-- `009_community_hardening.sql` — 7 community RPCs now live in prod
-- `010_cleanup_group_members_rls.sql` — group_members now has 3 correct policies; `gm_client_insert_compat` allows owner INSERT
+**Migration 009 created an infinitely recursive RLS policy:**
 
-### Bug Fixes Applied to www/ and apply-android-patches.js
-- **syncFailed boot trap** (`AppAccessGate`): changed CTA from "Retry from home" → "/" to "Sign In" → "/auth"
-  so unauthenticated users aren't trapped on the "Cloud state unavailable" black screen
-- **Group creation silent failure** (`useGroups`): fixed silent `console.error` swallow — now throws
-  proper error so users see "Failed to add you as group owner. Please try again."
+```sql
+-- gm_read_members (from 009) — SELF-REFERENTIAL:
+FOR SELECT USING (group_id IN (
+  SELECT gm2.group_id FROM group_members gm2 WHERE gm2.user_id = auth.uid()
+))
+-- When gchall_manager_write or gann_manager_write subquery hits group_members,
+-- gm_read_members fires again → group_members subquery → gm_read_members → ∞ → HTTP 500
+```
+
+**Fix applied (migration 011):**
+```sql
+-- gm_read_members now uses SECURITY DEFINER function (no recursion):
+FOR SELECT USING (
+  user_id = (SELECT auth.uid())
+  OR public._is_group_member(group_id, (SELECT auth.uid()))
+)
+-- Also dropped gchall_manager_write and gann_manager_write (redundant + recursive)
+```
 
 ---
 
@@ -43,61 +50,89 @@
 
 ---
 
-## www/ Pre-built Status
-- All patches applied and committed to `www/` in the repo
-- CI does NOT need a separate isotope-code checkout — the pre-built www/ is committed
-- CI workflow android.yml runs tests then builds APK using committed www/
-- Last CI run: #85 (android.yml) + #24 (release.yml) on c8e2f0f8 — IN PROGRESS as of 2026-07-08
+## Migrations Applied (in order)
+1. `009_community_hardening.sql` — 7 community RPCs, updated RLS policies
+2. `010_cleanup_group_members_rls.sql` — restored gm_client_insert_compat
+3. `011_fix_rls_recursion.sql` — **fixed gm_read_members recursion; dropped recursive ALL policies**
+
+## DB State After All Migrations
+
+### group_members policies:
+- `gm_admin_update` UPDATE — `user_id = auth.uid() OR _is_group_member(...)`
+- `gm_client_insert_compat` INSERT — `user_id = auth.uid()` (allows owner + member inserts)
+- `gm_read_members` SELECT — `user_id = auth.uid() OR _is_group_member(...)` (no recursion)
+- `gm_self_delete` DELETE — `user_id = auth.uid()`
+
+### groups policies:
+- `groups_read_public` SELECT (anon) — `is_public = true AND is_active = true AND deleted_at IS NULL`
+- `groups_read_authenticated` SELECT (authenticated) — `is_public...` OR `private.is_group_member`
+- `groups_insert_own` INSERT — `owner_id = auth.uid()`
+- `groups_update_own` UPDATE — `owner_id = auth.uid()`
+- `groups_delete_own` DELETE — `owner_id = auth.uid()`
+
+### group_challenges policies:
+- `gchall_read` SELECT — `is_active = true OR _is_group_member(...)` (active = discoverable by all)
+- `group_challenges_read_members` SELECT — `_is_group_member(...)` (private inactive challenges)
+- `group_challenges_insert_managers` / `_update_managers` / `_delete_managers` — `private.can_manage_group`
+
+### Groups with categories:
+- Competitive Coding → coding
+- CS & Algorithms → coding
+- JEE → science
+- JEE ADVANCED → science
+- Language Lab → languages
+- Math Mastery → science
+- Physics Olympiad → science
+- Pre-Med Biology → science
 
 ---
+
+## Community Feature Status
+
+| Feature | DB | Bridge | Bundle | Device |
+|---------|-----|--------|--------|--------|
+| Load groups list | ✅ (RLS fixed) | N/A | ✅ | 🔄 |
+| Filter by category | ✅ (backfilled) | N/A | ✅ | 🔄 |
+| Create group | ✅ (gm_insert_compat) | N/A | ✅ (throws on error) | 🔄 |
+| Join group | ✅ (gm_insert_compat) | N/A | ✅ | 🔄 |
+| Leave group | ✅ (gm_self_delete) | N/A | ✅ | 🔄 |
+| View members (SingleGroup) | ✅ (gm_read fixed) | N/A | ✅ | 🔄 |
+| Group chat | ✅ (private.is_group_member) | N/A | ✅ | 🔄 |
+| Group challenges | ✅ (active = public) | N/A | ✅ | 🔄 |
+| Group leaderboard (daily) | ✅ get_group_leaderboard | ✅ routes to group RPC | ✅ | 🔄 |
+| Group leaderboard (weekly+) | ✅ get_leaderboard | ✅ | ✅ | 🔄 |
+| Group analytics | ✅ get_group_analytics | ✅ | ✅ | 🔄 |
+| Group icon upload | ✅ | ✅ /__auth/storage/group-icon | ✅ | 🔄 |
+
+---
+
+## www/ Build Chain
+- CI checks out `isotope-code` at `ISOTOPE_CODE_REF = 4bc0e8418e4a694a25a7fc7f92a01f2fa7e65201` (latest main)
+- CI runs `prepare-www.js` → copies `isotope-code/public/` → `www/`
+- CI runs `apply-android-patches.js` → patches community bundles, removes premium gates
+- android-bridge.js and auth-bridge.js injected into index.html
 
 ## Test Coverage
 - `npm test`: 62/62 PASS
-- `npm run apply-patches` idempotency: PASS (0 errors, 0 failures)
-- GitHub Actions CI: IN PROGRESS on c8e2f0f8
+- Bridge handles: finish-session, get-leaderboard, get-daily-leaderboard (→ group RPC when groupId), get-group-leaderboard, get-group-analytics, create_checkout (disabled), redeem_membership_code (grants ranker)
 
 ---
 
-## Device Test Status
-
-| Feature | Code | Unit | CI Build | Device |
-|---------|------|------|----------|--------|
-| Auth login hydration | ✅ | ✅ | 🔄 | ❌ |
-| syncFailed → /auth CTA | ✅ | ✅ | 🔄 | ❌ |
-| Group creation error throw | ✅ | ✅ | 🔄 | ❌ |
-| Community RLS/RPC (migration 009+010) | ✅ | ✅ | 🔄 | ❌ |
-| Supabase connectivity beyond login | ✅ | ✅ | 🔄 | ❌ |
-| Floating Timer overlay | ✅ | ✅ | 🔄 | ❌ |
-| Focus timer notifications | ✅ | ✅ | 🔄 | ❌ |
-| Analytics black-screen fix | ✅ | ✅ | 🔄 | ❌ |
-| Scroll on /privacy and settings | ✅ | ✅ | 🔄 | ❌ |
-| Privacy page "can't scroll" | ✅ | ✅ | 🔄 | ❌ |
-| SCHOLAR badge shows plan_type | ✅ | ✅ | 🔄 | ❌ |
-| Invite deep links | ✅ | ✅ | 🔄 | ❌ |
+## Device Test Priorities (next session)
+1. **Community groups load** — should now show 8 groups with correct categories
+2. **Create group** — should succeed and add owner to group_members
+3. **Join/Leave group** — direct insert/delete through gm_client_insert_compat
+4. **Group member list** — gm_read_members no longer recursive
+5. **Group chat** — send and receive messages
+6. **View All Members button** — still needs investigation (ANDROID-015)
+7. **syncFailed screen** → /auth CTA
+8. **Privacy page scroll** — SCROLLABLE_PATHS includes /privacy
 
 ---
 
-## Known Device-Reported Issues (from screenshots July 6-7)
-
-1. ✅ FIXED: "Failed to load groups" SupabaseCircuitBreakerError 500 → fixed by migration 010
-2. ✅ FIXED: "Cloud state unavailable" with no login path → syncFailed now shows "Sign In" → /auth
-3. ✅ FIXED: Group creation fails silently → now throws error to UI
-4. ⬜ UNVERIFIED: Privacy/settings can't scroll → installScrollEnabler should fix after pushState guard
-5. ⬜ UNVERIFIED: Avatar skeleton circles → CSS `[class*="avatar-stack"] div:empty{display:none}` in bridge
-6. ⬜ UNVERIFIED: Leaderboard podium text clipping → rank-3 height h-24→h-32 patch
-7. ⬜ UNVERIFIED: SCHOLAR badge shows plan_type → DashboardHeader patch uses k?.plan_type
-
----
-
-## Next Steps for Following Agent
-
-1. **Confirm CI passes** — check GitHub Actions run #85/#24 on c8e2f0f8
-2. **Download and install APK** — Run #85 artifact: debug APK for device test
-3. **Device verification priorities:**
-   - Login flow: does app reach dashboard after credentials?
-   - syncFailed screen: does it now show "Sign In" → /auth instead of looping to /?
-   - Group creation: does the error surface to UI if it fails?
-   - Community groups: can you create a group and see it listed?
-   - Privacy page scroll: does touch-scroll work on /privacy now?
-4. **View All Members button** — not yet fixed (no code written)
-5. **Agent context** — this file is up to date as of 2026-07-08
+## Files Modified This Session
+- `android-bridge.js` — fixed handleGetDailyLeaderboard to route to group RPC when groupId present; removed no-op popstate listener
+- `isotope-code/sql/011_fix_rls_recursion.sql` — new migration (applied to prod)
+- `test/prepare-patches.test.mjs` — added assertions for syncFailed CTA and useGroups error throw
+- `.agent/CURRENT_STATE.md` — this file
+- `.agent/NEXT_TASKS.md` — updated task queue
