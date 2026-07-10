@@ -10,5 +10,7 @@
 - [Group creation error handling](group-creation-error.md) — useGroups createGroup mutation silently swallowed group_members INSERT failure; now throws so UI surfaces it
 - [Community challenges unlock](community-challenges-unlock.md) — useGroupChallenges has 3 isPremium() gates (L/B/R fns) that must be patched; minifier-sensitive; 012 seed data applied to prod (expires ~30 days)
 - [Missing community DB grants](community-db-grants.md) — group_announcements had ZERO grants (community crash); group_members needs anon SELECT for RLS EXISTS traversal; groups needs INSERT for authenticated; see 013/013b migrations
+- [Community FKs target auth.users](community-fk-auth-users.md) — all user-referencing FKs in community tables pointed to auth.users; PostgREST only resolves public schema FKs; must target public.users; users_select_own also limits to own row only — need users_read_member_profiles policy
+- [EnhancedChallengeCard goal_type crash](challenge-card-goal-type.md) — DB has study_hours goal_type; component H config only has hours/sessions/tasks; crash on .icon of undefined; fix: add study_hours alias + || {} fallback on all three lookups
 - [Bundle patch href vs window.open](bundle-patch-variants.md) — featurebase bug-report link uses href attribute in SettingsLayout, not window.open; DashboardHeader uses window.open; patch both separately
 - [Invite custom scheme](invite-custom-scheme.md) — __ISO_INVITE_DOMAIN__ = 'isotopeai:/' so invite URLs = isotopeai://invite/CODE; MainActivity handles this scheme; web fallback via __isoGetInviteUrl(code,'web')
