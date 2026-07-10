@@ -917,6 +917,29 @@ if (leaderboardUiBundle) {
   ], 'Leaderboard UI podium rank-3 height');
 }
 
+// ── 6c-extra2. EnhancedChallengeCard — guard unknown goal_type/challenge-type ──
+// The component reads Q[challengeType].icon, H[goal_type].icon, Z[difficulty].icon.
+// DB has goal_type='study_hours' which is missing from H config → undefined crash.
+// Fix: add study_hours alias and guard all three lookups with || {}.
+console.log('\n=== Patching EnhancedChallengeCard goal_type safety ===');
+const challengeCardBundle = findAsset('EnhancedChallengeCard-');
+if (challengeCardBundle) {
+  patchFile(challengeCardBundle, [
+    // Add study_hours to goal_type config (alias of hours)
+    [
+      'tasks:{label:"Tasks",icon:L,color:"text-green-600 dark:text-green-400",bgColor:"bg-green-500/10 dark:bg-green-500/10",borderColor:"border-green-500/30 dark:border-green-500/30"}}',
+      'tasks:{label:"Tasks",icon:L,color:"text-green-600 dark:text-green-400",bgColor:"bg-green-500/10 dark:bg-green-500/10",borderColor:"border-green-500/30 dark:border-green-500/30"},study_hours:{label:"Hours",icon:S,color:"text-blue-600 dark:text-blue-400",bgColor:"bg-blue-500/10 dark:bg-blue-500/10",borderColor:"border-blue-500/30 dark:border-blue-500/30"}}',
+      false
+    ],
+    // Guard all three lookups so unknown types don't crash with .icon on undefined
+    [
+      'm=c(),n=u(),t=Q[m],x=H[a.goal_type],f=Z[n],E=t.icon,M=x.icon,V=f.icon',
+      'm=c(),n=u(),t=Q[m]||{},x=H[a.goal_type]||{},f=Z[n]||{},E=t.icon,M=x.icon,V=f.icon',
+      false
+    ],
+  ], 'EnhancedChallengeCard goal_type safety');
+}
+
 // ── 6d. Community Events — suppress Events tab on Android ────────────────────
 // Events tables exist in DB but the UI tab causes confusion on mobile devices.
 // Remove it from the CommunityHub tab list without touching DB tables.
