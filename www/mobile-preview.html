@@ -1,0 +1,12 @@
+<!doctype html><html><head><style>
+html,body{margin:0;background:#333;display:flex;align-items:flex-start;justify-content:center;height:100%;}
+iframe{width:390px;height:844px;border:0;display:block;margin-top:0;}
+</style></head><body>
+<script>
+var params = new URLSearchParams(location.search);
+var path = params.get("path") || "/dashboard";
+var w = params.get("w") || "390";
+var h = params.get("h") || "844";
+document.write('<iframe id="f" style="width:' + w + 'px;height:' + h + 'px;border:0;" src="/dev-login?email=' + encodeURIComponent(params.get("email")||"") + '&to=' + encodeURIComponent(path) + '"></iframe>');
+</script>
+</body></html>

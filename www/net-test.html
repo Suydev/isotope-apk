@@ -1,0 +1,9 @@
+<!doctype html><html><body>
+<pre id="out">testing...</pre>
+<script>
+fetch("https://vteqquoqvksshmfhuepu.supabase.co/auth/v1/settings", {
+  headers: { apikey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0ZXFxdW9xdmtzc2htZmh1ZXB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwODU2NzUsImV4cCI6MjA5NTY2MTY3NX0.ZkRislOhJRQUjVa1y5ixu-xBhlgkXWWyZKI_CClWj64" }
+}).then(r => r.text()).then(t => { document.getElementById("out").textContent = "OK: " + t.slice(0,200); })
+  .catch(e => { document.getElementById("out").textContent = "FAIL: " + e.message; });
+</script>
+</body></html>
