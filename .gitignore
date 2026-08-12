@@ -8,3 +8,5 @@ node_modules/
 *.aab
 isotope-code/
 .replit-tmp/
+
+.agents/skills/

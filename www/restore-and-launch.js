@@ -226,6 +226,10 @@ function saveRefreshedSession(session) {
     localStorage.setItem(SUPABASE_TOKEN_KEY, raw);
     if (SUPA_REF) localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
     localStorage.setItem('isotope-last-jwt', session.access_token);
+    // M6 (owner-approved, documented): refresh token persisted to localStorage
+    // is the standard pattern for client-side Supabase apps. Stolen RT = long-
+    // lived session if not rotated; acceptable for this self-hosted app. Not
+    // moved to httpOnly cookie (would break offline SW session restore).
     if (session.refresh_token) localStorage.setItem('isotope-last-rt', session.refresh_token);
     localStorage.setItem('isotope-last-session-raw', raw);
   } catch (_) {}
@@ -539,7 +543,7 @@ function applyCachedCloudSnapshot(snapshot) {
 
   writeJson('isotope_user_profile_v2', mergedProfile);
   if (snapshot.onboarding.completed === true) writeLocalOnboardingComplete();
-  else localStorage.removeItem(ZUSTAND_ONBOARDING_KEY);
+  else { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }
   writeJson('isotope-user-tours', snapshot.tours || {});
   writeJson('isotope_cloud_stats_summary', snapshot.stats_summary || null);
   writeJson('isotope_cloud_daily_user_stats', snapshot.daily_user_stats || []);
@@ -632,7 +636,7 @@ function applyBootstrapSnapshot(snapshot) {
     ? cloudSnapshot.onboarding.completed === true
     : (typeof completed === 'boolean' ? completed : undefined);
   if (onboarded === true) writeLocalOnboardingComplete();
-  else if (onboarded === false) localStorage.removeItem(ZUSTAND_ONBOARDING_KEY);
+  else if (onboarded === false) { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }
 
   const tours = mergedProfile.tours || {};
   if (tours && typeof tours === 'object') {
@@ -711,13 +715,15 @@ function isStaleLocal(key) {
 }
 
 async function purgeStaleFakeData() {
-  if (isStaleLocal(ZUSTAND_AUTH_KEY))       localStorage.removeItem(ZUSTAND_AUTH_KEY);
-  if (isStaleLocal(ZUSTAND_ONBOARDING_KEY)) localStorage.removeItem(ZUSTAND_ONBOARDING_KEY);
+  try {
+    if (isStaleLocal(ZUSTAND_AUTH_KEY))       localStorage.removeItem(ZUSTAND_AUTH_KEY);
+    if (isStaleLocal(ZUSTAND_ONBOARDING_KEY)) localStorage.removeItem(ZUSTAND_ONBOARDING_KEY);
 
-  const oldKeys = ['isotope_restore_done_v1', 'isotope_launched_v2'];
-  for (const k of oldKeys) {
-    if (localStorage.getItem(k)) localStorage.removeItem(k);
-  }
+    const oldKeys = ['isotope_restore_done_v1', 'isotope_launched_v2'];
+    for (const k of oldKeys) {
+      if (localStorage.getItem(k)) localStorage.removeItem(k);
+    }
+  } catch (_) { /* storage may be unavailable in privacy mode — never abort boot */ }
 
   if (!hasRealSupabaseSession()) {
     try {
@@ -752,13 +758,13 @@ function preloadAssets() {
   const link       = document.createElement('link');
   link.rel         = 'modulepreload';
   link.crossOrigin = '';
-  link.href        = '/assets/vendor-react-BfU3Zn2J.js';
+  link.href        = '/assets/vendor-react-BWKHxYQy.js';
   document.head.appendChild(link);
 
   const script       = document.createElement('script');
   script.type        = 'module';
   script.crossOrigin = '';
-  script.src         = '/assets/index-BPYJFSVW.js';
+  script.src         = '/assets/index-D1Y5F8Lk.js';
   document.head.appendChild(script);
 }
 
