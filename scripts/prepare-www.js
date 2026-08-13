@@ -317,26 +317,63 @@ if (fs.existsSync(restoreLaunchPath)) {
     '    onboarding: canonicalOnboarding,\n',
     'restore-and-launch canonical onboarding write'
   );
-  restoreJs = replaceExactlyOnce(
-    restoreJs,
-    [
-      '  const onboarded = cloudSnapshot',
-      '    ? cloudSnapshot.onboarding.completed === true',
-      '    : snapshot.onboarding && snapshot.onboarding.completed === true;',
-      '  if (onboarded) writeLocalOnboardingComplete();',
-      '  else { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }',
-      ''
-    ].join('\n'),
-    [
-      '  const onboarded = cloudSnapshot',
-      '    ? cloudSnapshot.onboarding.completed === true',
-      '    : (typeof completed === \'boolean\' ? completed : undefined);',
-      '  if (onboarded === true) writeLocalOnboardingComplete();',
-      '  else if (onboarded === false) { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }',
-      ''
-    ].join('\n'),
-    'restore-and-launch unknown onboarding preservation'
-  );
+  // Try new pattern first (with try/catch)
+  const newPattern = [
+    '  const onboarded = cloudSnapshot',
+    '    ? cloudSnapshot.onboarding.completed === true',
+    '    : snapshot.onboarding && snapshot.onboarding.completed === true;',
+    '  if (onboarded) writeLocalOnboardingComplete();',
+    '  else { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }',
+    ''
+  ].join('\n');
+
+  // Old pattern (without try/catch)
+  const oldPattern = [
+    '  const onboarded = cloudSnapshot',
+    '    ? cloudSnapshot.onboarding.completed === true',
+    '    : snapshot.onboarding && snapshot.onboarding.completed === true;',
+    '  if (onboarded) writeLocalOnboardingComplete();',
+    '  else localStorage.removeItem(ZUSTAND_ONBOARDING_KEY);',
+    ''
+  ].join('\n');
+
+  let matched = false;
+  if (restoreJs.includes(oldPattern)) {
+    matched = true;
+    restoreJs = replaceExactlyOnce(
+      restoreJs,
+      oldPattern,
+      [
+        '  const onboarded = cloudSnapshot',
+        '    ? cloudSnapshot.onboarding.completed === true',
+        '    : (typeof completed === \'boolean\' ? completed : undefined);',
+        '  if (onboarded === true) writeLocalOnboardingComplete();',
+        '  else if (onboarded === false) { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }',
+        ''
+      ].join('\n'),
+      'restore-and-launch unknown onboarding preservation (old pattern)'
+    );
+  } else if (restoreJs.includes(newPattern)) {
+    matched = true;
+    restoreJs = replaceExactlyOnce(
+      restoreJs,
+      newPattern,
+      [
+        '  const onboarded = cloudSnapshot',
+        '    ? cloudSnapshot.onboarding.completed === true',
+        '    : (typeof completed === \'boolean\' ? completed : undefined);',
+        '  if (onboarded === true) writeLocalOnboardingComplete();',
+        '  else if (onboarded === false) { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }',
+        ''
+      ].join('\n'),
+      'restore-and-launch unknown onboarding preservation (new pattern)'
+    );
+  }
+
+  if (!matched) {
+    console.error('  ERROR: Neither old nor new onboarding pattern found in restore-and-launch.js');
+    process.exit(1);
+  }
   restoreJs = replaceExactlyOnce(
     restoreJs,
     '    if (dbResult !== null) {\n',
