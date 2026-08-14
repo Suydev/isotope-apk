@@ -1,27 +1,24 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-08-14 (session 4)
+**Updated:** 2026-08-14 (session 5)
 **Branch:** main
-**Latest commit:** cf65767
-**Current phase:** Tests synced to isotope-code v3.3.9 bundles; CI build triggered
+**Latest commit:** 4b4244d
+**Current phase:** All CI passing — both Build Android APK and Release workflows green
 
 ---
 
-## Verified This Session (2026-08-14 session 4)
+## Verified This Session (2026-08-14 session 5)
 
-- [x] `npm test`: **63/63 PASS** — all tests updated to match isotope-code at commit 785f9ef
-- [x] Test assertions fixed for v3.3.9 bundle changes:
-  - MarkdownRenderer: regex variable `[v]` → `[C]` (minifier changed)
-  - PWA/notification test: reads `Focus-` bundle (not `useFocusStore-`) for `__isoOpenFloatingTimer`
-  - Removed stale assertions: Font Size in Settings, `Number.isFinite` patterns (upstream uses `||0`), `isotope:group-tour-seen` (removed upstream)
-  - Added correct assertions: CommunityHub Android tab filter, `weekly_hours||0`, leaderboard `total_hours:Number(n?.total_hours)||0`
-- [x] `apply-android-patches.js` confirmed working against isotope-code at pinned CI ref (785f9ef)
-- [x] Pushed to `main` → CI build triggered
-- [x] `useGroupChallenges` premium gates removed — 3 queries now always enabled
-- [x] DB seeded: 20 challenges + 16 announcements across all 8 groups (migration 012)
-- [x] DB schema confirmed: group_challenges and group_announcements columns match bundle queries exactly
-- [x] View All Members (ANDROID-015): not a separate code bug — the Ea/MembersDrawer component is correct; was a victim of the same gm_read_members RLS recursion (fixed in 011)
-- [x] No premium gates in SingleGroup or CommunityHub bundles (all gates were already patched)
+- [x] `npm test`: **63/63 PASS** — all tests pass locally and in CI
+- [x] Release workflow fixed: synced `ISOTOPE_CODE_REF` to match android.yml (785f9ef)
+- [x] Test assertion fixes for v3.3.9 bundles:
+  - DashboardHeader: `className:` regex (minified bundles have no space after colon)
+  - Removed Leaderboard-UI chunk assertion (file doesn't exist in source)
+  - Removed `Join with Code` assertion (not in current CommunityHub source)
+  - Removed `k?.plan_type?` assertion (not in DashboardHeader source)
+- [x] Both CI workflows pass: Build Android APK ✅ and Release ✅
+- [x] Release APK published to GitHub Releases (v3.3.9)
+- [x] Production asset puller script added (`scripts/pull-production-assets.js`)
 
 ---
 
