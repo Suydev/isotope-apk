@@ -167,6 +167,22 @@ if (html.includes('/update-checker.js')) {
   console.log('  ○ update-checker.js not found in index.html (already removed)');
 }
 
+// 5c2. Disable deferred-scripts.js (server-injected runtime scripts).
+// isotope-code serves PREMIUM_SCRIPT / RELOAD_GUARD_SCRIPT / FEATURE_REMOVAL_STYLE /
+// KEY_SCRIPT / USERNAME_AUTH_SCRIPT from a /deferred-scripts.js endpoint in server.mjs.
+// There is no Node server inside the APK, and android-bridge.js already provides the
+// Android equivalents (auth interception, __isoLogin/__isoUp, premium via patches,
+// AI config at /api/ai-config), so this module must be stripped to avoid a 404.
+if (html.includes('/deferred-scripts.js')) {
+  html = html.replace(
+    /<script[^>]+src="\/deferred-scripts\.js"[^>]*><\/script>/,
+    '<!-- deferred-scripts.js disabled in Android APK (server-injected; covered by android-bridge.js) -->'
+  );
+  console.log('  ✓ deferred-scripts.js disabled');
+} else {
+  console.log('  ○ deferred-scripts.js not found in index.html (already removed)');
+}
+
 // 5d. Fix viewport for Android (add viewport-fit=cover for notch/safe-area support)
 if (html.includes('initial-scale=1.0"') && !html.includes('viewport-fit=cover')) {
   html = html.replace(

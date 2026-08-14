@@ -74,11 +74,13 @@
       <title>IsotopeAI | AI Study Planner, Focus Timer &amp; Analytics for Students</title>
       <meta name="description" content="AI-powered study planner, focus timer, progress tracking, and analytics for students preparing for JEE, NEET, CUET, boards, and more." />
       <meta name="theme-color" content="#f97316" />
+      <!--PRECONNECT_HINT-->
       <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
       <link href="/fonts/fonts.css" rel="stylesheet" />
       <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
       <link rel="stylesheet" crossorigin href="/assets/index-LkPKl--4.css">
-      <link rel="stylesheet" crossorigin href="/assets/vendor-katex-ASjZcBK0.css">
+      <link rel="preload" href="/assets/vendor-katex-ASjZcBK0.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+      <noscript><link rel="stylesheet" href="/assets/vendor-katex-ASjZcBK0.css"></noscript>
       <!-- Runtime auth bridge: must load synchronously before React/Auth interaction -->
       <script src="/auth-bridge.js?v=5"></script>
       <style id="isotope-runtime-ui-fixes">
@@ -100,17 +102,11 @@
       <script src="/boot-recovery.js" defer></script>
       <!-- UX setup: skips redundant onboarding steps after login -->
       <script src="/ux-setup.js" defer></script>
-      <!-- Focus background import: gallery image + video picker in Focus tab -->
-      <script src="/focus-bg-import.js" defer></script>
       <!-- Sync safety: normalizes backup formats and restores local stores deterministically -->
       <script type="module" src="/sync/backup-normalizer.js"></script>
       <script type="module" src="/sync/local-data-adapter.js"></script>
       <!-- Restore & launch: clears stale data, routes to /onboarding or /dashboard -->
       <script type="module" src="/restore-and-launch.js"></script>
-      <!-- Update checker: polls GitHub when online, shows banner if new commit available -->
-      <!-- update-checker.js disabled in Android APK -->
-      <!-- Local PWA support: registers service worker and shows honest offline/server status -->
-      <!-- pwa-local.js disabled in Android APK (Capacitor serves assets locally) -->
   </head>
 
   <body>
@@ -120,6 +116,14 @@
     <div class="isotope-boot-splash__title">IsotopeAI</div>
     <div class="isotope-boot-splash__spinner"></div>
   </div>
+      <!-- Deferred non-critical scripts (premium features, auth helpers, reload guard) -->
+      <!-- deferred-scripts.js disabled in Android APK (server-injected; covered by android-bridge.js) -->
+      <!-- Focus background import: gallery image + video picker in Focus tab -->
+      <script src="/focus-bg-import.js" defer></script>
+      <!-- Update checker: polls GitHub when online, shows banner if new commit available -->
+      <!-- update-checker.js disabled in Android APK -->
+      <!-- Local PWA support: registers service worker and shows honest offline/server status -->
+      <!-- pwa-local.js disabled in Android APK (Capacitor serves assets locally) -->
   </body>
 
   </html>
