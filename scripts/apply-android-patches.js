@@ -8,13 +8,16 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { loadConfig } = require('./supabase-config');
 
 const WWW_DIR     = process.env.WWW_DIR || path.resolve(__dirname, '../www');
 const ASSETS_DIR  = path.join(WWW_DIR, 'assets');
 const ANDROID_DIR = process.env.ANDROID_DIR || path.resolve(__dirname, '../android');
 
-const SUPA_URL      = 'https://vteqquoqvksshmfhuepu.supabase.co';
-const SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0ZXFxdW9xdmtzc2htZmh1ZXB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwODU2NzUsImV4cCI6MjA5NTY2MTY3NX0.ZkRislOhJRQUjVa1y5ixu-xBhlgkXWWyZKI_CClWj64';
+const SUPA = loadConfig();
+const SUPA_URL      = SUPA.url;
+const SUPA_ANON_KEY = SUPA.anonKey;
+const SUPA_REF      = SUPA.projectRef;
 
 let patchCount = 0;
 let skipCount  = 0;

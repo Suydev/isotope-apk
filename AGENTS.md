@@ -9,6 +9,8 @@ GitHub is the only permanent source of truth.
 
 ## Mandatory Reading Order
 
+0. **`plan.md`** — The active isotope-code ↔ isotope-apk sync plan, every specification,
+   and the completion gates. Follow its phase checklist; update status as you complete items.
 1. `.agent/CURRENT_STATE.md` — What is done, what is broken, what to do next
 2. `.agent/NEXT_TASKS.md` — Active task with exact acceptance conditions
 3. `.agent/BOOTSTRAP.md` — Environment setup commands
@@ -17,6 +19,37 @@ GitHub is the only permanent source of truth.
 6. `.agent/KNOWN_ISSUES.md` — Do not repeat failed approaches
 7. `.agent/TEST_STATUS.md` — What has and has not been verified
 8. `audit/_meta/` in the `isotope-code` repo — Source of truth for UI/data
+
+---
+
+## Active specifications (from plan.md — keep in sync)
+
+- **Env (Supabase) — env-driven, backup & deploy ready (plan.md Phase 5):** the APK has **no
+  runtime `.env`**, but all Supabase values are build-time env-driven. Resolution precedence:
+  process env (`SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_PROJECT_REF`) → root `.env`
+  (git-ignored) → committed `supabase.config.json` defaults. Defaults are the current prod
+  project (`vteqquoqvksshmfhuepu.supabase.co`, matching `isotope-code/.env`). No env set ⇒ output
+  is byte-identical to the old hardcoded build. `scripts/prepare-www.js` rewrites the bridge/auth
+  constants into `www/` from the resolved config (repo-root `android-bridge.js` stays authored);
+  `scripts/apply-android-patches.js` reads the same resolver. Tooling: `scripts/deploy-supabase.js`
+  (apply `supabase/*.sql` via Management API, `SUPABASE_ACCESS_TOKEN`, dry-run default) and
+  `scripts/backup-supabase.js` (schema+data dump). Never commit service-role keys, PATs, or
+  signing credentials — `supabase.config.json` holds public values only.
+- **`deferred-scripts.js`:** `isotope-code/index.html` now references
+  `<script type="module" src="/deferred-scripts.js">` (server-only endpoint in `server.mjs`
+  serving PREMIUM_SCRIPT / RELOAD_GUARD_SCRIPT / FEATURE_REMOVAL_STYLE / KEY_SCRIPT /
+  USERNAME_AUTH_SCRIPT). The APK has no server → **`scripts/prepare-www.js` must always strip
+  this tag** (step 5c2). The Android bridge provides the equivalents (`__isoLogin`, `__isoUp`,
+  upload helpers, auth fetch interception, AI config, premium via patches). Never re-add it.
+- **Community SQL source of truth:** `isotope-code/sql/isotope-schema-restore.sql` (portable
+  dump) + `isotope-code/sql/*.sql` migrations + `backup.sh`/`supabase-backup.mjs` (dump/restore
+  pipeline). New objects to keep in the APK `supabase/` migrations: `community_join_requests`
+  table, `groups.join_policy` column, `community_join_group` join-guard
+  (`sql/011_community_join_guard.sql`), `community_respond_join_request`,
+  `community_create_group` new signature, `community_discover_groups`, `community_update_group`,
+  community events expansion. All 32 bundle RPCs must resolve in the migrated DB.
+- **Never edit `isotope-code` from this repo.** It is read-only; parity is achieved by copying
+  its `public/` output and SQL statements, not by forking its UI.
 
 ---
 

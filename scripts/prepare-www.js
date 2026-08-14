@@ -119,6 +119,39 @@ const floatingTimerBridgeDest = path.join(WWW_DIR, 'android-floating-timer-bridg
 fs.copyFileSync(FLOATING_TIMER_BRIDGE_FILE, floatingTimerBridgeDest);
 console.log('  ✓ android-floating-timer-bridge.js copied to www/');
 
+// ── 4b. Inject resolved Supabase config into www/ runtime files ─────────────
+// The APK has no runtime .env; values are resolved at build time (env → .env →
+// supabase.config.json defaults, see scripts/supabase-config.js). Rewrite the
+// auth constants in www/android-bridge.js and www/auth-bridge.js so a future
+// Supabase backup/rotation/deploy targets the configured project. With no env
+// set, output is byte-identical to the committed prod defaults.
+
+console.log('\nStep 4b: Injecting resolved Supabase config ...');
+const { loadConfig } = require('./supabase-config');
+const SUPA = loadConfig();
+const supaUrl  = SUPA.url.replace(/\/+$/, '');
+const supaAnon = SUPA.anonKey;
+const supaRef  = SUPA.projectRef;
+console.log(`  SUPABASE_URL        : ${supaUrl}  (${SUPA.source.url})`);
+console.log(`  SUPABASE_ANON_KEY   : ${supaAnon ? '(set, ' + supaAnon.length + ' chars)' : '!! MISSING !!'}  (${SUPA.source.anonKey})`);
+console.log(`  SUPABASE_PROJECT_REF: ${supaRef}  (${SUPA.source.projectRef})`);
+
+const supaUrlRe   = /['"]https:\/\/[a-z0-9]+\.supabase\.co['"]/;
+const supaAnonRe  = /['"]eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_.-]+['"]/;
+const refPatterns = [
+  /var ref\s*=\s*'[a-z0-9]+'/g,
+  /'sb-[a-z0-9]+-auth-token'/g,
+];
+const bridgeInjected = injectSupaConfig(bridgeDest, 'android-bridge.js', supaUrl, supaAnon, supaRef, refPatterns);
+const authBridgePath = path.join(WWW_DIR, 'auth-bridge.js');
+const authBridgeInjected = injectSupaConfig(authBridgePath, 'auth-bridge.js', supaUrl, supaAnon, supaRef, []);
+
+if (bridgeInjected || authBridgeInjected) {
+  console.log('  ✓ Supabase config injected into www/ runtime files');
+} else {
+  console.log('  ○ Supabase constants already match resolved config');
+}
+
 // ── 5. Patch index.html ───────────────────────────────────────────────────────
 //    a) Inject android-bridge.js as VERY FIRST script (before auth-bridge.js)
 //    b) Disable pwa-local.js (SW registration — Capacitor serves locally)
@@ -576,6 +609,28 @@ function getDirSizeMB(dir) {
 function countOccurrences(text, needle) {
   if (!needle) return 0;
   return text.split(needle).length - 1;
+}
+
+function injectSupaConfig(filePath, label, supaUrl, supaAnon, supaRef, refPatterns) {
+  let content = fs.readFileSync(filePath, 'utf8');
+  const original = content;
+  const oldUrlRe  = /https:\/\/[a-z0-9]+\.supabase\.co/g;
+  const oldAnonRe = /eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_.-]{8,}/g;
+
+  content = content.replace(oldUrlRe, supaUrl);
+  content = content.replace(oldAnonRe, supaAnon);
+  for (const pattern of refPatterns) {
+    content = content.replace(pattern, match => {
+      if (match.includes('-auth-token')) return `'sb-${supaRef}-auth-token'`;
+      return match.replace(/[a-z0-9]{16,}/, supaRef);
+    });
+  }
+  if (content !== original) {
+    fs.writeFileSync(filePath, content, 'utf8');
+    console.log(`  ✓ ${label} Supabase constants rewritten (${countOccurrences(original, 'supabase.co')} url refs)`);
+    return true;
+  }
+  return false;
 }
 
 function replaceExactlyOnce(text, from, to, label) {
