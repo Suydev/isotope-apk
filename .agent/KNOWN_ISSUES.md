@@ -127,9 +127,11 @@ The timer still needs packaged APK tests for backgrounding, rotation, force-stop
 
 ## ISSUE-009 — WAV sound files are large
 **Severity:** MEDIUM
-**Status:** OPEN
+**Status:** FIXED (2026-08-14)
 
-`www/sounds/` currently contributes about 41.8 MB after packaging: rain, wind, and crickets WAV files. Convert to OGG/AAC in a later size-reduction task only after core repair is stable.
+`www/sounds/` contained ~41.8 MB of WAV files (rain, wind, crickets) that were **not referenced by any code** — the Focus bundle loads sounds from remote GitHub URLs. WAV files removed entirely.
+
+**Evidence:** Focus bundle `Sn` component uses `url:"https://raw.githubusercontent.com/cookiecaker/Rain-World-Sounds/main/Ambient%20Sounds/..."` — no local file references found.
 
 ---
 

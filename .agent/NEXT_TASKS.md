@@ -6,7 +6,7 @@
 
 ### TASK ANDROID-012
 **Priority:** P0
-**Status:** ACTIVE — CI build triggered (commit cf65767); awaiting APK for device testing
+**Status:** ACTIVE — CI build triggered (commit 047d9d0); awaiting APK for device testing
 **Objective:** Runtime-test the current APK on device.
 
 **What's in the latest builds:**
@@ -23,6 +23,8 @@
 - **NEW (2026-07-09): Invite URL fixed** — android-bridge.js __ISO_INVITE_DOMAIN__ changed from 'https://isotopeai.in' to 'isotopeai:/' so invite links produce isotopeai://invite/CODE deep links handled by MainActivity
 - **NEW (2026-07-09): Deep-link parser fixed** — MainActivity.resolveDeepLinkRoute() now correctly handles isotopeai://invite/CODE (Android parses host="invite", path="/CODE"; old regex was wrong producing /invite//CODE)
 - **NEW (2026-07-09): Community error boundary** — www/Community-DIqF5406.js "Reload community" no longer does window.location.reload(); it correctly clears error state and lets React re-render children
+- **NEW (2026-08-14): Removed 41.8MB unused WAV files** from public/sounds/ (code loads sounds from GitHub URLs)
+- **NEW (2026-08-14): Capacitor 8 migration plan** — see CAPACITOR_8_MIGRATION.md
 - All existing patches (auth hydration, Floating Timer, Analytics fix, etc.)
 
 **Device acceptance checklist:**
@@ -101,8 +103,10 @@ See ISSUE-023 in KNOWN_ISSUES.md — root cause found and fixed (`MainActivity` 
 
 ### TASK ANDROID-017
 **Priority:** P2
-**Status:** TODO
-**Objective:** Plan Capacitor 8 migration to resolve dev dependency audit findings.
+**Status:** PLAN WRITTEN — see CAPACITOR_8_MIGRATION.md
+**Objective:** Migrate Capacitor 6.2.1 → 8.5.0 to resolve npm audit vulnerabilities (3 vulns through tar@6.2.1).
+
+**Plan:** See `.agent/CAPACITOR_8_MIGRATION.md` for full migration steps, risks, and rollback plan.
 
 ---
 
