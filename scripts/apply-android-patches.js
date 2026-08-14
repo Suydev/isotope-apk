@@ -108,9 +108,10 @@ const accessGateBundle = findAsset('AppAccessGate-');
 
 patchFile(accessGateBundle, [
   // Remove "isotope-auth-token" from the cleanup set so Android auth keys survive
+  // Use the full Set context to avoid substring false-positive
   [
-    '"isotope-auth-token","isotope:pending_session_sync"',
-    '"isotope:pending_session_sync"',
+    'new Set(["isotope-auth","isotope-onboarding","isotope-notifications","isotope-tools-storage","ai-storage","isotope-quotes","sidebar-storage","group-ui-preferences","isotope-query-cache","isotope-auth-token","isotope:pending_session_sync"',
+    'new Set(["isotope-auth","isotope-onboarding","isotope-notifications","isotope-tools-storage","ai-storage","isotope-quotes","sidebar-storage","group-ui-preferences","isotope-query-cache","isotope:pending_session_sync"',
     true
   ],
 ], 'AppAccessGate bundle');
@@ -195,6 +196,7 @@ patchFile(notificationBundle, [
 console.log('\n=== Patching Focus bundle for Android Floating Timer ===');
 const focusBundle = findAsset('Focus-');
 
+// Pomodoro cycle fields passed to native floating timer: pomodoroCycle, pomodoroSessionsUntilLongBreak
 patchFile(focusBundle, [
   // Intercept documentPictureInPicture launch for Android floating timer
   [
@@ -212,12 +214,55 @@ console.log('\n=== Patching Settings bundle ===');
 const settingsBundle = findAsset('SettingsLayout-');
 
 patchFile(settingsBundle, [
-  ['children:"Browser Notifications"', 'children:"Notifications"', false],
+  ['children:"Browser Notifications"', 'children: "Notifications"', false],
   ['"Notifications are blocked by your browser"', '"Notifications are blocked on this device"', false],
+  ['Grand permission to receive alerts', 'Grant permission to receive alerts', false],
 ], 'Settings bundle');
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 8. CommunityHub — filter events tab on Android
+// 7b. Index bundle — skip Sentry on Android
+// ═══════════════════════════════════════════════════════════════════════════════
+
+console.log('\n=== Patching Index bundle (Sentry skip on Android) ===');
+const indexBundle = findAsset('index-');
+
+patchFile(indexBundle, [
+  [
+    'j=async(e=()=>s(()=>import("./vendor-sentry-C0ZzGV-C.js"),__vite__mapDeps([0,1])))=>{try{',
+    'j=async(e=()=>s(()=>import("./vendor-sentry-C0ZzGV-C.js"),__vite__mapDeps([0,1])))=>{if(typeof window<"u"&&window.__ISO_IS_ANDROID__) return !1;try{',
+    false
+  ],
+], 'Index bundle (Sentry skip)');
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7c. Analytics bundle — render stability on Android
+// ═══════════════════════════════════════════════════════════════════════════════
+
+console.log('\n=== Patching Analytics bundle (render stability) ===');
+const analyticsBundle = findAsset('Analytics-');
+
+patchFile(analyticsBundle, [
+  [
+    'je=(t,a=0)=>t&&Fa(t)||J[a%J.length]',
+    'const __androidStable=typeof window<"u"&&window.__ISO_IS_ANDROID__;je=(t,x=0)=>t&&Fa(t)||J[__androidStable?Math.min(0,x+1):x%J.length]',
+    false
+  ],
+], 'Analytics bundle (render stability)');
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7d. DashboardHeader bundle — app-only feedback link
+// ═══════════════════════════════════════════════════════════════════════════════
+
+console.log('\n=== Patching DashboardHeader bundle (feedback link) ===');
+const dashboardHeaderBundle = findAsset('DashboardHeader-');
+
+patchFile(dashboardHeaderBundle, [
+  [
+    'https://isotope.featurebase.app',
+    'https://isotopeaiapp.featurebase.app/',
+    false
+  ],
+], 'DashboardHeader bundle (feedback link)');
 // ═══════════════════════════════════════════════════════════════════════════════
 
 console.log('\n=== Patching CommunityHub bundle ===');

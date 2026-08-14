@@ -63,6 +63,6 @@ test('Markdown renderer keeps LaTeX delimiters and KaTeX rendering plugins wired
   assert.match(renderer, /vendor-katex-.*\.js/);
   assert.match(renderer, /replace\(\/\\\\\\\[\/g/);
   assert.match(renderer, /replace\(\/\\\\\\\(\/g/);
-  assert.match(renderer, /e\.push\(z\)/);
-  assert.match(renderer, /r\?\[v\]:\[\]/);
+  assert.match(renderer, /e\.push\(\$\)/);
+  assert.match(renderer, /r\?\[C\]:\[\]/);
 });
