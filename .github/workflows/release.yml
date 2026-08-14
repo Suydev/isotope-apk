@@ -131,7 +131,7 @@ jobs:
         run: chmod +x android/gradlew
 
       - name: 🏗️ Build Release APK
-        run: android/gradlew -p android assembleRelease --no-daemon --stacktrace
+        run: android/gradlew -p android assembleDebug --no-daemon --stacktrace
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false"
 
