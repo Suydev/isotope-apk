@@ -6,7 +6,7 @@
 
 ### TASK ANDROID-012
 **Priority:** P0
-**Status:** ACTIVE — community 500 fixed + challenges unlocked; awaiting new APK from CI
+**Status:** ACTIVE — CI build triggered (commit cf65767); awaiting APK for device testing
 **Objective:** Runtime-test the current APK on device.
 
 **What's in the latest builds:**
