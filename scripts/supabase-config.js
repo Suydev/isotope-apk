@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 
 const CONFIG_PATH = process.env.SUPA_CONFIG_PATH || path.resolve(__dirname, '..', 'supabase.config.json');
-const ENV_PATH    = path.resolve(__dirname, '..', '.env');
+const ENV_PATH    = process.env.SUPA_ENV_PATH   || path.resolve(__dirname, '..', '.env');
 
 function parseDotEnv(content) {
   const out = {};
@@ -37,7 +37,15 @@ function parseDotEnv(content) {
   return out;
 }
 
+function _paths() {
+  return {
+    config: process.env.SUPA_CONFIG_PATH || path.resolve(__dirname, '..', 'supabase.config.json'),
+    env:    process.env.SUPA_ENV_PATH   || path.resolve(__dirname, '..', '.env'),
+  };
+}
+
 function loadConfig() {
+  const { config: CONFIG_PATH, env: ENV_PATH } = _paths();
   const fileConfig = fs.existsSync(CONFIG_PATH)
     ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'))
     : {};
