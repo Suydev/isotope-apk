@@ -29,7 +29,7 @@
   "android": {
     "allowMixedContent": false,
     "captureInput": true,
-    "webContentsDebuggingEnabled": true,
-    "appendUserAgent": "IsotopeAI-Android/3.3.9"
+    "webContentsDebuggingEnabled": false,
+    "appendUserAgent": "IsotopeAI-Android/3.4.4"
   }
 }
