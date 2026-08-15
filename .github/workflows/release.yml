@@ -14,7 +14,7 @@ permissions:
 env:
   JAVA_VERSION: '17'
   NODE_VERSION: '22'
-  ISOTOPE_CODE_REF: '785f9ef06683d694fdd2376be3e5fb3c7da8b1bb'
+  ISOTOPE_CODE_REF: 'fafe576d6f3b8eee587270b166dcda9fa197bf34'
   REPO_DIR: ${{ github.workspace }}/isotope-code
 
 jobs:
