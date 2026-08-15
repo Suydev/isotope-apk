@@ -334,6 +334,26 @@ if (!html.includes('id="isotope-boot-splash"')) {
   console.log('  ○ Boot splash already present in index.html');
 }
 
+// 5g. Boot diagnostic overlay (visible on screen until React mounts)
+const diagMarkup = [
+  '<div id="iso-boot-diag" style="position:fixed;bottom:0;left:0;right:0;background:#222;color:#0f0;font:12px/1.4 monospace;padding:6px 10px;z-index:2147483646;white-space:pre-wrap;transition:opacity .5s">init</div>',
+  '<script>',
+  '(function(){',
+  '  var d=document.getElementById("iso-boot-diag");',
+  '  if(!d)return;',
+  '  var s="";',
+  '  function up(){d.textContent=s;}',
+  '  s="bridge:"+(window.__ISO_ANDROID_NATIVE__?"ok":"MISSING");up();',
+  '  setTimeout(function(){s+=" | module:"+(document.querySelector(\'script[type="module"][src*="index"]\')?"found":"MISSING");up();},500);',
+  '  setTimeout(function(){var r=document.getElementById("root");s+=" | root:"+(r?r.children.length+"el":"null");up();},1500);',
+  '  setTimeout(function(){s+=" | err:"+(window.__ISO_LAST_RUNTIME_ERROR__?window.__ISO_LAST_RUNTIME_ERROR__.message:"none");up();},3000);',
+  '  setTimeout(function(){var r=document.getElementById("root");if(r&&r.children.length>0){d.style.opacity="0";setTimeout(function(){d.remove();},600);}else{d.style.background="#b00";d.style.color="#fff";s+="\\nREACT DID NOT MOUNT";up();}},8000);',
+  '})();',
+  '</script>',
+].join('\n');
+html = html.replace(/<\/body>/i, diagMarkup + '\n</body>');
+console.log('  ✓ Boot diagnostic overlay injected');
+
 fs.writeFileSync(indexDest, html, 'utf8');
 console.log('  ✓ index.html patched');
 
