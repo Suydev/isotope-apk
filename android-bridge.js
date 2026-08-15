@@ -16,7 +16,7 @@
   'use strict';
 
   // ── Constants ───────────────────────────────────────────────────────────────
-  var APP_VERSION    = '3.4.0';
+  var APP_VERSION    = '3.4.1';
   var SUPA_URL       = 'https://vteqquoqvksshmfhuepu.supabase.co';
   var SUPA_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0ZXFxdW9xdmtzc2htZmh1ZXB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwODU2NzUsImV4cCI6MjA5NTY2MTY3NX0.ZkRislOhJRQUjVa1y5ixu-xBhlgkXWWyZKI_CClWj64';
 
@@ -452,6 +452,7 @@
     function checkBlankRoot() {
       setTimeout(function () {
         try {
+          if (document.getElementById && document.getElementById('isotope-boot-splash')) return;
           var root = document.getElementById && document.getElementById('root');
           var blank = root && root.children && root.children.length === 0;
           if (blank && !reloadAttempted) {
@@ -459,7 +460,7 @@
             window.location.reload();
           }
         } catch (e) {}
-      }, 1200);
+      }, 2500);
     }
 
     function installStyles() {

@@ -43,10 +43,16 @@
             var el = document.getElementById("isotope-boot-splash");
             if (!el) return;
             el.classList.add("isotope-boot-splash--hidden");
+            try { sessionStorage.setItem("isotope-booted", "1"); } catch (e) {}
             setTimeout(function () { if (el && el.parentNode) el.parentNode.removeChild(el); }, 400);
           }
           window.__isoRemoveBootSplash = removeSplash;
           document.addEventListener("DOMContentLoaded", function () {
+            // Resume fast-path: same-process reload (app switch / renderer restart)
+            // skips the splash so the app resumes without a visible reset.
+            try {
+              if (sessionStorage.getItem("isotope-booted") === "1") { removeSplash(); return; }
+            } catch (e) {}
             var root = document.getElementById("root");
             if (!root) return;
             if (root.childNodes.length > 0) { removeSplash(); return; }
