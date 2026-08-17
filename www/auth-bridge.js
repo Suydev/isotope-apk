@@ -4,8 +4,22 @@
 (function () {
   'use strict';
 
-  var DEFAULT_SUPA_URL = 'https://vteqquoqvksshmfhuepu.supabase.co';
-  var DEFAULT_SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0ZXFxdW9xdmtzc2htZmh1ZXB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwODU2NzUsImV4cCI6MjA5NTY2MTY3NX0.ZkRislOhJRQUjVa1y5ixu-xBhlgkXWWyZKI_CClWj64';
+  // Load config from app-config.json (synced from .env at build time)
+  var APP_CONFIG = (function () {
+    try {
+      var req = new XMLHttpRequest();
+      req.open('GET', '/app-config.json', false);
+      req.send(null);
+      if (req.status === 200) return JSON.parse(req.responseText);
+    } catch (e) {}
+    return {};
+  })();
+
+  var SUPA = APP_CONFIG.supabase || {};
+  var DEFAULT_SUPA_URL = SUPA.url || 'https://ollsqiutzartjhiuzkbf.supabase.co';
+  var DEFAULT_SUPA_ANON = SUPA.anonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
+  var SUPA_REF = SUPA.projectRef || 'ollsqiutzartjhiuzkbf';
+
   function supaUrl() {
     return String(window.__ISO_SUPA_URL__ || DEFAULT_SUPA_URL).replace(/\/+$/, '');
   }
@@ -16,7 +30,7 @@
 
   function projectRef() {
     try { return new URL(supaUrl()).hostname.split('.')[0] || ''; }
-    catch (e) { return ''; }
+    catch (e) { return SUPA_REF; }
   }
 
   function asErrorMessage(data, fallback) {

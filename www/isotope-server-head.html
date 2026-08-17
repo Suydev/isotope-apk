@@ -1,0 +1,173 @@
+<script>
+(function(){
+  'use strict';
+  var SUPA_REF = window.__ISO_PROJECT_REF__ || 'ollsqiutzartjhiuzkbf';
+  var DATA_KEYS = ["isotope_subjects_v2","isotope_tasks_v2","isotope_sessions_v2","isotope_habits_v2","isotope_tests_v2","isotope_exams_v2","isotope_mock_tests_v2","isotope_daily_logs_v2","isotope_timer_state","isotope_sync_metadata","isotope_user_profile_v2"];
+  var ACTIVE_USER_KEY = 'isotope_active_user_id';
+  function parse(raw) {
+    if (!raw) return null;
+    try {
+      var p = JSON.parse(raw);
+      if (p && p.user && p.user.id) return p;
+      if (p && p.session && p.session.user && p.session.user.id) return p.session;
+      if (p && p.currentSession && p.currentSession.user && p.currentSession.user.id) return p.currentSession;
+      if (p && p.state && p.state.session && p.state.session.user && p.state.session.user.id) return p.state.session;
+    } catch(e) {}
+    return null;
+  }
+  function session() {
+    try {
+      var raw = SUPA_REF ? localStorage.getItem('sb-' + SUPA_REF + '-auth-token') : null;
+      if (raw) return parse(raw);
+      raw = localStorage.getItem('isotope-auth-token');
+      if (raw) return parse(raw);
+      raw = localStorage.getItem('isotope-last-session-raw');
+      if (raw) return parse(raw);
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('sb-') === 0 && /-auth-token$/.test(k)) {
+          raw = localStorage.getItem(k);
+          var s = parse(raw);
+          if (s) return s;
+        }
+      }
+    } catch(e) {}
+    return null;
+  }
+  function scopedKey(uid, key) { return 'isotope:user:' + uid + ':' + key; }
+  function copyToUser(uid) {
+    if (!uid) return;
+    DATA_KEYS.forEach(function(key) {
+      try {
+        var value = localStorage.getItem(key);
+        if (value !== null) localStorage.setItem(scopedKey(uid, key), value);
+      } catch(e) {}
+    });
+  }
+  function clearGlobalData() {
+    DATA_KEYS.forEach(function(key) {
+      try { localStorage.removeItem(key); } catch(e) {}
+    });
+  }
+  function clearIndexedDBWorkspace() {
+    try {
+      if (!window.indexedDB) return;
+      var stores = ['tasks','subjects','sessions','habits','tests','exams','mockTests','dailyLogs','userProfile','timerState','syncMetadata'];
+      var req = indexedDB.open('isotope_main', 20);
+      req.onsuccess = function() {
+        var db = req.result;
+        try {
+          var names = stores.filter(function(name){ return db.objectStoreNames.contains(name); });
+          if (!names.length) { db.close(); return; }
+          var tx = db.transaction(names, 'readwrite');
+          names.forEach(function(name){ try { tx.objectStore(name).clear(); } catch(e) {} });
+          tx.oncomplete = function(){ db.close(); };
+          tx.onerror = function(){ db.close(); };
+        } catch(e) { try { db.close(); } catch(_) {} }
+      };
+    } catch(e) {}
+  }
+  function restoreUser(uid) {
+    if (!uid) return;
+    var restored = false;
+    DATA_KEYS.forEach(function(key) {
+      try {
+        var value = localStorage.getItem(scopedKey(uid, key));
+        if (value !== null) {
+          localStorage.setItem(key, value);
+          restored = true;
+        }
+      } catch(e) {}
+    });
+    if (!restored) {
+      clearGlobalData();
+      clearIndexedDBWorkspace();
+    }
+  }
+  try {
+    if (window.location.pathname !== '/demo') sessionStorage.removeItem('isotope-demo-mode');
+    var s = session();
+    var uid = s && s.user && s.user.id;
+    if (!uid) return;
+    var previous = localStorage.getItem(ACTIVE_USER_KEY);
+    if (previous && previous !== uid) {
+      copyToUser(previous);
+      clearGlobalData();
+      clearIndexedDBWorkspace();
+    }
+    if (previous !== uid) restoreUser(uid);
+    localStorage.setItem(ACTIVE_USER_KEY, uid);
+    var persist = function(){ copyToUser(uid); };
+    window.addEventListener('pagehide', persist);
+    document.addEventListener('visibilitychange', function(){
+      if (document.visibilityState === 'hidden') persist();
+    });
+  } catch(e) {}
+})();
+</script>
+<script>
+(function() {
+  'use strict';
+  var SUPA_REF = window.__ISO_PROJECT_REF__ || 'ollsqiutzartjhiuzkbf';
+  // Paths that do NOT require authentication
+  var PUBLIC_PATHS = ['/', '/onboarding', '/auth', '/login', '/signup',
+                      '/terms', '/privacy', '/about', '/demo', '/reset-password'];
+  var currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
+  var isPublic = PUBLIC_PATHS.some(function(p) {
+    return currentPath === p || currentPath.startsWith(p + '/');
+  });
+  if (isPublic) return; // Public page — no auth required
+
+  // ── Session check ────────────────────────────────────────────────────────────
+  function getStoredSessionEvidence() {
+    try {
+      var raw = localStorage.getItem('sb-' + SUPA_REF + '-auth-token')
+             || localStorage.getItem('isotope-auth-token')
+             || localStorage.getItem('isotope-last-session-raw');
+      if (!raw) {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf('sb-') === 0 && /-auth-token$/.test(k)) {
+            raw = localStorage.getItem(k);
+            if (raw) break;
+          }
+        }
+      }
+      if (!raw) return null;
+      var sess = JSON.parse(raw);
+      var stateSession = sess && sess.state && sess.state.session;
+      var token = sess && (sess.access_token || (sess.session && sess.session.access_token) || (sess.currentSession && sess.currentSession.access_token) || (stateSession && stateSession.access_token));
+      if (!token) return null;
+      return sess;
+    } catch(e) { return null; }
+  }
+
+  var session = getStoredSessionEvidence();
+  if (!session) {
+    // Route decisions are made by restore-and-launch.js after Supabase session
+    // hydration/refresh. Do not preemptively redirect protected deep links.
+    window.__ISO_AUTH_GUARD__ = { state: 'sessionRestoring', protectedPath: currentPath, startedAt: Date.now() };
+    var redirectIfLoggedOut = function(detail) {
+      var boot = (detail && detail.detail) || window.__ISO_BOOT_STATE__ || {};
+      // Offline: don't redirect to /auth — allow cached bootstrap to restore session
+      if (boot.state === 'readyLoggedOut' && navigator.onLine !== false) window.location.replace('/auth');
+    };
+    window.addEventListener('isotope:boot-state', redirectIfLoggedOut);
+    setTimeout(function() {
+      var boot = window.__ISO_BOOT_STATE__ || {};
+      // Offline fallback: if there's a cached bootstrap, don't redirect to /auth
+      if (!boot.bootResolved || boot.state === 'readyLoggedOut') {
+        if (navigator.onLine === false) return; // stay on page, cached bootstrap will restore
+        window.location.replace('/auth');
+      }
+    }, 9000);
+    return;
+  }
+
+  // Onboarding is intentionally not enforced here. This guard runs before
+  // restore-and-launch.js can verify Supabase or a trusted cloud snapshot, so
+  // localStorage would collapse UNKNOWN into INCOMPLETE and flash onboarding.
+  // The React route gate handles onboarding after window.__ISO_BOOT_STATE__
+  // resolves.
+})();
+</script>

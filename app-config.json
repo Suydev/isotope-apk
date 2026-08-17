@@ -1,0 +1,22 @@
+{
+  "supabase": {
+    "url": "https://ollsqiutzartjhiuzkbf.supabase.co",
+    "anonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M",
+    "serviceRoleKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjYwOTMwOSwiZXhwIjoyMTAyMTg1MzA5fQ.AvlTGmmVOLDXJyhLGeooyGDGml60obsrCRvfReAM4RQ",
+    "projectRef": "ollsqiutzartjhiuzkbf"
+  },
+  "app": {
+    "version": "3.4.6",
+    "name": "IsotopeAI"
+  },
+  "ai": {
+    "geminiApiKey": "",
+    "groqApiKey": ""
+  },
+  "sentry": {
+    "dsn": ""
+  },
+  "yepapi": {
+    "key": ""
+  }
+}

@@ -592,19 +592,6 @@ function sessionLogRowsToLocal(rows) {
 
 function applyBootstrapSnapshot(snapshot) {
   if (!snapshot || !snapshot.ok) return null;
-  const completed =
-    typeof snapshot?.onboarding?.completed === 'boolean'
-      ? snapshot.onboarding.completed
-      : (typeof snapshot.onboarding_completed === 'boolean' ? snapshot.onboarding_completed : undefined);
-  const canonicalOnboarding = typeof completed === 'boolean'
-    ? {
-        ...(isObject(snapshot.onboarding) ? snapshot.onboarding : {}),
-        state: completed ? 'completed' : 'incomplete',
-        completed,
-        completed_at: snapshot.onboarding?.completed_at || snapshot.onboarding_completed_at || null,
-        data: isObject(snapshot.onboarding?.data) ? snapshot.onboarding.data : {},
-      }
-    : snapshot.onboarding;
   const profile = snapshot.profile_data || snapshot.profile || {};
   const mergedProfile = {
     ...profile,
@@ -621,7 +608,7 @@ function applyBootstrapSnapshot(snapshot) {
     fetched_at: snapshot.fetched_at || new Date().toISOString(),
     profile: snapshot.profile || {},
     profile_data: mergedProfile,
-    onboarding: canonicalOnboarding,
+    onboarding: snapshot.onboarding,
     settings: snapshot.settings || {},
     cloud_snapshot: snapshot.cloud_snapshot || null,
     stats_summary: snapshot.stats_summary || null,
@@ -634,9 +621,9 @@ function applyBootstrapSnapshot(snapshot) {
 
   const onboarded = cloudSnapshot
     ? cloudSnapshot.onboarding.completed === true
-    : (typeof completed === 'boolean' ? completed : undefined);
-  if (onboarded === true) writeLocalOnboardingComplete();
-  else if (onboarded === false) { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }
+    : snapshot.onboarding && snapshot.onboarding.completed === true;
+  if (onboarded) writeLocalOnboardingComplete();
+  else { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }
 
   const tours = mergedProfile.tours || {};
   if (tours && typeof tours === 'object') {
@@ -809,7 +796,7 @@ function preloadAssets() {
       try { dbResult = await fetchProfileFromDB(session); } catch (_) {}
     }
 
-    if (dbResult !== null && typeof dbResult.isOnboarded === 'boolean') {
+    if (dbResult !== null) {
       bootDecision = dbResult.isOnboarded
         ? publishBootState(BOOT_STATES.READY_DASHBOARD, {
             user_id: session.user.id,
@@ -876,7 +863,7 @@ function preloadAssets() {
     if (!session) window.history.replaceState(null, '', '/auth');
     else if (completed) window.history.replaceState(null, '', '/dashboard');
     else if (incomplete) window.history.replaceState(null, '', '/onboarding');
-    // Unknown cloud state stays unresolved; do not assume dashboard or onboarding.
+    else window.history.replaceState(null, '', '/onboarding'); // unknown state → onboarding (safe default)
   } else if (!session && (isProtectedPath || isOnboardingPath)) {
     window.history.replaceState(null, '', '/auth');
   } else if (session && completed && isOnboardingPath) {
@@ -884,7 +871,7 @@ function preloadAssets() {
   } else if (session && incomplete && isProtectedPath) {
     window.history.replaceState(null, '', '/onboarding');
   } else if (session && bootDecision?.state === BOOT_STATES.SYNC_FAILED && (isOnboardingPath || isAuthPath)) {
-    // Preserve current route so the app can show retry/loading instead of guessing.
+    window.history.replaceState(null, '', '/dashboard');
   }
 
   // Step 4: preload the app bundle

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>IsotopeAI — Completing Sign In</title>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0a0a0a; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .container { text-align: center; padding: 2rem; }
+    .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #f97316; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1.5rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .message { font-size: 1rem; opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="spinner"></div>
+    <div class="message">Completing sign in...</div>
+  </div>
+  <script>
+    (function() {
+      'use strict';
+
+      // Load config from app-config.json
+      var APP_CONFIG = (function() {
+        try {
+          var req = new XMLHttpRequest();
+          req.open('GET', '/app-config.json', false);
+          req.send(null);
+          if (req.status === 200) return JSON.parse(req.responseText);
+        } catch (e) {}
+        return {};
+      })();
+
+      var SUPA = APP_CONFIG.supabase || {};
+      var SUPA_URL = SUPA.url || 'https://ollsqiutzartjhiuzkbf.supabase.co';
+      var SUPA_ANON_KEY = SUPA.anonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
+      var SUPA_REF = SUPA.projectRef || 'ollsqiutzartjhiuzkbf';
+
+      function handleAuthCallback() {
+        try {
+          var hash = window.location.hash.slice(1);
+          var params = new URLSearchParams(hash);
+          var accessToken = params.get('access_token');
+          var refreshToken = params.get('refresh_token');
+          var expiresIn = params.get('expires_in');
+          var tokenType = params.get('token_type');
+          var providerToken = params.get('provider_token');
+          var providerRefreshToken = params.get('provider_refresh_token');
+
+          if (!accessToken) {
+            console.error('[AuthCallback] No access_token in hash');
+            redirectToAuth();
+            return;
+          }
+
+          var expiresAt = expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn, 10) : 0;
+
+          var session = {
+            access_token: accessToken,
+            refresh_token: refreshToken || '',
+            expires_in: expiresIn || 3600,
+            expires_at: expiresAt,
+            token_type: tokenType || 'bearer',
+            provider_token: providerToken || '',
+            provider_refresh_token: providerRefreshToken || ''
+          };
+
+          var raw = JSON.stringify(session);
+          localStorage.setItem('isotope-auth-token', raw);
+          localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
+          localStorage.setItem('isotope-last-jwt', accessToken);
+          if (refreshToken) localStorage.setItem('isotope-last-rt', refreshToken);
+          localStorage.setItem('isotope-last-session-raw', raw);
+
+          // Notify auth bridge
+          try { if (typeof window.__isoSyncAuthUnblock === 'function') window.__isoSyncAuthUnblock(); } catch (e) {}
+          try { window.dispatchEvent(new Event('isotope:auth-unblock')); } catch (e) {}
+          try { window.dispatchEvent(new Event('isotope:sync_refresh')); } catch (e) {}
+
+          // Fetch user profile to get user ID and upgrade to ranker
+          fetch(SUPA_URL + '/auth/v1/user', {
+            headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + accessToken }
+          }).then(function(r) { return r.json(); }).then(function(user) {
+            if (user && user.id) {
+              // Upgrade profile to ranker for premium access
+              fetch(SUPA_URL + '/rest/v1/users?id=eq.' + user.id, {
+                method: 'PATCH',
+                headers: {
+                  'apikey': SUPA_ANON_KEY,
+                  'Authorization': 'Bearer ' + accessToken,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'return=minimal'
+                },
+                body: JSON.stringify({
+                  plan_type: 'ranker',
+                  billing_status: 'active',
+                  plan_expires_at: '2099-12-31T23:59:59.000Z',
+                  access_ends_at: '2099-12-31T23:59:59.000Z'
+                })
+              }).catch(function() {});
+            }
+          }).catch(function() {});
+
+          // Redirect to dashboard
+          window.location.replace('/dashboard');
+        } catch (e) {
+          console.error('[AuthCallback] Error:', e);
+          redirectToAuth();
+        }
+      }
+
+      function redirectToAuth() {
+        window.location.replace('/auth');
+      }
+
+      // Run immediately
+      handleAuthCallback();
+    })();
+  </script>
+</body>
+</html>
