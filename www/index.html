@@ -75,15 +75,10 @@
   window.__ISO_ANON__ = SUPA_ANON;
   window.__ISO_PROJECT_REF__ = SUPA_REF;
   window.__ISO_APP_VERSION__ = APP_VERSION;
-  // Detect Android app vs browser: Capacitor adds 'capacitor' to userAgent, or check for native bridge
-  window.__ISO_IS_ANDROID__ = typeof window.Capacitor !== 'undefined' || /capacitor|android/.test(navigator.userAgent.toLowerCase());
+  // Native Android app - uses isotopeai://auth/callback deep link
+  window.__ISO_IS_ANDROID__ = true;
   window.__ISO_ORIGIN__ = window.location.origin;
-
-  // Browser testing: override OAuth redirect to use web callback
-  // In production (Android), the app uses isotopeai://auth/callback deep link
-  if (!window.__ISO_IS_ANDROID__) {
-    window.__ISO_OAUTH_REDIRECT__ = window.location.origin + '/auth/callback';
-  }
+  window.__ISO_OAUTH_REDIRECT__ = 'isotopeai://auth/callback';
 })();
 </script>
 <script>
