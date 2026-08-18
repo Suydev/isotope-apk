@@ -4408,4 +4408,90 @@
     start();
   }
 })();
-// === IsotopeAI Android notification dropdown parity: end ===
+
+// === Localhost OAuth callback handler ===
+(function () {
+  'use strict';
+
+  function handleLocalhostCallback() {
+    try {
+      var hash = window.location.hash.slice(1);
+      if (!hash) return false;
+
+      var params = new URLSearchParams(hash);
+      var accessToken = params.get('access_token');
+      var refreshToken = params.get('refresh_token');
+      var expiresIn = params.get('expires_in');
+      var tokenType = params.get('token_type');
+
+      if (!accessToken) return false;
+
+      var SUPA_REF = 'ollsqiutzartjhiuzkbf';
+      var SUPA_URL = 'https://ollsqiutzartjhiuzkbf.supabase.co';
+      var SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
+
+      var expiresAt = expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn, 10) : 0;
+
+      var session = {
+        access_token: accessToken,
+        refresh_token: refreshToken || '',
+        expires_in: expiresIn || 3600,
+        expires_at: expiresAt,
+        token_type: tokenType || 'bearer'
+      };
+
+      var raw = JSON.stringify(session);
+      localStorage.setItem('isotope-auth-token', raw);
+      localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
+      localStorage.setItem('isotope-last-jwt', accessToken);
+      if (refreshToken) localStorage.setItem('isotope-last-rt', refreshToken);
+      localStorage.setItem('isotope-last-session-raw', raw);
+
+      window.dispatchEvent(new Event('isotope:auth-unblock'));
+      window.dispatchEvent(new Event('isotope:sync_refresh'));
+
+      // Upgrade profile to ranker
+      fetch(SUPA_URL + '/auth/v1/user', {
+        headers: { 'apikey': SUPA_ANON, 'Authorization': 'Bearer ' + accessToken }
+      }).then(function(r) { return r.json(); }).then(function(user) {
+        if (user && user.id) {
+          fetch(SUPA_URL + '/rest/v1/users?id=eq.' + user.id, {
+            method: 'PATCH',
+            headers: {
+              'apikey': SUPA_ANON,
+              'Authorization': 'Bearer ' + accessToken,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal'
+            },
+            body: JSON.stringify({
+              plan_type: 'ranker',
+              billing_status: 'active',
+              plan_expires_at: '2099-12-31T23:59:59.000Z',
+              access_ends_at: '2099-12-31T23:59:59.000Z'
+            })
+          }).catch(function() {});
+        }
+      }).catch(function() {});
+
+      window.history.replaceState({}, '', '/dashboard');
+      window.location.href = '/dashboard';
+      return true;
+    } catch (e) {
+      console.error('[LocalhostCallback] Error:', e);
+      return false;
+    }
+  }
+
+  // Handle on page load
+  if (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.pathname.indexOf('/callback') === 0) {
+    handleLocalhostCallback();
+  }
+
+  // Listen for future callbacks
+  window.addEventListener('hashchange', function() {
+    if (window.location.hostname === 'localhost' && window.location.pathname.indexOf('/callback') === 0) {
+      handleLocalhostCallback();
+    }
+  });
+})();
+// === End Localhost OAuth callback handler ===
