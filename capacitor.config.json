@@ -4,7 +4,9 @@
   "webDir": "www",
   "server": {
     "androidScheme": "https",
-    "allowNavigation": []
+    "hostname": "localhost",
+    "port": 6767,
+    "allowNavigation": ["localhost"]
   },
   "plugins": {
     "SplashScreen": {

@@ -67,6 +67,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="isotopeai" />
             </intent-filter>
+            <!-- Localhost OAuth callback for Capacitor local server -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" android:host="localhost" android:port="6767" android:pathPrefix="/callback" />
+            </intent-filter>
 
         </activity>
 
