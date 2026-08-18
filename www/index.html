@@ -2,8 +2,10 @@
   <html lang="en" class="scroll-smooth">
 
   <head>
+    <script src="/android-bridge.js"></script>
+    <script src="/android-floating-timer-bridge.js"></script>
       <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
       <title>IsotopeAI | AI Study Planner, Focus Timer &amp; Analytics for Students</title>
       <meta name="description" content="AI-powered study planner, focus timer, progress tracking, and analytics for students preparing for JEE, NEET, CUET, boards, and more." />
       <meta name="theme-color" content="#f97316" />
@@ -45,8 +47,200 @@
       <script type="module" src="/sync/local-data-adapter.js"></script>
       <!-- Restore & launch: clears stale data, routes to /onboarding or /dashboard -->
       <script type="module" src="/restore-and-launch.js"></script>
-    <script type="module" crossorigin src="/assets/index-P2Xu9kJm.js"></script>
-  </head>
+  
+<script>
+(function(){
+  'use strict';
+  window.__ISO_SUPA_URL__ = 'https://ollsqiutzartjhiuzkbf.supabase.co';
+  window.__ISO_ANON__ = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
+  window.__ISO_PROJECT_REF__ = 'ollsqiutzartjhiuzkbf';
+  window.__ISO_APP_VERSION__ = '3.4.6';
+  window.__ISO_IS_ANDROID__ = true;
+})();
+</script>
+
+  <script>
+(function(){
+  window.__ISO_ORIGIN__   = window.location.origin;
+  window.__ISO_SUPA_URL__ = 'https://ollsqiutzartjhiuzkbf.supabase.co';
+  window.__ISO_ANON__     = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
+})();
+</script>
+<script>
+(function(){
+  'use strict';
+  var SUPA_REF = "ollsqiutzartjhiuzkbf";
+  var DATA_KEYS = ["isotope_subjects_v2","isotope_tasks_v2","isotope_sessions_v2","isotope_habits_v2","isotope_tests_v2","isotope_exams_v2","isotope_mock_tests_v2","isotope_daily_logs_v2","isotope_timer_state","isotope_sync_metadata","isotope_user_profile_v2"];
+  var ACTIVE_USER_KEY = 'isotope_active_user_id';
+  function parse(raw) {
+    if (!raw) return null;
+    try {
+      var p = JSON.parse(raw);
+      if (p && p.user && p.user.id) return p;
+      if (p && p.session && p.session.user && p.session.user.id) return p.session;
+      if (p && p.currentSession && p.currentSession.user && p.currentSession.user.id) return p.currentSession;
+      if (p && p.state && p.state.session && p.state.session.user && p.state.session.user.id) return p.state.session;
+    } catch(e) {}
+    return null;
+  }
+  function session() {
+    try {
+      var raw = SUPA_REF ? localStorage.getItem('sb-' + SUPA_REF + '-auth-token') : null;
+      if (raw) return parse(raw);
+      raw = localStorage.getItem('isotope-auth-token');
+      if (raw) return parse(raw);
+      raw = localStorage.getItem('isotope-last-session-raw');
+      if (raw) return parse(raw);
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf('sb-') === 0 && /-auth-token$/.test(k)) {
+          raw = localStorage.getItem(k);
+          var s = parse(raw);
+          if (s) return s;
+        }
+      }
+    } catch(e) {}
+    return null;
+  }
+  function scopedKey(uid, key) { return 'isotope:user:' + uid + ':' + key; }
+  function copyToUser(uid) {
+    if (!uid) return;
+    DATA_KEYS.forEach(function(key) {
+      try {
+        var value = localStorage.getItem(key);
+        if (value !== null) localStorage.setItem(scopedKey(uid, key), value);
+      } catch(e) {}
+    });
+  }
+  function clearGlobalData() {
+    DATA_KEYS.forEach(function(key) {
+      try { localStorage.removeItem(key); } catch(e) {}
+    });
+  }
+  function clearIndexedDBWorkspace() {
+    try {
+      if (!window.indexedDB) return;
+      var stores = ['tasks','subjects','sessions','habits','tests','exams','mockTests','dailyLogs','userProfile','timerState','syncMetadata'];
+      var req = indexedDB.open('isotope_main', 20);
+      req.onsuccess = function() {
+        var db = req.result;
+        try {
+          var names = stores.filter(function(name){ return db.objectStoreNames.contains(name); });
+          if (!names.length) { db.close(); return; }
+          var tx = db.transaction(names, 'readwrite');
+          names.forEach(function(name){ try { tx.objectStore(name).clear(); } catch(e) {} });
+          tx.oncomplete = function(){ db.close(); };
+          tx.onerror = function(){ db.close(); };
+        } catch(e) { try { db.close(); } catch(_) {} }
+      };
+    } catch(e) {}
+  }
+  function restoreUser(uid) {
+    if (!uid) return;
+    var restored = false;
+    DATA_KEYS.forEach(function(key) {
+      try {
+        var value = localStorage.getItem(scopedKey(uid, key));
+        if (value !== null) {
+          localStorage.setItem(key, value);
+          restored = true;
+        }
+      } catch(e) {}
+    });
+    if (!restored) {
+      clearGlobalData();
+      clearIndexedDBWorkspace();
+    }
+  }
+  try {
+    if (window.location.pathname !== '/demo') sessionStorage.removeItem('isotope-demo-mode');
+    var s = session();
+    var uid = s && s.user && s.user.id;
+    if (!uid) return;
+    var previous = localStorage.getItem(ACTIVE_USER_KEY);
+    if (previous && previous !== uid) {
+      copyToUser(previous);
+      clearGlobalData();
+      clearIndexedDBWorkspace();
+    }
+    if (previous !== uid) restoreUser(uid);
+    localStorage.setItem(ACTIVE_USER_KEY, uid);
+    var persist = function(){ copyToUser(uid); };
+    window.addEventListener('pagehide', persist);
+    document.addEventListener('visibilitychange', function(){
+      if (document.visibilityState === 'hidden') persist();
+    });
+  } catch(e) {}
+})();
+</script>
+<script>
+(function() {
+  'use strict';
+  var SUPA_REF = 'ollsqiutzartjhiuzkbf';
+  // Paths that do NOT require authentication
+  var PUBLIC_PATHS = ['/', '/onboarding', '/auth', '/login', '/signup',
+                      '/terms', '/privacy', '/about', '/demo', '/reset-password'];
+  var currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
+  var isPublic = PUBLIC_PATHS.some(function(p) {
+    return currentPath === p || currentPath.startsWith(p + '/');
+  });
+  if (isPublic) return; // Public page — no auth required
+
+  // ── Session check ────────────────────────────────────────────────────────────
+  function getStoredSessionEvidence() {
+    try {
+      var raw = localStorage.getItem('sb-' + SUPA_REF + '-auth-token')
+             || localStorage.getItem('isotope-auth-token')
+             || localStorage.getItem('isotope-last-session-raw');
+      if (!raw) {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf('sb-') === 0 && /-auth-token$/.test(k)) {
+            raw = localStorage.getItem(k);
+            if (raw) break;
+          }
+        }
+      }
+      if (!raw) return null;
+      var sess = JSON.parse(raw);
+      var stateSession = sess && sess.state && sess.state.session;
+      var token = sess && (sess.access_token || (sess.session && sess.session.access_token) || (sess.currentSession && sess.currentSession.access_token) || (stateSession && stateSession.access_token));
+      if (!token) return null;
+      return sess;
+    } catch(e) { return null; }
+  }
+
+  var session = getStoredSessionEvidence();
+  if (!session) {
+    // Route decisions are made by restore-and-launch.js after Supabase session
+    // hydration/refresh. Do not preemptively redirect protected deep links.
+    window.__ISO_AUTH_GUARD__ = { state: 'sessionRestoring', protectedPath: currentPath, startedAt: Date.now() };
+    var redirectIfLoggedOut = function(detail) {
+      var boot = (detail && detail.detail) || window.__ISO_BOOT_STATE__ || {};
+      // Offline: don't redirect to /auth — allow cached bootstrap to restore session
+      if (boot.state === 'readyLoggedOut' && navigator.onLine !== false) window.location.replace('/auth');
+    };
+    window.addEventListener('isotope:boot-state', redirectIfLoggedOut);
+    setTimeout(function() {
+      var boot = window.__ISO_BOOT_STATE__ || {};
+      // Offline fallback: if there's a cached bootstrap, don't redirect to /auth
+      if (!boot.bootResolved || boot.state === 'readyLoggedOut') {
+        if (navigator.onLine === false) return; // stay on page, cached bootstrap will restore
+        window.location.replace('/auth');
+      }
+    }, 9000);
+    return;
+  }
+
+  // Onboarding is intentionally not enforced here. This guard runs before
+  // restore-and-launch.js can verify Supabase or a trusted cloud snapshot, so
+  // localStorage would collapse UNKNOWN into INCOMPLETE and flash onboarding.
+  // The React route gate handles onboarding after window.__ISO_BOOT_STATE__
+  // resolves.
+})();
+</script>
+  <!-- isotope-server-head -->
+</head>
 
   <body>
       <div id="root"></div>
@@ -55,10 +249,997 @@
       <!-- Focus background import: gallery image + video picker in Focus tab -->
       <script src="/focus-bg-import.js" defer></script>
       <!-- Update checker: polls GitHub when online, shows banner if new commit available -->
-      <script src="/update-checker.js" defer></script>
+      <!-- update-checker.js disabled in Android APK -->
       <!-- Local PWA support: registers service worker and shows honest offline/server status -->
-      <script src="/pwa-local.js" defer></script>
-  </body>
+      <!-- pwa-local.js disabled in Android APK (Capacitor serves assets locally) -->
+  <a href="https://suydev.github.io/isotope-code/" target="_blank" rel="noopener noreferrer" id="iso-docs-badge" title="IsotopeAI documentation" style="position:fixed;bottom:14px;right:18px;z-index:9998;background:rgba(10,10,20,0.82);border:1px solid rgba(124,58,237,0.38);border-radius:999px;padding:6px 14px;font-size:11px;font-family:system-ui,-apple-system,sans-serif;color:#a78bfa;text-decoration:none;backdrop-filter:blur(6px);letter-spacing:0.02em;pointer-events:auto;user-select:none" onmouseover="this.style.background='rgba(124,58,237,0.22)';this.style.borderColor='rgba(124,58,237,0.7)'" onmouseout="this.style.background='rgba(10,10,20,0.82)';this.style.borderColor='rgba(124,58,237,0.38)'">📖 Docs</a>
+<script>
+(function() {
+  function platformHint() {
+    var ua = navigator.userAgent || '';
+    if (/Android/i.test(ua)) {
+      return 'Android/Termux: run isotope update in Termux. If Termux Widget shortcuts are installed, tap isotope-update from your home screen.';
+    }
+    if (/Windows/i.test(ua)) {
+      return 'Windows: open Command Prompt or PowerShell and run isotope update. If the command is not installed, run setup.bat again.';
+    }
+    if (/Macintosh|Mac OS/i.test(ua)) {
+      return 'macOS: open Terminal and run isotope update. If the command is not installed, run bash setup.sh again.';
+    }
+    return 'Linux/Termux: open a terminal and run isotope update. If the command is not installed, run bash setup.sh again.';
+  }
+
+  function copyCommand(btn) {
+    var cmd = 'isotope update';
+    function done(ok) {
+      if (!btn) return;
+      var old = btn.textContent;
+      btn.textContent = ok ? 'Copied' : 'Copy failed';
+      setTimeout(function(){ btn.textContent = old; }, 1400);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(cmd).then(function(){ done(true); }).catch(function(){ done(false); });
+    } else {
+      try {
+        var t = document.createElement('textarea');
+        t.value = cmd;
+        t.style.position = 'fixed';
+        t.style.opacity = '0';
+        document.body.appendChild(t);
+        t.select();
+        document.execCommand('copy');
+        t.remove();
+        done(true);
+      } catch(e) { done(false); }
+    }
+  }
+
+  window.__isoShowUpdateDialog = function() {
+    var existing = document.getElementById('__iso_update_modal__');
+    if (existing) existing.remove();
+    var wrap = document.createElement('div');
+    wrap.id = '__iso_update_modal__';
+    wrap.innerHTML =
+      '<div class="iso-update-backdrop" role="presentation"></div>' +
+      '<section class="iso-update-dialog" role="dialog" aria-modal="true" aria-labelledby="iso-update-title">' +
+      '<button class="iso-update-x" type="button" aria-label="Close">x</button>' +
+      '<h2 id="iso-update-title">Update available</h2>' +
+      '<p>A new version of Isotope is available. Because this app runs locally on your device, update must be applied through the local command system.</p>' +
+      '<label>Run this command</label>' +
+      '<pre><code>isotope update</code></pre>' +
+      '<p class="iso-update-hint">' + platformHint() + '</p>' +
+      '<p class="iso-update-hint">After update, run <code>isotope start</code> if the server did not restart automatically.</p>' +
+      '<div class="iso-update-actions">' +
+      '<button class="iso-copy" type="button">Copy command</button>' +
+      '<button class="iso-later" type="button">Later</button>' +
+      '<a class="iso-docs" href="https://github.com/Suydev/isotope-code/blob/main/README.md#updating" target="_blank" rel="noreferrer">Open docs / troubleshooting</a>' +
+      '</div>' +
+      '</section>';
+    var css = document.getElementById('__iso_update_modal_css__');
+    if (!css) {
+      css = document.createElement('style');
+      css.id = '__iso_update_modal_css__';
+      css.textContent =
+        '#__iso_update_modal__{position:fixed;inset:0;z-index:2147483647;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f4f4f5}' +
+        '#__iso_update_modal__ .iso-update-backdrop{position:absolute;inset:0;background:rgba(9,9,11,.72);backdrop-filter:blur(5px)}' +
+        '#__iso_update_modal__ .iso-update-dialog{position:relative;margin:72px auto 0;width:min(520px,calc(100vw - 28px));background:#18181b;border:1px solid rgba(245,158,11,.32);border-radius:8px;box-shadow:0 24px 80px rgba(0,0,0,.45);padding:22px}' +
+        '#__iso_update_modal__ h2{margin:0 32px 10px 0;font-size:22px;line-height:1.2;letter-spacing:0;color:#fff}' +
+        '#__iso_update_modal__ p{margin:10px 0;color:#d4d4d8;font-size:14px;line-height:1.5}' +
+        '#__iso_update_modal__ label{display:block;margin-top:16px;margin-bottom:6px;color:#a1a1aa;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}' +
+        '#__iso_update_modal__ pre{margin:0;background:#09090b;border:1px solid #3f3f46;border-radius:7px;padding:14px;overflow:auto}' +
+        '#__iso_update_modal__ code{font-family:Consolas,"SFMono-Regular",monospace;color:#fbbf24;font-size:14px}' +
+        '#__iso_update_modal__ .iso-update-hint{font-size:13px;color:#a1a1aa}' +
+        '#__iso_update_modal__ .iso-update-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}' +
+        '#__iso_update_modal__ button,#__iso_update_modal__ .iso-docs{border-radius:7px;padding:9px 13px;font-size:13px;font-weight:700;text-decoration:none;cursor:pointer}' +
+        '#__iso_update_modal__ .iso-copy{border:0;background:#f59e0b;color:#18181b}' +
+        '#__iso_update_modal__ .iso-later{border:1px solid #3f3f46;background:#27272a;color:#f4f4f5}' +
+        '#__iso_update_modal__ .iso-docs{border:1px solid #52525b;color:#e4e4e7;background:transparent}' +
+        '#__iso_update_modal__ .iso-update-x{position:absolute;right:14px;top:12px;border:0;background:transparent;color:#a1a1aa;padding:6px 9px;font-size:16px}';
+      document.head.appendChild(css);
+    }
+    document.body.appendChild(wrap);
+    var close = function(){ if (wrap.parentNode) wrap.remove(); };
+    wrap.querySelector('.iso-copy').addEventListener('click', function(){ copyCommand(this); });
+    wrap.querySelector('.iso-later').addEventListener('click', close);
+    wrap.querySelector('.iso-update-x').addEventListener('click', close);
+    wrap.querySelector('.iso-update-backdrop').addEventListener('click', close);
+  };
+
+  function patchUpdateBtn() {
+    var btns = document.querySelectorAll('button, a, [role="button"]');
+    for (var i = 0; i < btns.length; i++) {
+      var el = btns[i];
+      if (el.__isoPatch) continue;
+      var txt = (el.textContent || '').trim();
+      if (txt === 'Reload to update' || txt === 'Update now' || txt.indexOf('Reload to update') !== -1) {
+        el.__isoPatch = true;
+        el.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          window.__isoShowUpdateDialog();
+        }, true);
+      }
+    }
+  }
+  // Patch existing buttons and watch for the banner to appear
+  patchUpdateBtn();
+  var obs = new MutationObserver(patchUpdateBtn);
+  obs.observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+<script>
+(function() {
+  var KEY = 'isotope-app-stamp';
+  var CURRENT = "v3.4.6|unknown";
+  var shown = false;
+  try {
+    shown = localStorage.getItem(KEY) === CURRENT;
+  } catch (e) {}
+  if (shown) return;
+  if (!document.body) { setTimeout(arguments.callee, 400); return; }
+
+  var pill = document.createElement('div');
+  pill.id = '__iso_update_pill__';
+  pill.style.cssText = 'position:fixed;right:16px;bottom:78px;z-index:2147483646;display:flex;align-items:center;gap:10px;background:rgba(24,24,27,.92);border:1px solid rgba(245,158,11,.45);border-radius:999px;padding:10px 14px;box-shadow:0 10px 32px rgba(0,0,0,.45);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backdrop-filter:blur(6px)';
+  var dot = document.createElement('span');
+  dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:#34d399;box-shadow:0 0 10px #34d399;flex:none';
+  var label = document.createElement('button');
+  label.type = 'button';
+  label.textContent = 'Update now';
+  label.style.cssText = 'border:0;background:#f59e0b;color:#18181b;font-size:13px;font-weight:800;cursor:pointer;padding:8px 14px;border-radius:999px;white-space:nowrap';
+  var dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.setAttribute('aria-label', 'Dismiss');
+  dismiss.textContent = 'x';
+  dismiss.style.cssText = 'border:0;background:transparent;color:#a1a1aa;font-size:15px;cursor:pointer;padding:0 2px';
+  pill.appendChild(dot);
+  pill.appendChild(label);
+  pill.appendChild(dismiss);
+  document.body.appendChild(pill);
+
+  var remember = function(){ try { localStorage.setItem('isotope-app-stamp', CURRENT); } catch (e) {} };
+  function setBusy() {
+    label.textContent = 'Updating…';
+    label.disabled = true;
+    dismiss.style.display = 'none';
+    label.style.opacity = '0.6';
+  }
+  function launchReloadCheck(attempt) {
+    fetch('/api/version', { cache: 'no-store' }).then(function(r){ return r.ok; }).then(function(ok){
+      if (ok) { remember(); window.location.reload(); }
+      else if (attempt < 60) setTimeout(function(){ launchReloadCheck(attempt + 1); }, 2000);
+      else { label.textContent = 'Update now'; label.disabled = false; dismiss.style.display = ''; }
+    }).catch(function(){
+      if (attempt < 60) setTimeout(function(){ launchReloadCheck(attempt + 1); }, 2000);
+      else { label.textContent = 'Update now'; label.disabled = false; dismiss.style.display = ''; }
+    });
+  }
+  function updateNow() {
+    remember();
+    setBusy();
+    fetch('/api/update-now', { method: 'POST', cache: 'no-store' })
+      .then(function (r) {
+        if (r.status === 403 || r.status === 401) {
+          // Admin unlock needed — route to /__admin/login once; the admin
+          // cookie (Path=/) then authorizes /api/update-now on retry.
+          label.textContent = 'Admin unlock needed';
+          label.disabled = false;
+          dismiss.style.display = '';
+          window.location.href = '/__admin/login?next=/';
+          return;
+        }
+        launchReloadCheck(0);
+      })
+      .catch(function () { launchReloadCheck(0); });
+  }
+  label.addEventListener('click', updateNow);
+  dismiss.addEventListener('click', function(){
+    remember();
+    if (pill.parentNode) pill.parentNode.removeChild(pill);
+  });
+  setTimeout(function(){
+    if (pill.parentNode) pill.parentNode.removeChild(pill);
+  }, 6 * 60 * 60 * 1000);
+})();
+</script>
+<script>
+(function(){
+  'use strict';
+  var _orig = window.fetch;
+  var SUPA  = 'https://ollsqiutzartjhiuzkbf.supabase.co';
+  var ANON  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
+  var _upgradedUsers = {};
+
+  // ── Upgrade user's real Supabase profile to ranker ──────────────────────────
+  // This makes is_premium_user() return true in PostgreSQL, so all RLS
+  // SELECT/INSERT/UPDATE policies on community tables pass for this user.
+  function upgradeProfile(jwt, userId) {
+    if (!jwt || !userId || _upgradedUsers[userId]) return;
+    _upgradedUsers[userId] = true;
+
+    var payload = JSON.stringify({
+      plan_type:       'ranker',
+      billing_status:  'active',
+      plan_expires_at: '2099-12-31T23:59:59.000Z',
+      access_ends_at:  '2099-12-31T23:59:59.000Z'
+    });
+    var hdrs = {
+      'Content-Type':  'application/json',
+      'Authorization': 'Bearer ' + jwt,
+      'apikey':        ANON,
+      'Prefer':        'return=minimal'
+    };
+
+    // Try 'users' table (where plan_type lives), then 'profiles' fallback
+    function doPatch(table, col) {
+      return _orig.call(window,
+        SUPA + '/rest/v1/' + table + '?' + col + '=eq.' + encodeURIComponent(userId),
+        { method: 'PATCH', headers: hdrs, body: payload }
+      );
+    }
+
+    doPatch('users', 'id')
+      .then(function(r) {
+        console.log('[ISO-MOD] Users PATCH (id=):', r.status);
+        if (r.status === 404 || r.status === 406) {
+          return doPatch('users', 'user_id').then(function(r2) {
+            if (r2.status === 404 || r2.status === 406) {
+              return doPatch('profiles', 'id');
+            }
+            return r2;
+          });
+        }
+        return r;
+      })
+      .then(function(r) {
+        var ok = r && (r.status === 200 || r.status === 204 || r.ok);
+        if (ok) {
+          console.log('[ISO-MOD] ✅ Profile upgraded to ranker in Supabase DB');
+          // Reload once so React Query fetches fresh community data with RLS now passing
+          if (!sessionStorage.getItem('__iso_rls_upgraded__')) {
+            sessionStorage.setItem('__iso_rls_upgraded__', userId);
+            setTimeout(function() { window.location.reload(); }, 400);
+          }
+        } else {
+          console.warn('[ISO-MOD] ⚠️ Profile upgrade returned', r && r.status,
+            '— RLS may still block community. Check Supabase policies and membership state.');
+        }
+      })
+      .catch(function(e) {
+        console.warn('[ISO-MOD] Profile upgrade error:', e && e.message);
+      });
+  }
+
+  // Check localStorage for existing Supabase session on every page load
+  // (covers returning users who don't re-trigger the auth/v1/token call)
+  (function checkExistingSession() {
+    // Only run once per page load (not after our own reload)
+    var alreadyDone = sessionStorage.getItem('__iso_rls_upgraded__');
+    try {
+      // Find the sb-{ref}-auth-token key Supabase stores in localStorage
+      var raw = null;
+      for (var i = 0; i < localStorage.length; i++) {
+        var lk = localStorage.key(i);
+        if (lk && lk.startsWith('sb-') && lk.endsWith('-auth-token')) {
+          raw = localStorage.getItem(lk); break;
+        }
+      }
+      if (raw) {
+        var session = JSON.parse(raw);
+        var jwt    = session && (session.access_token || (session.session && session.session.access_token));
+        var userId = session && (
+          (session.user && session.user.id) ||
+          (session.session && session.session.user && session.session.user.id)
+        );
+        if (jwt && userId && !alreadyDone) {
+          upgradeProfile(jwt, userId);
+        }
+      }
+    } catch(e) {}
+  })();
+
+  // ── Leaderboard builder ───────────────────────────────────────────────────────
+  // Intercepts all four leaderboard/analytics edge-function calls and returns
+  // REAL data from Supabase: user_stats_summary + daily_user_stats + users tables.
+  // Performs a two-step query per variant:
+  //   1. Fetch stats rows (ordered by score)
+  //   2. Batch-fetch user display data (name, username, avatar_url) and merge in
+  // This replaces the old implementation that hardcoded name=null, avatar_url=null.
+  function _handleLeaderboard(url, init) {
+    return new Promise(function(resolve) {
+      var body = {};
+      try { body = JSON.parse((init && typeof init.body === 'string') ? init.body : '{}'); } catch {}
+      var period    = body.period   || 'weekly';
+      var limitN    = Math.min(parseInt(body.limit, 10) || 50, 100);
+      var groupId   = body.group_id || null;
+      var isDaily   = url.indexOf('get-daily-leaderboard') !== -1;
+      var isGroup   = url.indexOf('get-group-leaderboard') !== -1;
+      var isGroupAn = url.indexOf('get-group-analytics')   !== -1;
+      var sortCol   = period === 'monthly' ? 'monthly_hours' : 'weekly_hours';
+      // BUG FIX: Use user JWT for leaderboard REST queries so the
+      // stats_select_all / daily_select_all / users_select_display RLS policies
+      // (added in performance-patch.sql §6) allow reading across all users.
+      // Using ANON key alone gives auth.uid()=NULL which returns 0 rows.
+      // getJwt() is a function declaration so it is hoisted within this scope.
+      var _lbJwt    = getJwt();
+
+      // ── Helper: get current user ID from localStorage ─────────────────────
+      function getUid() {
+        try {
+          var _keys = ['isotope-last-session-raw', 'isotope-auth-token'];
+          for (var _i = 0; _i < localStorage.length; _i++) {
+            var _lk = localStorage.key(_i);
+            if (_lk && _lk.startsWith('sb-') && _lk.endsWith('-auth-token')) _keys.push(_lk);
+          }
+          for (var _j = 0; _j < _keys.length; _j++) {
+            var _sd = JSON.parse(localStorage.getItem(_keys[_j]) || '{}');
+            var _uid = (_sd.user && _sd.user.id)
+                || (_sd.session && _sd.session.user && _sd.session.user.id)
+                || (_sd.currentSession && _sd.currentSession.user && _sd.currentSession.user.id)
+                || (_sd.state && _sd.state.session && _sd.state.session.user && _sd.state.session.user.id)
+                || null;
+            if (_uid) return _uid;
+          }
+        } catch {} return null;
+      }
+
+      function getJwt() {
+        try {
+          if (typeof window.__isoCurrentJwt === 'function') {
+            var _jwt = window.__isoCurrentJwt();
+            if (_jwt) return _jwt;
+          }
+          var _keys = ['isotope-last-session-raw', 'isotope-auth-token'];
+          for (var _i = 0; _i < localStorage.length; _i++) {
+            var _lk = localStorage.key(_i);
+            if (_lk && _lk.startsWith('sb-') && _lk.endsWith('-auth-token')) _keys.push(_lk);
+          }
+          for (var _j = 0; _j < _keys.length; _j++) {
+            var _sd = JSON.parse(localStorage.getItem(_keys[_j]) || '{}');
+            var _token = (_sd.access_token)
+                || (_sd.session && _sd.session.access_token)
+                || (_sd.currentSession && _sd.currentSession.access_token)
+                || (_sd.state && _sd.state.session && _sd.state.session.access_token)
+                || null;
+            if (_token) return _token;
+          }
+        } catch {} return null;
+      }
+
+      function fetchJsonOrThrow(url, headers) {
+        return _orig.call(window, url, { headers: headers })
+          .then(function(r) {
+            if (!r.ok) return r.text().then(function(txt) { throw new Error('HTTP ' + r.status + ': ' + txt.slice(0, 160)); });
+            return r.json();
+          });
+      }
+
+      // ── Helper: batch-fetch real user display info ────────────────────────
+      function fetchUsers(ids) {
+        if (!ids || !ids.length) return Promise.resolve({});
+        return _orig.call(window, SUPA + '/rest/v1/users?id=in.(' + ids.join(',') + ')&select=id,username,name,avatar_url', {
+          headers: { 'apikey': ANON, 'Authorization': 'Bearer ' + (_lbJwt || ANON), 'Accept': 'application/json' }
+        })
+        .then(function(r) { return r.ok ? r.json() : []; })
+        .then(function(ud) {
+          var m = {};
+          (Array.isArray(ud) ? ud : []).forEach(function(u) { m[u.id] = u; });
+          return m;
+        })
+        .catch(function() { return {}; });
+      }
+
+      // ── Helper: build final response ──────────────────────────────────────
+      function finish(rankings, p) {
+        var uid = getUid();
+        var cur = uid ? (rankings.find(function(x) { return x.user_id === uid; }) || null) : null;
+        resolve(new Response(JSON.stringify({
+          rankings: rankings, period: p, source: 'db',
+          currentUserRank: cur, display_names_resolved: true
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+
+      function errResp(p, detail) {
+        resolve(new Response(JSON.stringify({
+          rankings: [], period: p, source: 'error', display_names_resolved: true,
+          error: detail || 'Supabase query failed'
+        }), { status: 502, headers: { 'Content-Type': 'application/json' } }));
+      }
+
+      // ── Group analytics: member list + aggregate ──────────────────────────
+      if (isGroupAn) {
+        var gid = groupId || '';
+        var jwt = getJwt();
+        var auth = jwt || ANON;
+        var gAPath = gid
+          ? '/rest/v1/group_members?group_id=eq.' + encodeURIComponent(gid) + '&select=user_id,role,joined_at&limit=200'
+          : '/rest/v1/group_members?select=user_id,role,joined_at&limit=1';
+        fetchJsonOrThrow(SUPA + gAPath, { 'apikey': ANON, 'Authorization': 'Bearer ' + auth, 'Accept': 'application/json' })
+        .then(function(members) {
+          if (!Array.isArray(members)) members = [];
+          var memberIds = members.map(function(m) { return m.user_id; }).filter(Boolean);
+          if (!memberIds.length) {
+            resolve(new Response(JSON.stringify({
+              group_id: groupId, member_count: 0, members: [],
+              total_sessions: 0, total_hours: 0, weekly_hours: 0, monthly_hours: 0,
+              group_streak: 0, members_active_today: 0, avg_session_minutes: 0,
+              peak_hour: 12, top_contributor: null, source: 'db', display_names_resolved: true
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+            return null;
+          }
+          var statQs = 'select=user_id,total_hours,weekly_hours,monthly_hours,total_sessions,current_streak,last_session_at'
+                     + '&user_id=in.(' + memberIds.join(',') + ')&limit=200';
+          return Promise.all([
+            Promise.resolve(members),
+            fetchJsonOrThrow(SUPA + '/rest/v1/user_stats_summary?' + statQs, { 'apikey': ANON, 'Authorization': 'Bearer ' + auth, 'Accept': 'application/json' }),
+            fetchUsers(memberIds)
+          ]);
+        })
+        .then(function(bundle) {
+          if (!bundle) return;
+          var members = bundle[0], rows = Array.isArray(bundle[1]) ? bundle[1] : [], users = bundle[2] || {};
+          var statsByUser = {};
+          rows.forEach(function(r) { statsByUser[r.user_id] = r; });
+          var today = new Date().toISOString().slice(0, 10);
+          var totalHours = 0, weeklyHours = 0, monthlyHours = 0, totalSessions = 0, activeToday = 0, streak = 0;
+          var top = null;
+          var enriched = members.map(function(m) {
+            var st = statsByUser[m.user_id] || {};
+            var u = users[m.user_id] || {};
+            var th = Number(st.total_hours) || 0;
+            var wh = Number(st.weekly_hours) || 0;
+            totalHours += th;
+            weeklyHours += wh;
+            monthlyHours += Number(st.monthly_hours) || 0;
+            totalSessions += Number(st.total_sessions) || 0;
+            streak = Math.max(streak, Number(st.current_streak) || 0);
+            if (st.last_session_at && String(st.last_session_at).slice(0, 10) === today) activeToday += 1;
+            if (!top || wh > top.hours) top = { user_id: m.user_id, name: u.name || u.username || 'Student', hours: wh };
+            return {
+              user_id: m.user_id,
+              role: m.role,
+              joined_at: m.joined_at,
+              name: u.name || u.username || 'Student',
+              avatar_url: u.avatar_url || null,
+              total_hours: th,
+              weekly_hours: wh,
+              monthly_hours: Number(st.monthly_hours) || 0,
+              total_sessions: Number(st.total_sessions) || 0,
+              current_streak: Number(st.current_streak) || 0,
+              last_session_at: st.last_session_at || null
+            };
+          });
+          resolve(new Response(JSON.stringify({
+            group_id: groupId,
+            member_count: members.length,
+            members: enriched,
+            total_sessions: totalSessions,
+            total_hours: totalHours,
+            weekly_hours: weeklyHours,
+            monthly_hours: monthlyHours,
+            group_streak: streak,
+            members_active_today: activeToday,
+            avg_session_minutes: totalSessions > 0 ? Math.round((totalHours * 60) / totalSessions) : 0,
+            peak_hour: 12,
+            top_contributor: top && top.hours > 0 ? top : null,
+            source: 'db',
+            display_names_resolved: true
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        })
+        .catch(function(e) {
+          resolve(new Response(JSON.stringify({ members: [], source: 'error', error: e && e.message || 'Group analytics query failed' }), {
+            status: 502, headers: { 'Content-Type': 'application/json' }
+          }));
+        });
+        return;
+      }
+
+      // ── Daily leaderboard: use daily_user_stats for today ─────────────────
+      if (isDaily) {
+        var today = new Date().toISOString().slice(0, 10);
+        var dQs = 'select=user_id,seconds_studied&date=eq.' + today
+                + '&order=seconds_studied.desc.nullslast&limit=' + limitN;
+        _orig.call(window, SUPA + '/rest/v1/daily_user_stats?' + dQs, {
+          headers: { 'apikey': ANON, 'Authorization': 'Bearer ' + (_lbJwt || ANON), 'Accept': 'application/json' }
+        })
+        .then(function(r) { return r.ok ? r.json() : []; })
+        .then(function(rows) {
+          if (!Array.isArray(rows) || !rows.length) { finish([], 'daily'); return; }
+          var ids = rows.map(function(r) { return r.user_id; }).filter(Boolean);
+          return fetchUsers(ids).then(function(uMap) {
+            var rankings = rows.map(function(r, i) {
+              var u = uMap[r.user_id] || {};
+              var hrs = Number(r.seconds_studied) / 3600;
+              return {
+                user_id: r.user_id, rank: i + 1,
+                name: u.name || u.username || null, username: u.username || null,
+                avatar_url: u.avatar_url || null,
+                daily_hours: hrs, score: hrs,
+                weekly_hours: 0, monthly_hours: 0, total_hours: 0,
+                total_sessions: 0, current_streak: 0, last_session_at: null
+              };
+            });
+            finish(rankings, 'daily');
+          });
+        })
+        .catch(function(e) { errResp('daily', e && e.message); });
+        return;
+      }
+
+      // ── Group leaderboard: filter user_stats_summary to group members ─────
+      if (isGroup && groupId) {
+        _orig.call(window, SUPA + '/rest/v1/group_members?group_id=eq.' + encodeURIComponent(groupId) + '&select=user_id&limit=200', {
+          headers: { 'apikey': ANON, 'Authorization': 'Bearer ' + (_lbJwt || ANON) }
+        })
+        .then(function(r) { return r.ok ? r.json() : []; })
+        .then(function(members) {
+          if (!Array.isArray(members) || !members.length) { finish([], period); return; }
+          var memberIds = members.map(function(m) { return m.user_id; }).filter(Boolean);
+          var gSQs = 'select=user_id,total_hours,weekly_hours,monthly_hours,total_sessions,current_streak,last_session_at'
+                   + '&user_id=in.(' + memberIds.join(',') + ')'
+                   + '&order=' + sortCol + '.desc.nullslast&limit=' + limitN;
+          return _orig.call(window, SUPA + '/rest/v1/user_stats_summary?' + gSQs, {
+            headers: { 'apikey': ANON, 'Authorization': 'Bearer ' + (_lbJwt || ANON), 'Accept': 'application/json' }
+          })
+          .then(function(r) { return r.ok ? r.json() : []; })
+          .then(function(rows) {
+            if (!Array.isArray(rows) || !rows.length) { finish([], period); return; }
+            var ids = rows.map(function(r) { return r.user_id; }).filter(Boolean);
+            return fetchUsers(ids).then(function(uMap) {
+              var rankings = rows.map(function(r, i) {
+                var u = uMap[r.user_id] || {};
+                return {
+                  user_id: r.user_id, rank: i + 1,
+                  name: u.name || u.username || null, username: u.username || null,
+                  avatar_url: u.avatar_url || null,
+                  total_hours: Number(r.total_hours) || 0,
+                  weekly_hours: Number(r.weekly_hours) || 0,
+                  monthly_hours: Number(r.monthly_hours) || 0,
+                  total_sessions: Number(r.total_sessions) || 0,
+                  current_streak: Number(r.current_streak) || 0,
+                  last_session_at: r.last_session_at || null,
+                  score: Number(r[sortCol]) || 0
+                };
+              });
+              finish(rankings, period);
+            });
+          });
+        })
+        .catch(function(e) { errResp(period, e && e.message); });
+        return;
+      }
+
+      // ── Global weekly / monthly leaderboard ───────────────────────────────
+      var qs = 'select=user_id,total_hours,weekly_hours,monthly_hours,total_sessions,current_streak,last_session_at'
+             + '&order=' + sortCol + '.desc.nullslast&limit=' + limitN;
+      _orig.call(window, SUPA + '/rest/v1/user_stats_summary?' + qs, {
+        headers: { 'apikey': ANON, 'Authorization': 'Bearer ' + (_lbJwt || ANON), 'Accept': 'application/json' }
+      })
+      .then(function(r) { return r.ok ? r.json() : []; })
+      .then(function(rows) {
+        if (!Array.isArray(rows) || !rows.length) { finish([], period); return; }
+        var ids = rows.map(function(r) { return r.user_id; }).filter(Boolean);
+        return fetchUsers(ids).then(function(uMap) {
+          var rankings = rows.map(function(r, i) {
+            var u = uMap[r.user_id] || {};
+            return {
+              user_id: r.user_id, rank: i + 1,
+              name: u.name || u.username || null, username: u.username || null,
+              avatar_url: u.avatar_url || null,
+              total_hours:    Number(r.total_hours)    || 0,
+              weekly_hours:   Number(r.weekly_hours)   || 0,
+              monthly_hours:  Number(r.monthly_hours)  || 0,
+              total_sessions: Number(r.total_sessions) || 0,
+              current_streak: Number(r.current_streak) || 0,
+              last_session_at: r.last_session_at || null,
+              score: Number(r[sortCol]) || 0
+            };
+          });
+          finish(rankings, period);
+        });
+      })
+      .catch(function(e) { errResp(period, e && e.message); });
+    });
+  }
+
+  // ── finish-session handler ───────────────────────────────────────────────────
+  // Forwards the finish-session call to the finish_session_sync RPC using the
+  // user's own JWT (passed in the Authorization header by sessionSync.js).
+  // RPC writes to: study_sessions_log, daily_user_stats, user_stats_summary.
+  function _handleFinishSession(init) {
+    return new Promise(function(resolve) {
+      var body = {}, jwt = null;
+      try { body = JSON.parse((init && typeof init.body === 'string') ? init.body : '{}'); } catch {}
+
+      // JWT is passed explicitly in the Authorization header from sessionSync.js
+      try {
+        var ah = (init && init.headers) || {};
+        var raw = ah['Authorization'] || ah['authorization'] || '';
+        jwt = raw.replace(/^Bearers+/i, '').trim() || null;
+      } catch {}
+
+      // Fallback: pull JWT from localStorage (same logic as _handleLeaderboard)
+      if (!jwt) {
+        try {
+          if (typeof window.__isoCurrentJwt === 'function') jwt = window.__isoCurrentJwt();
+        } catch {}
+      }
+      if (!jwt) {
+        try {
+          var _keys = ['isotope-last-session-raw', 'isotope-auth-token'];
+          for (var _i = 0; _i < localStorage.length; _i++) {
+            var _lk = localStorage.key(_i);
+            if (_lk && _lk.startsWith('sb-') && _lk.endsWith('-auth-token')) _keys.push(_lk);
+          }
+          for (var _j = 0; _j < _keys.length; _j++) {
+            var _sd = JSON.parse(localStorage.getItem(_keys[_j]) || '{}');
+            jwt = (_sd.access_token)
+               || (_sd.session && _sd.session.access_token)
+               || (_sd.currentSession && _sd.currentSession.access_token)
+               || (_sd.state && _sd.state.session && _sd.state.session.access_token)
+               || null;
+            if (jwt) break;
+          }
+        } catch {}
+      }
+
+      if (!jwt) {
+        resolve(new Response(JSON.stringify({ error: 'Not authenticated' }), {
+          status: 401, headers: { 'Content-Type': 'application/json' }
+        }));
+        return;
+      }
+
+      var sessionId = body.session_id || body.id || null;
+      if (!sessionId) {
+        try { sessionId = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : null; } catch {}
+      }
+      if (!sessionId) sessionId = '00000000-0000-4000-8000-' + String(Date.now()).slice(-12).padStart(12, '0');
+
+      _orig.call(window, SUPA + '/rest/v1/rpc/finish_session_sync', {
+        method: 'POST',
+        headers: {
+          'apikey':        ANON,
+          'Authorization': 'Bearer ' + jwt,
+          'Content-Type':  'application/json',
+          'Accept':        'application/json'
+        },
+        body: JSON.stringify({
+          p_session_id:       sessionId,
+          p_action:           body.action            || 'complete',
+          p_duration_minutes: body.duration_minutes  || 0,
+          p_group_id:         body.group_id          || null,
+          p_session_type:     body.session_type      || 'focus',
+          p_notes:            body.notes             || null,
+          p_ended_at:         body.ended_at          || null
+        })
+      })
+      .then(function(r) {
+        if (r.ok) return r.json();
+        return r.text().then(function(txt) {
+          throw new Error('finish_session_sync HTTP ' + r.status + ': ' + txt.slice(0, 180));
+        });
+      })
+      .then(function(d) {
+        return _orig.call(window, '/__auth/snapshot', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + jwt,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({ source: 'finish_session' })
+        }).then(function(snapResp) {
+          return snapResp.json().catch(function(){ return {}; }).then(function(snap) {
+            if (!snapResp.ok || !snap.ok) throw new Error(snap.error || 'Cloud snapshot upload failed after session sync');
+            d = d || {};
+            d.cloud_snapshot = snap.cloud_snapshot || null;
+            d.snapshot_storage = snap.snapshot_storage || null;
+            return d;
+          });
+        });
+      })
+      .then(function(d) {
+        resolve(new Response(JSON.stringify(d || {}), {
+          status: 200, headers: { 'Content-Type': 'application/json' }
+        }));
+      })
+      .catch(function(e) {
+        // Keep failure visible so pending local sync does not get marked cloud-saved.
+        resolve(new Response(JSON.stringify({
+          error: 'Session sync failed',
+          detail: e && e.message || 'finish_session_sync failed'
+        }), { status: 502, headers: { 'Content-Type': 'application/json' } }));
+      });
+    });
+  }
+
+  // ── Intercept fetch ──────────────────────────────────────────────────────────
+  window.fetch = function(input, init) {
+    var url = input instanceof Request ? input.url : String(input || '');
+
+    // Block Sentry — drop all requests to the original dev's error-reporting endpoint
+    // so user errors don't leak to a third party's dashboard.
+    if (url.indexOf('sentry.io') !== -1 || url.indexOf('ingest.sentry') !== -1) {
+      return Promise.resolve(new Response('', { status: 200 }));
+    }
+
+    // ── Leaderboard edge functions (not deployed in self-hosted) ─────────────
+    // Intercept all four leaderboard/analytics edge-function calls and build
+    // the response from user_stats_summary via the REST API instead.
+    if (url.indexOf('/functions/v1/get-leaderboard')       !== -1 ||
+        url.indexOf('/functions/v1/get-daily-leaderboard') !== -1 ||
+        url.indexOf('/functions/v1/get-group-leaderboard') !== -1 ||
+        url.indexOf('/functions/v1/get-group-analytics')   !== -1) {
+      return _handleLeaderboard(url, init);
+    }
+
+    // ── finish-session edge function (not deployed in self-hosted) ───────────
+    // Intercept and forward to finish_session_sync RPC which writes to
+    // study_sessions_log, daily_user_stats, and user_stats_summary.
+    if (url.indexOf('/functions/v1/finish-session') !== -1) {
+      return _handleFinishSession(init);
+    }
+
+    // ── Payment / billing edge functions (not deployed in self-hosted) ────────
+    // Return safe no-op responses so the app doesn't crash on these calls.
+    if (url.indexOf('/functions/v1/create_checkout')     !== -1 ||
+        url.indexOf('/functions/v1/create-checkout')     !== -1) {
+      return Promise.resolve(new Response(JSON.stringify({
+        url: null, error: 'Payments not configured in self-hosted mode'
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    if (url.indexOf('/functions/v1/create_customer_portal_session') !== -1 ||
+        url.indexOf('/functions/v1/create-customer-portal-session') !== -1) {
+      return Promise.resolve(new Response(JSON.stringify({
+        url: null, error: 'Portal not available in self-hosted mode'
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    if (url.indexOf('/functions/v1/redeem_membership_code') !== -1 ||
+        url.indexOf('/functions/v1/redeem-membership-code') !== -1) {
+      return Promise.resolve(new Response(JSON.stringify({
+        success: true, message: 'Self-hosted: all features already unlocked'
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+
+    // ── accept_invite: DB returns {ok:} but JS checks e.success ─────────────
+    // Safety net: if the DB function still returns the old shape, fix it here.
+    if (url.indexOf('/rpc/accept_invite') !== -1) {
+      return _orig.call(this, input, init).then(function(res) {
+        if (!res.ok) return res;
+        return res.text().then(function(body) {
+          try {
+            var d = JSON.parse(body);
+            if (d && typeof d === 'object' && 'ok' in d && !('success' in d)) {
+              d.success = d.ok;
+            }
+            var hdrs = {};
+            res.headers.forEach(function(v,k){ hdrs[k]=v; });
+            return new Response(JSON.stringify(d), {
+              status: res.status, statusText: res.statusText, headers: hdrs
+            });
+          } catch(e) {
+            return new Response(body, {
+              status: res.status, statusText: res.statusText, headers: res.headers
+            });
+          }
+        });
+      });
+    }
+
+    // Intercept Supabase logout so compatibility session keys cannot survive sign-out.
+    if (url.indexOf(SUPA + '/auth/v1/logout') !== -1) {
+      return _orig.call(this, input, init).then(function(res) {
+        if (res.ok) {
+          try { clearStoredSession(); } catch(_e) {}
+        }
+        return patchResp(res);
+      });
+    }
+
+    // Intercept Supabase auth token responses to capture new logins
+    var isAuthResp = url.indexOf(SUPA + '/auth/v1/token') !== -1 ||
+                     url.indexOf(SUPA + '/auth/v1/callback') !== -1 ||
+                     url.indexOf(SUPA + '/auth/v1/verify') !== -1;
+    if (isAuthResp) {
+      var authP = _orig.call(this, input, init);
+      return authP.then(function(res) {
+        if (res.ok) {
+          res.clone().json().then(function(data) {
+            var jwt    = data.access_token;
+            var userId = data.user && data.user.id;
+            if (jwt && userId) {
+              // BUG FIX: only clear the upgrade flag when it's a DIFFERENT user logging in,
+              // NOT on every token refresh. Token auto-refresh fires every ~hour and was
+              // clearing the flag, causing a reload loop on next page load.
+              var prevId = sessionStorage.getItem('__iso_rls_upgraded__');
+              if (prevId && prevId !== userId) {
+                sessionStorage.removeItem('__iso_rls_upgraded__');
+              }
+              // SYNC FIX: native Supabase signIn stores under sb-{ref}-auth-token.
+              // Also write to isotope-auth-token so restore-and-launch.js recognizes session.
+              try {
+                var _s = JSON.stringify(data);
+                localStorage.setItem('isotope-auth-token', _s);
+              } catch(_e) {}
+              upgradeProfile(jwt, userId);
+              // AUTH GATE: new valid session → unblock sync (resumes timer + queues one sync)
+              try { if (window.__isoSyncAuthUnblock) window.__isoSyncAuthUnblock(); } catch(_ue) {}
+            }
+          }).catch(function(){});
+        }
+        return patchResp(res);
+      });
+    }
+
+  // ── Header copier (handles Headers/plain-objects) ───────────────────────────
+  // for..in over a Headers instance yields nothing → the rewrite above stripped
+  // Authorization/Content-Type/Prefer and returned PGRST102 "Content-Type not
+  // acceptable: text/plain" 400s. Copy via forEach instead.
+    function _replaceHeader(init, name, value) {
+      var out = {};
+      var src = init && init.headers;
+      if (src) {
+        if (typeof src.forEach === 'function') {
+          src.forEach(function(v, k) { out[k] = v; });
+        } else if (Array.isArray(src)) {
+          for (var i = 0; i < src.length; i++) out[src[i][0]] = src[i][1];
+        } else if (typeof src === 'object') {
+          for (var k in src) { try { out[k] = String(src[k]); } catch(e) {} }
+        }
+      }
+      out[name] = value;
+      return out;
+    }
+
+  // ── Storage write normalization ─────────────────────────────────────────────
+  // Keep browser storage writes on the public anon key plus user JWT. Service-role
+  // credentials must never be exposed to client JavaScript.
+    var isStorageWrite = url.indexOf('/storage/v1/object/') !== -1
+      && init && init.method && /^(POST|PUT|PATCH|DELETE)$/i.test(init.method);
+    if (isStorageWrite) {
+      var _swInit = {};
+      for (var _swk in (init || {})) _swInit[_swk] = init[_swk];
+      _swInit.headers = _replaceHeader(init, 'apikey', ANON);
+      return _orig.call(this, input, _swInit);
+    }
+
+  // ── Cloud sync normalization ────────────────────────────────────────────────
+  // Keep profile/settings writes authenticated as the current user. The SQL layer
+  // owns the RLS contract for legitimate writes.
+    var isProfileWrite = (
+      url.indexOf('/rest/v1/user_profiles') !== -1 ||
+      url.indexOf('/rest/v1/user_settings') !== -1
+    ) && init && init.method && /^(POST|PATCH|PUT|DELETE)$/i.test(init.method);
+    if (isProfileWrite) {
+      var _newInit = {};
+      for (var _ki in (init || {})) _newInit[_ki] = init[_ki];
+      var _newHdrs = _replaceHeader(init, 'apikey', ANON);
+      _newInit.headers = _newHdrs;
+            var _pwBody = null;
+      try { _pwBody = typeof init.body === 'string' ? init.body : JSON.stringify(init.body || null); } catch {}
+      var _pwHdrs = {};
+      try { var _ph = _newHdrs || {}; for (var _pk in _ph) { var _pv = String(_ph[_pk] || ''); _pwHdrs[_pk] = _pv.length > 40 ? _pv.slice(0, 12) + '…' + _pv.slice(-24) : _pv; } } catch {}
+      return _orig.call(this, input, _newInit).then(function(res) {
+        if (!res.ok) {
+          try {
+            var _respTxt = null;
+            res.clone().text().then(function(txt) { _respTxt = txt; }).catch(function(){});
+            var _dbg = { t: Date.now(), u: url, status: res.status, body: _pwBody ? _pwBody.slice(0, 3000) : null, hdrs: _pwHdrs, page: location.pathname };
+            res.clone().text().then(function(txt) {
+              _dbg.resp = txt.slice(0, 800);
+              fetch('/__errors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ errors: [{ t: Date.now(), u: location.pathname, label: 'profile-write', name: 'ProfileWriteError', message: 'profile write failed status=' + res.status, extra: JSON.stringify(_dbg) }] }) });
+            });
+          } catch {}
+        }
+        return patchResp(res);
+      });
+    }
+
+    // Patch all Supabase REST/RPC responses (plan_type → ranker etc)
+    var isSupabase = url.indexOf('supabase.co') !== -1 &&
+                     (url.indexOf('/rest/v1/') !== -1 || url.indexOf('/rpc/') !== -1);
+    var p = _orig.call(this, input, init);
+    if (!isSupabase) return p;
+    return p.then(function(res) { return patchResp(res); });
+  };
+
+  // Patch plan/billing fields in any Supabase JSON response
+  function patchResp(res) {
+    var ct = res.headers.get('content-type') || '';
+    if (!ct.includes('json')) return res;
+    return res.text().then(function(body) {
+      var data;
+      try { data = JSON.parse(body); } catch(e) {
+        return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+      }
+      function isPlanObject(o) {
+        // Only patch objects that look like user/membership records.
+        // Guards against corrupting task, exam, or other domain objects
+        // that happen to have a plan_type or billing_status field.
+        return ('plan_type' in o || 'billing_status' in o || 'access_ends_at' in o)
+          && !('title' in o || 'subject' in o || 'duration_minutes' in o
+               || 'question' in o || 'content' in o || 'message' in o);
+      }
+      function deepPatch(o) {
+        if (!o || typeof o !== 'object') return o;
+        if (Array.isArray(o)) return o.map(deepPatch);
+        var r = Object.assign({}, o);
+        if (isPlanObject(r)) {
+          // BUG FIX: always override regardless of current value (was: !r.plan_expires_at)
+          // This ensures expired accounts and past dates are fully overridden.
+          if ('plan_type'       in r) r.plan_type       = 'ranker';
+          if ('billing_status'  in r) r.billing_status  = 'active';
+          if ('plan_expires_at' in r) r.plan_expires_at = '2099-12-31T23:59:59.000Z';
+          if ('access_ends_at'  in r) r.access_ends_at  = '2099-12-31T23:59:59.000Z';
+          if ('effective_plan'  in r) r.effective_plan  = 'ranker';
+          if ('access_source'   in r) r.access_source   = 'ranker';
+          if ('cancel_at_period_end' in r) r.cancel_at_period_end = false;
+        }
+        for (var k in r) {
+          if (r[k] && typeof r[k] === 'object') r[k] = deepPatch(r[k]);
+        }
+        return r;
+      }
+      var patched = deepPatch(data);
+      var headers = new Headers(res.headers);
+      return new Response(JSON.stringify(patched), {
+        status: res.status, statusText: res.statusText, headers: headers
+      });
+    });
+  }
+
+  // BUG FIX: collect ALL demo keys first, then remove them.
+  // Old code used break after first removal AND modified sessionStorage
+  // while iterating by index (causes skipped entries).
+  try {
+    var _demoKeys = [];
+    for (var _di = 0; _di < sessionStorage.length; _di++) {
+      var _dk = sessionStorage.key(_di);
+      if (_dk && _dk.toLowerCase().indexOf('demo') !== -1) _demoKeys.push(_dk);
+    }
+    _demoKeys.forEach(function(k) { try { sessionStorage.removeItem(k); } catch(e){} });
+  } catch(e) {}
+  // Also clear demo localStorage entries (isotope-demo-mode key)
+  try {
+    var _lsDemoKeys = [];
+    for (var _ldi = 0; _ldi < localStorage.length; _ldi++) {
+      var _ldk = localStorage.key(_ldi);
+      if (_ldk && _ldk.toLowerCase().indexOf('demo') !== -1) _lsDemoKeys.push(_ldk);
+    }
+    _lsDemoKeys.forEach(function(k) { try { localStorage.removeItem(k); } catch(e){} });
+  } catch(e) {}
+})();
+</script>
+<script>
+(function(){
+  var _k='isotope_reload_guard_3.4.6-unknown';
+  window.__isoReloadGuard=function(){
+    var offline = navigator.onLine===false || window.__isoLocalServerOffline===true ||
+      (window.__isoLocalStatus && window.__isoLocalStatus.serverOnline===false);
+    if(offline){
+      console.warn('[Isotope] SW reload guard: blocked automatic reload while offline/local server unavailable');
+      return false;
+    }
+    if(sessionStorage.getItem(_k)||localStorage.getItem(_k)){
+      console.warn('[Isotope] SW reload guard: blocked repeat automatic reload');
+      return false;
+    }
+    sessionStorage.setItem(_k,'1');
+    try{localStorage.setItem(_k,String(Date.now()))}catch(e){}
+    window.location.reload();
+    return true;
+  };
+})();
+</script>
+<style>
+button[title="Custom Background URL"],
+button[title="Remove Background"] {
+  display: none !important;
+}
+</style>
+  <!-- isotope-server-body -->
+</body>
 
   </html>
   

@@ -15,25 +15,10 @@
 (function () {
   'use strict';
 
-  // ── Load config from app-config.json ────────────────────────────────────────
-  var APP_CONFIG = (function () {
-    try {
-      var req = new XMLHttpRequest();
-      req.open('GET', '/app-config.json', false);
-      req.send(null);
-      if (req.status === 200) return JSON.parse(req.responseText);
-    } catch (e) {}
-    return {};
-  })();
-
-  var SUPA = APP_CONFIG.supabase || {};
-  var APP = APP_CONFIG.app || {};
-
   // ── Constants ───────────────────────────────────────────────────────────────
-  var APP_VERSION    = APP.version || '3.4.6';
-  var SUPA_URL = SUPA.url || 'https://ollsqiutzartjhiuzkbf.supabase.co';
-  var SUPA_ANON_KEY = SUPA.anonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
-  var SUPA_REF = SUPA.projectRef || 'ollsqiutzartjhiuzkbf';
+  var APP_VERSION    = '3.4.6';
+  var SUPA_URL = 'https://ollsqiutzartjhiuzkbf.supabase.co';
+  var SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
 
   // ── Android detection ───────────────────────────────────────────────────────
   var isAndroid = (
@@ -45,10 +30,7 @@
     )
   );
 
-  // In browser (Cromite), enable bridge for testing but mark as non-Android
-  var isBrowser = !isAndroid && typeof window !== 'undefined';
-
-  if (!isAndroid && !isBrowser) return; // Only run in browser or Android
+  if (!isAndroid) return; // Only intercept in Capacitor/Android context
 
   // ── Inject global config so existing scripts see correct values ─────────────
   window.__ISO_SUPA_URL__  = SUPA_URL;
@@ -69,7 +51,7 @@
   window.__ISO_CURRENT_USER_ID__ = (function () {
     try {
       var raw = localStorage.getItem('isotope-auth-token') ||
-                localStorage.getItem('sb-' + SUPA_REF + '-auth-token');
+                localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token');
       if (!raw) return '';
       var p = JSON.parse(raw);
       return (p && p.user && p.user.id) || '';
@@ -77,115 +59,8 @@
   })();
 
   // Signal to pwa-local.js that server is "online" (no node server needed)
-  window.__ISO_ANDROID_NATIVE__ = isAndroid;
+  window.__ISO_ANDROID_NATIVE__ = true;
   window.__ISO_ANDROID_ONLINE__ = true;
-  window.__ISO_IS_BROWSER__ = isBrowser;
-  window.__ISO_IS_ANDROID__ = isAndroid;
-
-  // ── Deep link handler for isotopeai://auth/callback ─────────────────────────
-  // Handles the OAuth redirect from Supabase with access_token in fragment
-  (function setupDeepLinkHandler() {
-    function handleAuthCallback(url) {
-      try {
-        var hash = url.split('#')[1] || '';
-        var params = new URLSearchParams(hash);
-        var accessToken = params.get('access_token');
-        var refreshToken = params.get('refresh_token');
-        var expiresIn = params.get('expires_in');
-        var tokenType = params.get('token_type');
-        var providerToken = params.get('provider_token');
-        var providerRefreshToken = params.get('provider_refresh_token');
-
-        if (!accessToken) return false;
-
-        var expiresAt = expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn, 10) : 0;
-
-        var session = {
-          access_token: accessToken,
-          refresh_token: refreshToken || '',
-          expires_in: expiresIn || 3600,
-          expires_at: expiresAt,
-          token_type: tokenType || 'bearer',
-          provider_token: providerToken || '',
-          provider_refresh_token: providerRefreshToken || ''
-        };
-
-        var raw = JSON.stringify(session);
-        localStorage.setItem('isotope-auth-token', raw);
-        localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
-        localStorage.setItem('isotope-last-jwt', accessToken);
-        if (refreshToken) localStorage.setItem('isotope-last-rt', refreshToken);
-        localStorage.setItem('isotope-last-session-raw', raw);
-
-        window.__ISO_CURRENT_USER_ID__ = ''; // Will be updated after user fetch
-
-        // Notify auth bridge
-        try {
-          if (typeof window.__isoSyncAuthUnblock === 'function') window.__isoSyncAuthUnblock();
-        } catch (e) {}
-        try { window.dispatchEvent(new Event('isotope:auth-unblock')); } catch (e) {}
-        try { window.dispatchEvent(new Event('isotope:sync_refresh')); } catch (e) {}
-
-        // Fetch user profile to get user ID
-        fetch(SUPA_URL + '/auth/v1/user', {
-          headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + accessToken }
-        }).then(function(r) { return r.json(); }).then(function(user) {
-          if (user && user.id) {
-            window.__ISO_CURRENT_USER_ID__ = user.id;
-            // Upgrade profile to ranker for premium access
-            fetch(SUPA_URL + '/rest/v1/users?id=eq.' + user.id, {
-              method: 'PATCH',
-              headers: {
-                'apikey': SUPA_ANON_KEY,
-                'Authorization': 'Bearer ' + accessToken,
-                'Content-Type': 'application/json',
-                'Prefer': 'return=minimal'
-              },
-              body: JSON.stringify({
-                plan_type: 'ranker',
-                billing_status: 'active',
-                plan_expires_at: '2099-12-31T23:59:59.000Z',
-                access_ends_at: '2099-12-31T23:59:59.000Z'
-              })
-            }).catch(function() {});
-          }
-        }).catch(function() {});
-
-        // Clean up URL and redirect to dashboard
-        window.history.replaceState({}, '', '/dashboard');
-        window.location.href = '/dashboard';
-        return true;
-      } catch (e) {
-        console.error('[IsotopeAndroid] Deep link handler error:', e);
-        return false;
-      }
-    }
-
-    // Handle immediate deep link on page load
-    if (window.location.protocol === 'isotopeai:' || window.location.href.indexOf('isotopeai://auth/callback') === 0) {
-      handleAuthCallback(window.location.href);
-    }
-
-    // Listen for future deep links (Capacitor/App Links)
-    try {
-      window.addEventListener('message', function(event) {
-        if (event.data && event.data.type === 'isotope:deeplink' && event.data.url) {
-          handleAuthCallback(event.data.url);
-        }
-      });
-    } catch (e) {}
-
-    // Capacitor AppUrlListener
-    try {
-      if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
-        window.Capacitor.Plugins.App.addListener('appUrlOpen', function(data) {
-          if (data && data.url && data.url.indexOf('isotopeai://auth/callback') !== -1) {
-            handleAuthCallback(data.url);
-          }
-        });
-      }
-    } catch (e) {}
-  })();
 
   // ── Runtime error capture — logs to Logcat via console.error ────────────
   window.__ISO_LAST_RUNTIME_ERROR__ = null;
@@ -665,7 +540,8 @@
   // ── Helper: read session from localStorage ──────────────────────────────────
   function getSession() {
     try {
-      var raw = localStorage.getItem('sb-' + SUPA_REF + '-auth-token')
+      var ref = 'ollsqiutzartjhiuzkbf';
+      var raw = localStorage.getItem('sb-' + ref + '-auth-token')
              || localStorage.getItem('isotope-auth-token')
              || localStorage.getItem('isotope-last-session-raw');
       if (!raw) return null;
@@ -1812,8 +1688,9 @@
           // Write session to localStorage (mirrors what auth-bridge.js does)
           try {
             var raw = JSON.stringify(session);
+            var ref = 'ollsqiutzartjhiuzkbf';
             localStorage.setItem('isotope-auth-token', raw);
-            localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
+            localStorage.setItem('sb-' + ref + '-auth-token', raw);
             localStorage.setItem('isotope-last-jwt', d.access_token);
             if (d.refresh_token) localStorage.setItem('isotope-last-rt', d.refresh_token);
           } catch (e) {}
@@ -2289,8 +2166,9 @@
     // Clear all local auth storage regardless of network outcome
     function clearLocal() {
       try {
+        var ref = 'ollsqiutzartjhiuzkbf';
         localStorage.removeItem('isotope-auth-token');
-        localStorage.removeItem('sb-' + SUPA_REF + '-auth-token');
+        localStorage.removeItem('sb-' + ref + '-auth-token');
         localStorage.removeItem('isotope-last-jwt');
         localStorage.removeItem('isotope-last-rt');
         localStorage.removeItem('isotope-last-session-raw');
