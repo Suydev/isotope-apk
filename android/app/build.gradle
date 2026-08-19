@@ -5,22 +5,23 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     // Read version from package.json
-    def versionPropsFile = file('../../package.json')
-    def versionName = '3.4.6'
-    def versionCode = 346
-    if (versionPropsFile.exists()) {
-        def packageJson = new groovy.json.JsonSlurper().parseText(versionPropsFile.text)
+    ext.versionPropsFile = file('../../package.json')
+    ext.versionName = '3.4.6'
+    ext.versionCode = 346
+    
+    if (ext.versionPropsFile.exists()) {
+        def packageJson = new groovy.json.JsonSlurper().parseText(ext.versionPropsFile.text)
         def versionParts = packageJson.version.split('\\.')
-        versionName = packageJson.version
-        versionCode = (versionParts[0] as int) * 10000 + (versionParts[1] as int) * 100 + (versionParts[2] as int)
+        ext.versionName = packageJson.version
+        ext.versionCode = (versionParts[0] as int) * 10000 + (versionParts[1] as int) * 100 + (versionParts[2] as int)
     }
 
     defaultConfig {
         applicationId "in.isotopeai.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode versionCode
-        versionName versionName
+        versionCode ext.versionCode
+        versionName ext.versionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
