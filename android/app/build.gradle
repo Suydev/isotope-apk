@@ -1,12 +1,12 @@
 apply plugin: 'com.android.application'
 
+// Define ext properties at the top level
+ext.versionName = '3.4.6'
+ext.versionCode = 346
+
 android {
     namespace "in.isotopeai.app"
     compileSdk rootProject.ext.compileSdkVersion
-
-    // Hardcoded version - simplified to avoid package.json parsing issues
-    ext.versionName = '3.4.6'
-    ext.versionCode = 346
 
     defaultConfig {
         applicationId "in.isotopeai.app"
