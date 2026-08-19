@@ -15,51 +15,48 @@ android {
         versionCode = (versionParts[0] as int) * 10000 + (versionParts[1] as int) * 100 + (versionParts[2] as int)
     }
 
-    android {
-        namespace "in.isotopeai.app"
-        compileSdk rootProject.ext.compileSdkVersion
-        defaultConfig {
-            applicationId "in.isotopeai.app"
-            minSdkVersion rootProject.ext.minSdkVersion
-            targetSdkVersion rootProject.ext.targetSdkVersion
-            versionCode versionCode
-            versionName versionName
-            testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-            aaptOptions {
-                 // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-                 // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
-                ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
-            }
-        }
-        signingConfigs {
-            debug {
-                storeFile file('debug.keystore')
-                storePassword 'android'
-                keyAlias 'androiddebugkey'
-                keyPassword 'android'
-            }
-            release {
-                // Release keystore should be configured via environment variables or keystore.properties
-                // storeFile file('release.keystore')
-                // storePassword System.getenv('KEYSTORE_PASSWORD')
-                // keyAlias System.getenv('KEY_ALIAS')
-                // keyPassword System.getenv('KEY_PASSWORD')
-            }
-        }
-        buildTypes {
-            debug {
-                signingConfig signingConfigs.debug
-                minifyEnabled false
-            }
-            release {
-                // signingConfig signingConfigs.release  // Enable when release keystore is configured
-                signingConfig signingConfigs.debug  // Temporary: use debug for CI
-                minifyEnabled true
-                shrinkResources true
-                proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            }
+    defaultConfig {
+        applicationId "in.isotopeai.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode versionCode
+        versionName versionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        release {
+            // Release keystore should be configured via environment variables or keystore.properties
+            // storeFile file('release.keystore')
+            // storePassword System.getenv('KEYSTORE_PASSWORD')
+            // keyAlias System.getenv('KEY_ALIAS')
+            // keyPassword System.getenv('KEY_PASSWORD')
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+        }
+        release {
+            // signingConfig signingConfigs.release  // Enable when release keystore is configured
+            signingConfig signingConfigs.debug  // Temporary: use debug for CI
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
 
 repositories {
     flatDir{
