@@ -24,9 +24,9 @@ function withEnv(env, fn) {
   try { return fn(); } finally { process.env = prev; }
 }
 
-const DEFAULT_URL = 'https://vteqquoqvksshmfhuepu.supabase.co';
-const DEFAULT_ANON = 'real-anon-key-xyz';
-const DEFAULT_REF = 'vteqquoqvksshmfhuepu';
+const DEFAULT_URL = 'https://ollsqiutzartjhiuzkbf.supabase.co';
+const DEFAULT_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
+const DEFAULT_REF = 'ollsqiutzartjhiuzkbf';
 
 test('parseDotEnv parses KEY=value, trims quotes, ignores comments/blank', () => {
   const cfg = parseDotEnv(`# a comment
@@ -47,7 +47,7 @@ test('with no env/.env, resolves to committed defaults + derived ref', () => {
   fs.writeFileSync(cfgPath, JSON.stringify({
     url: DEFAULT_URL, anonKey: DEFAULT_ANON, projectRef: DEFAULT_REF,
   }));
-  withEnv({ SUPA_CONFIG_PATH: cfgPath }, () => {
+  withEnv({ SUPA_CONFIG_PATH: cfgPath, SUPA_ENV_PATH: '/nonexistent/.env' }, () => {
     const cfg = loadConfig();
     assert.equal(cfg.url, DEFAULT_URL);
     assert.equal(cfg.anonKey, DEFAULT_ANON);
@@ -103,7 +103,7 @@ test('projectRef is derived from SUPABASE_URL when not set explicitly', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'supa-cfg-'));
   const cfgPath = path.join(tmp, 'supabase.config.json');
   fs.writeFileSync(cfgPath, JSON.stringify({ url: 'https://myprojectref.supabase.co', anonKey: 'a' }));
-  withEnv({ SUPA_CONFIG_PATH: cfgPath }, () => {
+  withEnv({ SUPA_CONFIG_PATH: cfgPath, SUPA_ENV_PATH: '/nonexistent/.env' }, () => {
     const cfg = loadConfig();
     assert.equal(cfg.url, 'https://myprojectref.supabase.co');
     assert.equal(cfg.projectRef, 'myprojectref');
@@ -119,9 +119,9 @@ test('prod defaults are used when nothing else is set', () => {
   }, () => {
     const cfg = loadConfig();
     // defaults must point at the real prod project so a fresh checkout builds the live app
-    assert.ok(cfg.url.includes('vteqquoqvksshmfhuepu.supabase.co'), `bad default url: ${cfg.url}`);
+    assert.ok(cfg.url.includes('ollsqiutzartjhiuzkbf.supabase.co'), `bad default url: ${cfg.url}`);
     assert.ok(cfg.anonKey.length > 10, 'default anonKey should be a real JWT');
-    assert.equal(cfg.projectRef, 'vteqquoqvksshmfhuepu');
+    assert.equal(cfg.projectRef, 'ollsqiutzartjhiuzkbf');
     assert.equal(cfg.source.url, 'config.json');
   });
 });

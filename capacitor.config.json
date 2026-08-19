@@ -6,7 +6,7 @@
     "androidScheme": "https",
     "hostname": "localhost",
     "port": 6767,
-    "allowNavigation": ["localhost"]
+    "allowNavigation": ["localhost", "accounts.google.com"]
   },
   "plugins": {
     "SplashScreen": {

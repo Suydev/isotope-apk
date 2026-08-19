@@ -6,7 +6,7 @@ import vm from 'node:vm';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BRIDGE_PATH = path.join(ROOT, 'android-bridge.js');
-const SUPA_URL = 'https://vteqquoqvksshmfhuepu.supabase.co';
+const SUPA_URL = 'https://ollsqiutzartjhiuzkbf.supabase.co';
 
 class MemoryStorage {
   constructor() {
@@ -121,7 +121,7 @@ function createBridgeHarness(handler, options = {}) {
 }
 
 function installSession(storage, session = makeSession()) {
-  storage.setItem('sb-vteqquoqvksshmfhuepu-auth-token', JSON.stringify(session));
+  storage.setItem('sb-ollsqiutzartjhiuzkbf-auth-token', JSON.stringify(session));
   storage.setItem('isotope-auth-token', JSON.stringify(session));
   storage.setItem('isotope-last-session-raw', JSON.stringify(session));
   return session;

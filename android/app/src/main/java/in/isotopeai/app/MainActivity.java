@@ -158,7 +158,7 @@ public class MainActivity extends BridgeActivity {
         String path   = uri.getPath();
         if (path == null) path = "";
 
-        // Custom scheme: isotopeai://invite/<code>
+        // Custom scheme: isotopeai://invite/<code> and isotopeai://auth/callback
         // Android Uri.parse gives host="invite", path="/<code>" for this format,
         // so we must NOT try to strip "/invite/" from path — path is already just
         // "/<code>". Use the host to detect the invite route, then read code from path.
@@ -171,6 +171,9 @@ public class MainActivity extends BridgeActivity {
                 // Fallback: isotopeai:///invite/<code> or isotopeai:/invite/<code>
                 String code = path.replaceFirst("^/invite/?", "").trim();
                 if (!code.isEmpty()) return "/invite/" + code;
+            } else if ("auth".equalsIgnoreCase(host) && path.startsWith("/callback")) {
+                // isotopeai://auth/callback (OAuth redirect)
+                return "/auth/callback";
             }
             return null;
         }
@@ -186,6 +189,15 @@ public class MainActivity extends BridgeActivity {
             }
             if (path.startsWith("/community")) {
                 return path;
+            }
+        }
+
+        // HTTP localhost OAuth callback (Capacitor dev server fallback)
+        if ("http".equalsIgnoreCase(scheme) &&
+            host != null &&
+            (host.equalsIgnoreCase("localhost") || host.startsWith("localhost:"))) {
+            if (path.startsWith("/callback")) {
+                return "/auth/callback";
             }
         }
         return null;

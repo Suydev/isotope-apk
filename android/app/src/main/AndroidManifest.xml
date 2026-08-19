@@ -60,12 +60,19 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="isotopeai.in" android:pathPrefix="/community/" />
             </intent-filter>
-            <!-- Custom URI scheme fallback: isotopeai://invite/* -->
+            <!-- Custom URI scheme: isotopeai://auth/callback for OAuth -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="isotopeai" />
+                <data android:scheme="isotopeai" android:host="auth" android:path="/callback" />
+            </intent-filter>
+            <!-- Custom URI scheme: isotopeai://invite/* for invite links -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="isotopeai" android:host="invite" />
             </intent-filter>
             <!-- Localhost OAuth callback for Capacitor local server -->
             <intent-filter>

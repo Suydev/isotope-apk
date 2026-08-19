@@ -88,8 +88,8 @@ function normalizeManifestPermissions(manifest, desiredPermissionLines) {
   return manifest.replace(/(\n\s*)<application/, '\n' + orderedLines.join('\n') + '\n    <application');
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// 1. useAuthStore — upgrade default planType to "ranker" (isPremium() returns true)
+// ════════════════════════════════════════════════════════════════════════════════
+// 1. useAuthStore — upgrade default planType to "ranker" + add redirectTo for Google OAuth
 // ═══════════════════════════════════════════════════════════════════════════════
 
 console.log('\n=== Patching useAuthStore bundle ===');
@@ -135,9 +135,134 @@ patchFile(authBundle, [
   ],
 ], 'Auth bundle');
 
+// ════════════════════════════════════════════════════════════════════════════════
+// 3b. Auth bundle — OAuth error mapping & returnTo support
+// ════════════════════════════════════════════════════════════════════════════════
+
+console.log('\n=== Patching Auth bundle (OAuth error mapping) ===');
+const authBundle2 = findAsset('Auth-');
+
+patchFile(authBundle2, [
+  // Add OAuth error mapping function right after the imports/component start
+  // Find the F component (Google One Tap) and add error mapper before it
+  [
+    'const F=()=>{const a=m(l=>l.isInitialized)',
+    'const __oauthErrorMap={access_denied:"You cancelled the sign-in. Please try again.",invalid_client:"Sign-in is misconfigured. Please contact support.",server_error:"Service temporarily unavailable. Please try again later.",invalid_request:"Invalid sign-in request. Please try again.",unauthorized_client:"This sign-in method is not authorized.",unsupported_response_type:"Unsupported sign-in method.",invalid_scope:"Invalid permissions requested.",temporarily_unavailable:"Service temporarily unavailable. Please try again later."};const __mapOAuthError=e=>__oauthErrorMap[e]||e;const F=()=>{const a=m(l=>l.isInitialized)',
+    true
+  ],
+  // Patch Google One Tap error to use mapped error
+  [
+    'm.getState().setError(f.message)',
+    'm.getState().setError(__mapOAuthError(f.message))',
+    true
+  ],
+  // Patch email/password login error to use mapped error (Android path)
+  [
+    'm.setState({error:__r&&(__r.err||__r.error)||"Login failed",isLoading:!1})',
+    'm.setState({error:__mapOAuthError(__r&&(__r.err||__r.error)||"Login failed"),isLoading:!1})',
+    true
+  ],
+  // Patch email/password login error to use mapped error (web path)
+  [
+    'if((await j(s,t)).success)setTimeout(()=>{b("/dashboard",{replace:!0})},100)',
+    'if((await j(s,t)).success)setTimeout(()=>{b("/dashboard",{replace:!0})},100);else{m.setState({error:__mapOAuthError(m.getState().error||"Login failed"),isLoading:!1})}',
+    true
+  ],
+  // Patch signup error to use mapped error
+  [
+    'm.setState({error:N});return}',
+    'm.setState({error:__mapOAuthError(N)});return}',
+    true
+  ],
+  // Patch password reset error to use mapped error
+  [
+    'm.setState({error:h.error||"Could not send the reset link. Please try again."})',
+    'm.setState({error:__mapOAuthError(h.error||"Could not send the reset link. Please try again.")})',
+    true
+  ],
+  // Add returnTo support - read from sessionStorage on successful auth
+  // Patch the successful login redirect to use returnTo
+  [
+    'b(__bootState==="readyDashboard"?"/dashboard":"/onboarding",{replace:!0})',
+    'var __returnTo=sessionStorage.getItem("oauth_return_to");if(__returnTo){sessionStorage.removeItem("oauth_return_to");b(__returnTo,{replace:!0})}else{b(__bootState==="readyDashboard"?"/dashboard":"/onboarding",{replace:!0})}',
+    true
+  ],
+  // Patch web login redirect to use returnTo
+  [
+    'if((await j(s,t)).success)setTimeout(()=>{b("/dashboard",{replace:!0})},100);else{m.setState({error:__mapOAuthError(m.getState().error||"Login failed"),isLoading:!1})}',
+    'if((await j(s,t)).success){var __returnTo=sessionStorage.getItem("oauth_return_to");if(__returnTo){sessionStorage.removeItem("oauth_return_to");setTimeout(()=>{b(__returnTo,{replace:!0})},100)}else{setTimeout(()=>{b("/dashboard",{replace:!0})},100)}}else{m.setState({error:__mapOAuthError(m.getState().error||"Login failed"),isLoading:!1})}',
+    true
+  ],
+  // Patch signup redirect to use returnTo
+  [
+    '(await j(s,t,l)).success&&d("/onboarding")',
+    '(await j(s,t,l)).success&&(function(){var __returnTo=sessionStorage.getItem("oauth_return_to");if(__returnTo){sessionStorage.removeItem("oauth_return_to");d(__returnTo)}else{d("/onboarding")}})()',
+    true
+  ],
+  // Patch One Tap: expose instance globally for button access
+  [
+    'const x=u.google?.accounts?.id;if(x)try{x.cancel(),x.initialize(',
+    'const x=u.google?.accounts?.id;if(x){window.__isoOneTap=x;try{x.cancel(),x.initialize(',
+    true
+  ],
+  // Patch "Continue with Google" buttons (both sign in & sign up) to trigger One Tap prompt
+  [
+    'e.jsxs(G,{onClick:()=>r(),disabled:c||!f,loading:c,children:[e.jsx(A,{}),"Continue with Google"]})',
+    'e.jsxs(G,{onClick:()=>{window.__isoOneTap?.prompt?.()},disabled:c||!f,loading:c,children:[e.jsx(A,{}),"Continue with Google"]})',
+    true
+  ],
+  [
+    'e.jsxs(G,{onClick:()=>r(),disabled:o||!b,loading:o,children:[e.jsx(A,{}),"Sign up with Google"]})',
+    'e.jsxs(G,{onClick:()=>{window.__isoOneTap?.prompt?.()},disabled:o||!b,loading:o,children:[e.jsx(A,{}),"Sign up with Google"]})',
+    true
+  ],
+], 'Auth bundle (One Tap button fix)');
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 3c. useAIStore — add prompt injection protection for AI calls
+// ══════════════════════════════════════════════════════════════════════════════════
+
+console.log('=== Patching useAIStore bundle (prompt injection protection) ===');
+const aiStoreBundle = findAsset('useAIStore-');
+
+patchFile(aiStoreBundle, [
+  // Add prompt injection guard before Gemini API calls
+  [
+    'fetch("https://generativelanguage.googleapis.com',
+    'const __prompt = arguments[1]?.body ? JSON.parse(arguments[1].body).contents?.[0]?.parts?.[0]?.text || "" : ""; if (/ignore|bypass|system|prompt|instruction|roleplay|pretend|DAN|jailbreak/i.test(__prompt)) { console.warn("[AI] Prompt injection blocked"); return Promise.reject(new Error("Prompt injection detected")); } fetch("https://generativelanguage.googleapis.com',
+    false
+  ],
+  // Add prompt injection guard before Groq API calls
+  [
+    'fetch("https://api.groq.com/openai/v1',
+    'const __prompt = arguments[1]?.body ? JSON.parse(arguments[1].body).messages?.[0]?.content || "" : ""; if (/ignore|bypass|system|prompt|instruction|roleplay|pretend|DAN|jailbreak/i.test(__prompt)) { console.warn("[AI] Prompt injection blocked"); return Promise.reject(new Error("Prompt injection detected")); } fetch("https://api.groq.com/openai/v1',
+    false
+  ],
+], 'useAIStore (prompt injection protection)');
+
+// ═════════════════════════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════════════════════
-// 4. useOnlineStatus — route through Capacitor Network on Android
-// ═══════════════════════════════════════════════════════════════════════════════
+// 4. 
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// 3d. marketing-core — align anon key to production
+// ══════════════════════════════════════════════════════════════════════════════════
+
+console.log('\n=== Patching marketing-core bundle (anon key alignment) ===');
+const marketingBundle = findAsset('marketing-core-');
+
+patchFile(marketingBundle, [
+  [
+    'VITE_SUPABASE_ANON_KEY:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjbmVrZ3BiZGx3aGNwbXBvb2d6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ4MjU4MjQsImV4cCI6MjA4MDQwMTgyNH0.4s85XfWCetX1DDE3H7XdyRLogvrtAzpk0CAADaapEUo"',
+    'VITE_SUPABASE_ANON_KEY:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M"',
+    false
+  ],
+], 'marketing-core (anon key alignment)');
+
+// ══════════════════════════════════════════════════════════════════════════════════
+
+// useOnlineStatus — route through Capacitor Network on Android
+// ══════════════════════════════════════════════════════════════════════════════════
 
 console.log('\n=== Patching useOnlineStatus bundle ===');
 const onlineStatusBundle = findAsset('useOnlineStatus-');

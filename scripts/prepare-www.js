@@ -38,6 +38,14 @@ const SOURCE_DIR  = process.env.SOURCE_DIR  || path.join(REPO_DIR, 'public');
 const WWW_DIR     = process.env.WWW_DIR     || path.resolve(__dirname, '../www');
 const BRIDGE_FILE = process.env.BRIDGE_FILE || path.resolve(__dirname, '../android-bridge.js');
 const FLOATING_TIMER_BRIDGE_FILE = process.env.FLOATING_TIMER_BRIDGE_FILE || path.resolve(__dirname, '../android-floating-timer-bridge.js');
+const PACKAGE_JSON = path.resolve(__dirname, '../package.json');
+
+// Read version from package.json (single source of truth)
+let APP_VERSION = '0.0.0';
+try {
+  const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON, 'utf8'));
+  APP_VERSION = pkg.version || '0.0.0';
+} catch (_) {}
 
 console.log('=== prepare-www.js ===');
 console.log('REPO_DIR   :', REPO_DIR);
@@ -152,6 +160,34 @@ if (bridgeInjected || authBridgeInjected) {
   console.log('  ○ Supabase constants already match resolved config');
 }
 
+// ── 4c. Inject version into www/ runtime files ────────────────────────────────
+console.log('\nStep 4c: Injecting app version ...');
+const versionPatterns = [
+  /var APP_VERSION\s*=\s*'[^']*'/g,
+];
+const bridgeVersionInjected = injectVersion(bridgeDest, 'android-bridge.js', APP_VERSION, versionPatterns);
+const authBridgeVersionInjected = injectVersion(authBridgePath, 'auth-bridge.js', APP_VERSION, []);
+
+if (bridgeVersionInjected || authBridgeVersionInjected) {
+  console.log('  ✓ App version injected into www/ runtime files');
+} else {
+  console.log('  ○ App version already matches');
+}
+
+function injectVersion(filePath, label, version, patterns) {
+  let content = fs.readFileSync(filePath, 'utf8');
+  const original = content;
+  for (const pattern of patterns) {
+    content = content.replace(pattern, `var APP_VERSION = '${version}'`);
+  }
+  if (content !== original) {
+    fs.writeFileSync(filePath, content, 'utf8');
+    console.log(`  ✓ ${label} version rewritten to ${version}`);
+    return true;
+  }
+  return false;
+}
+
 // ── 5. Patch index.html ───────────────────────────────────────────────────────
 //    a) Inject android-bridge.js as VERY FIRST script (before auth-bridge.js)
 //    b) Disable pwa-local.js (SW registration — Capacitor serves locally)
@@ -178,6 +214,22 @@ if (!html.includes('android-floating-timer-bridge.js')) {
 } else {
   console.log('  ○ android-floating-timer-bridge.js already present in index.html');
 }
+
+// 5a2. Inject app version as global (read by app at runtime)
+const versionScript = `<script>
+  (function() {
+    'use strict';
+    window.__ISO_APP_VERSION__ = '${APP_VERSION}';
+    window.__ISO_IS_ANDROID__ = true;
+  })();
+</script>`;
+if (!html.includes('__ISO_APP_VERSION__')) {
+  html = html.replace(bridgeScriptTag, bridgeScriptTag + '\n    ' + versionScript);
+  console.log('  ✓ App version injected as __ISO_APP_VERSION__ global');
+} else {
+  console.log('  ○ __ISO_APP_VERSION__ already present in index.html');
+}
+
 // 5b. Disable pwa-local.js (SW registration causes stale-asset loops in Capacitor)
 if (html.includes('/pwa-local.js')) {
   html = html.replace(

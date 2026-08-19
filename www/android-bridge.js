@@ -16,9 +16,9 @@
   'use strict';
 
   // ── Constants ───────────────────────────────────────────────────────────────
-  var APP_VERSION    = '3.4.6';
-  var SUPA_URL = 'https://ollsqiutzartjhiuzkbf.supabase.co';
-  var SUPA_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
+  var APP_VERSION = '3.4.6';
+  var SUPA_URL       = 'https://ollsqiutzartjhiuzkbf.supabase.co';
+  var SUPA_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
 
   // ── Android detection ───────────────────────────────────────────────────────
   var isAndroid = (
@@ -50,8 +50,8 @@
   // Seed current user ID from persisted session (updated on login)
   window.__ISO_CURRENT_USER_ID__ = (function () {
     try {
-      var raw = localStorage.getItem('isotope-auth-token') ||
-                localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token');
+var raw = localStorage.getItem('isotope-auth-token') ||
+                  localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token');
       if (!raw) return '';
       var p = JSON.parse(raw);
       return (p && p.user && p.user.id) || '';
@@ -4408,90 +4408,269 @@
     start();
   }
 })();
+// === IsotopeAI Android notification dropdown parity: end ===
 
-// === Localhost OAuth callback handler ===
+// === OAuth Callback Handlers (isotopeai://auth/callback + http://localhost:6767/callback) ===
 (function () {
   'use strict';
 
-  function handleLocalhostCallback() {
-    try {
-      var hash = window.location.hash.slice(1);
-      if (!hash) return false;
+  var SUPA_REF = 'ollsqiutzartjhiuzkbf';
+  var SUPA_URL = 'https://ollsqiutzartjhiuzkbf.supabase.co';
+  var SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
 
+  // Redirect allowlist - prevents open redirect attacks
+  var REDIRECT_ALLOWLIST = [
+    '/dashboard',
+    '/onboarding',
+    '/auth',
+    '/reset-password',
+    '/features/today-dashboard',
+    '/features/focus-timer',
+    '/features/student-task-manager',
+    '/features/exam-planner',
+    '/features/syllabus-tracker',
+    '/features/study-planner',
+    '/features/study-analytics',
+    '/features/study-groups',
+    '/community',
+    '/focus',
+    '/analytics',
+    '/study',
+    '/syllabus',
+    '/exams',
+    '/tasks',
+    '/settings',
+    '/subscription'
+  ];
+
+  function isRedirectAllowed(path) {
+    if (!path || path[0] !== '/') return false;
+    for (var i = 0; i < REDIRECT_ALLOWLIST.length; i++) {
+      if (path === REDIRECT_ALLOWLIST[i] || path.startsWith(REDIRECT_ALLOWLIST[i] + '/')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getSafeRedirect(path) {
+    if (isRedirectAllowed(path)) return path;
+    // Check for sessionStorage stored returnTo
+    var stored = sessionStorage.getItem('oauth_return_to');
+    if (stored && isRedirectAllowed(stored)) return stored;
+    return '/dashboard';
+  }
+
+  function cleanupPKCE() {
+    sessionStorage.removeItem('pkce_code_verifier');
+    sessionStorage.removeItem('oauth_state');
+    sessionStorage.removeItem('oauth_return_to');
+  }
+
+  function handleOAuthCallback(hash, isCustomScheme) {
+    try {
       var params = new URLSearchParams(hash);
       var accessToken = params.get('access_token');
       var refreshToken = params.get('refresh_token');
       var expiresIn = params.get('expires_in');
       var tokenType = params.get('token_type');
+      var code = params.get('code');
+      var error = params.get('error');
+      var errorDescription = params.get('error_description');
+      var state = params.get('state');
 
-      if (!accessToken) return false;
+      // Validate CSRF state parameter
+      var storedState = sessionStorage.getItem('oauth_state');
+      if (state && storedState && state !== storedState) {
+        console.error('[OAuthCallback] State mismatch - possible CSRF');
+        cleanupPKCE();
+        window.dispatchEvent(new CustomEvent('isotope:auth-error', {
+          detail: { error: 'invalid_state', description: 'CSRF state validation failed' }
+        }));
+        window.location.href = '/auth?error=invalid_state';
+        return true;
+      }
 
-      var SUPA_REF = 'ollsqiutzartjhiuzkbf';
-      var SUPA_URL = 'https://ollsqiutzartjhiuzkbf.supabase.co';
-      var SUPA_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
+      if (error) {
+        console.error('[OAuthCallback] Error:', error, errorDescription);
+        cleanupPKCE();
+        window.dispatchEvent(new CustomEvent('isotope:auth-error', {
+          detail: { error: error, description: errorDescription }
+        }));
+        window.location.href = '/auth?error=' + encodeURIComponent(error);
+        return true;
+      }
 
-      var expiresAt = expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn, 10) : 0;
+      // PKCE code exchange flow (for isotopeai://auth/callback?code=...)
+      if (code && !accessToken) {
+        var codeVerifier = sessionStorage.getItem('pkce_code_verifier');
+        var exchangeBody = 'grant_type=authorization_code&code=' + encodeURIComponent(code) +
+          '&redirect_uri=' + encodeURIComponent(window.__ISO_OAUTH_REDIRECT__ || 'isotopeai://auth/callback') +
+          (codeVerifier ? '&code_verifier=' + encodeURIComponent(codeVerifier) : '');
+        return fetch(SUPA_URL + '/auth/v1/token', {
+          method: 'POST',
+          headers: {
+            'apikey': SUPA_ANON,
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: exchangeBody
+        }).then(function (r) { return r.json(); }).then(function (data) {
+          if (data.access_token) {
+            cleanupPKCE();
+            storeSessionAndRedirect(data.access_token, data.refresh_token, data.expires_in, data.token_type);
+          } else {
+            cleanupPKCE();
+            throw new Error(data.error || 'Token exchange failed');
+          }
+        }).catch(function (e) {
+          cleanupPKCE();
+          console.error('[OAuthCallback] PKCE exchange failed:', e);
+          window.location.href = '/auth?error=exchange_failed';
+        });
+      }
 
-      var session = {
-        access_token: accessToken,
-        refresh_token: refreshToken || '',
-        expires_in: expiresIn || 3600,
-        expires_at: expiresAt,
-        token_type: tokenType || 'bearer'
-      };
+      // Fragment token flow (for http://localhost/callback#access_token=...)
+      if (accessToken) {
+        cleanupPKCE();
+        storeSessionAndRedirect(accessToken, refreshToken, expiresIn, tokenType);
+        return true;
+      }
 
-      var raw = JSON.stringify(session);
-      localStorage.setItem('isotope-auth-token', raw);
-      localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
-      localStorage.setItem('isotope-last-jwt', accessToken);
-      if (refreshToken) localStorage.setItem('isotope-last-rt', refreshToken);
-      localStorage.setItem('isotope-last-session-raw', raw);
-
-      window.dispatchEvent(new Event('isotope:auth-unblock'));
-      window.dispatchEvent(new Event('isotope:sync_refresh'));
-
-      // Upgrade profile to ranker
-      fetch(SUPA_URL + '/auth/v1/user', {
-        headers: { 'apikey': SUPA_ANON, 'Authorization': 'Bearer ' + accessToken }
-      }).then(function(r) { return r.json(); }).then(function(user) {
-        if (user && user.id) {
-          fetch(SUPA_URL + '/rest/v1/users?id=eq.' + user.id, {
-            method: 'PATCH',
-            headers: {
-              'apikey': SUPA_ANON,
-              'Authorization': 'Bearer ' + accessToken,
-              'Content-Type': 'application/json',
-              'Prefer': 'return=minimal'
-            },
-            body: JSON.stringify({
-              plan_type: 'ranker',
-              billing_status: 'active',
-              plan_expires_at: '2099-12-31T23:59:59.000Z',
-              access_ends_at: '2099-12-31T23:59:59.000Z'
-            })
-          }).catch(function() {});
-        }
-      }).catch(function() {});
-
-      window.history.replaceState({}, '', '/dashboard');
-      window.location.href = '/dashboard';
-      return true;
+      return false;
     } catch (e) {
-      console.error('[LocalhostCallback] Error:', e);
+      cleanupPKCE();
+      console.error('[OAuthCallback] Error:', e);
       return false;
     }
   }
 
-  // Handle on page load
-  if (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.pathname.indexOf('/callback') === 0) {
-    handleLocalhostCallback();
+  function storeSessionAndRedirect(accessToken, refreshToken, expiresIn, tokenType) {
+    var expiresAt = expiresIn ? Math.floor(Date.now() / 1000) + parseInt(expiresIn, 10) : 0;
+    var session = {
+      access_token: accessToken,
+      refresh_token: refreshToken || '',
+      expires_in: expiresIn || 3600,
+      expires_at: expiresAt,
+      token_type: tokenType || 'bearer'
+    };
+    var raw = JSON.stringify(session);
+    localStorage.setItem('isotope-auth-token', raw);
+    localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
+    localStorage.setItem('isotope-last-jwt', accessToken);
+    if (refreshToken) localStorage.setItem('isotope-last-rt', refreshToken);
+    localStorage.setItem('isotope-last-session-raw', raw);
+
+    window.dispatchEvent(new Event('isotope:auth-unblock'));
+    window.dispatchEvent(new Event('isotope:sync_refresh'));
+
+    // Upgrade profile to ranker (dev/testing)
+    fetch(SUPA_URL + '/auth/v1/user', {
+      headers: { 'apikey': SUPA_ANON, 'Authorization': 'Bearer ' + accessToken }
+    }).then(function(r) { return r.json(); }).then(function(user) {
+      if (user && user.id) {
+        fetch(SUPA_URL + '/rest/v1/users?id=eq.' + user.id, {
+          method: 'PATCH',
+          headers: {
+            'apikey': SUPA_ANON,
+            'Authorization': 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify({
+            plan_type: 'ranker',
+            billing_status: 'active',
+            plan_expires_at: '2099-12-31T23:59:59.000Z',
+            access_ends_at: '2099-12-31T23:59:59.000Z'
+          })
+        }).catch(function() {});
+      }
+    }).catch(function() {});
+
+    var safeRedirect = getSafeRedirect(window.location.pathname);
+    window.history.replaceState({}, '', safeRedirect);
+    window.location.href = safeRedirect;
   }
 
-  // Listen for future callbacks
+  // Silent auth / prompt=none support - check for existing session without UI
+  window.__isoSilentAuth = function() {
+    return new Promise(function(resolve) {
+      try {
+        var raw = localStorage.getItem('isotope-auth-token') ||
+                  localStorage.getItem('sb-' + SUPA_REF + '-auth-token');
+        if (!raw) return resolve({ ok: false, reason: 'no_session' });
+        var session = JSON.parse(raw);
+        if (!session || !session.access_token) return resolve({ ok: false, reason: 'invalid_session' });
+        var now = Math.floor(Date.now() / 1000);
+        if (session.expires_at && session.expires_at < now + 60) {
+          // Token expires soon, try refresh
+          if (!session.refresh_token) return resolve({ ok: false, reason: 'token_expired_no_refresh' });
+          fetch(SUPA_URL + '/auth/v1/token?grant_type=refresh_token', {
+            method: 'POST',
+            headers: {
+              'apikey': SUPA_ANON,
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: 'refresh_token=' + encodeURIComponent(session.refresh_token)
+          }).then(function(r) { return r.json(); }).then(function(data) {
+            if (data.access_token) {
+              var newSession = {
+                access_token: data.access_token,
+                refresh_token: data.refresh_token || session.refresh_token,
+                expires_in: data.expires_in || 3600,
+                expires_at: Math.floor(Date.now() / 1000) + (data.expires_in || 3600),
+                token_type: data.token_type || 'bearer'
+              };
+              var newRaw = JSON.stringify(newSession);
+              localStorage.setItem('isotope-auth-token', newRaw);
+              localStorage.setItem('sb-' + SUPA_REF + '-auth-token', newRaw);
+              localStorage.setItem('isotope-last-jwt', data.access_token);
+              if (newSession.refresh_token) localStorage.setItem('isotope-last-rt', newSession.refresh_token);
+              localStorage.setItem('isotope-last-session-raw', newRaw);
+              window.dispatchEvent(new Event('isotope:auth-unblock'));
+              window.dispatchEvent(new Event('isotope:sync_refresh'));
+              resolve({ ok: true, session: newSession, refreshed: true });
+            } else {
+              resolve({ ok: false, reason: 'refresh_failed' });
+            }
+          }).catch(function() { resolve({ ok: false, reason: 'refresh_error' }); });
+        } else {
+          resolve({ ok: true, session: session, refreshed: false });
+        }
+      } catch (e) {
+        resolve({ ok: false, reason: 'parse_error' });
+      }
+    });
+  };
+
+  // returnTo support for deep links - store before OAuth redirect
+  window.__isoSetReturnTo = function(path) {
+    if (isRedirectAllowed(path)) {
+      sessionStorage.setItem('oauth_return_to', path);
+    }
+  };
+
+  // Handle isotopeai://auth/callback (custom scheme)
+  if (window.location.protocol === 'isotopeai:' && window.location.hostname === 'auth' && window.location.pathname.startsWith('/callback')) {
+    var hash = window.location.hash.slice(1);
+    var search = window.location.search.slice(1);
+    var fullParams = hash || search;
+    if (fullParams) handleOAuthCallback(fullParams, true);
+  }
+
+  // Handle http://localhost:6767/callback (Capacitor dev server)
+  if (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.pathname.indexOf('/callback') === 0) {
+    var hash2 = window.location.hash.slice(1);
+    var search2 = window.location.search.slice(1);
+    var fullParams2 = hash2 || search2;
+    if (fullParams2) handleOAuthCallback(fullParams2, false);
+  }
+
+  // Listen for hashchange on localhost
   window.addEventListener('hashchange', function() {
     if (window.location.hostname === 'localhost' && window.location.pathname.indexOf('/callback') === 0) {
-      handleLocalhostCallback();
+      var hash3 = window.location.hash.slice(1);
+      if (hash3) handleOAuthCallback(hash3, false);
     }
   });
 })();
-// === End Localhost OAuth callback handler ===
+// === End OAuth Callback Handlers ===
