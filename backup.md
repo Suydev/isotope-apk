@@ -1,13 +1,13 @@
 # IsotopeAI Supabase Backup & Restore Guide
 
-> **Backup system lives in `isotope-code/`** — this is the source of truth for backup/restore operations.
+> **Backup system lives in the upstream web app** — this is the source of truth for backup/restore operations.
 
 ---
 
 ## Quick Start
 
 ```bash
-cd /path/to/isotope-code
+cd /path/to/web-source
 
 # Create a full backup (schema + data + auth + storage)
 ./backup.sh backup
@@ -167,7 +167,7 @@ SUPABASE_ACCESS_TOKEN=sbp_...     # Optional, for Management API
 
 ```bash
 # 1. Ensure keys in .backup_env (never committed)
-cat > /path/to/isotope-code/.backup_env <<'EOF'
+cat > /path/to/web-source/.backup_env <<'EOF'
 SUPABASE_URL=https://ollsqiutzartjhiuzkbf.supabase.co
 SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
@@ -175,7 +175,7 @@ SUPABASE_ACCESS_TOKEN=sbp_...
 EOF
 
 # 2. Run backup
-cd /path/to/isotope-code
+cd /path/to/web-source
 ./backup.sh backup --keep 7
 
 # 3. Copy to off-site storage (S3, GCS, etc.)
@@ -200,7 +200,7 @@ aws s3 cp backups/*.sha256 s3://my-bucket/isotope-backups/
 # 4. Update isotope-apk/.env with new project keys
 # 5. Rebuild APK
 cd /path/to/isotope-apk
-REPO_DIR=/path/to/isotope-code SOURCE_DIR=/path/to/isotope-code/public npm run build
+REPO_DIR=/path/to/web-source SOURCE_DIR=/path/to/web-source/public npm run build
 ```
 
 ---
@@ -221,7 +221,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: Suydev/isotope-code
+          repository: Suydev/isotope-apk
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -270,7 +270,7 @@ jobs:
 ## File Reference
 
 ```
-isotope-code/
+web-source/
 ├── backup.sh                 # Main script
 ├── scripts/
 │   └── schema-dump.mjs      # Schema dumper
@@ -312,7 +312,7 @@ This is the exact workflow to move IsotopeAI to a **different Supabase account/p
 
 - Access to **source** Supabase project (current: `ollsqiutzartjhiuzkbf`)
 - Access to **target** Supabase account (new account)
-- `isotope-code` repo cloned locally
+- the web app repo cloned locally
 - Service role keys for **both** projects
 
 ---
@@ -320,7 +320,7 @@ This is the exact workflow to move IsotopeAI to a **different Supabase account/p
 ### Step 1: Create Fresh Backup from Source
 
 ```bash
-cd /path/to/isotope-code
+cd /path/to/web-source
 
 # Ensure .backup_env has SOURCE project keys
 cat > .backup_env <<'EOF'
@@ -348,7 +348,7 @@ EOF
 ### Step 3: Restore to Target Project
 
 ```bash
-cd /path/to/isotope-code
+cd /path/to/web-source
 
 # Restore using backup + TARGET project keys
 ./backup.sh restore backups/isotope-backup-20260819-XXXXXX.tar.gz \
@@ -403,8 +403,8 @@ EOF
 cd /path/to/isotope-apk
 
 # Full rebuild
-REPO_DIR=/path/to/isotope-code \
-SOURCE_DIR=/path/to/isotope-code/public \
+REPO_DIR=/path/to/web-source \
+SOURCE_DIR=/path/to/web-source/public \
 npm run build
 
 # Or full pipeline
@@ -478,7 +478,7 @@ If target deployment fails:
 |------|--------|
 | `isotope-apk/.env` | Target URL, anon key, service role, project ref |
 | `isotope-apk/supabase.config.json` | Target URL, anon key, project ref |
-| `isotope-code/.backup_env` | Target keys (for future backups) |
+| `web-source/.backup_env` | Target keys (for future backups) |
 | Google Cloud Console | Add target redirect URIs |
 | Supabase Dashboard | Google provider config |
 

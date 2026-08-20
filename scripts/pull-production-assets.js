@@ -2,7 +2,7 @@
 /**
  * pull-production-assets.js (v3 - targeted download from production manifest)
  *
- * Downloads specific production assets from isotopeai.in into isotope-code/public/
+ * Downloads specific production assets from isotopeai.in into the web app public/ directory
  * using the exact bundle hashes from the live production site.
  */
 
@@ -13,7 +13,7 @@ const path = require('path');
 const https = require('https');
 
 const SITE_URL   = 'https://isotopeai.in';
-const REPO_DIR   = process.env.REPO_DIR || path.resolve(__dirname, '../../isotope-code');
+const REPO_DIR   = process.env.REPO_DIR || path.resolve(__dirname, '../../web-app-source');
 const PUBLIC_DIR = path.join(REPO_DIR, 'public');
 
 let downloaded = 0;

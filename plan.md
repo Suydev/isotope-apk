@@ -1,12 +1,15 @@
-# isotope-apk ← isotope-code sync plan
+# IsotopeAI Android — build & parity plan
 
 **Status:** ACTIVE
-**Target:** bring `isotope-apk` to full parity with the current `isotope-code` (incl. uncommitted potato-mode / deferred-scripts changes) and the new Supabase community schema.
-**Source of truth:** `isotope-code/sql/isotope-schema-restore.sql` (portable schema dump, generated 2026-08-09) + `isotope-code/sql/isotope-data-backup.jsonl` (data dump) + `isotope-code/backup.sh` (dump/restore pipeline) + `isotope-code/.env` / `.env.example`.
+**Target:** keep `isotope-apk` at full parity with the committed `www/` UI and the
+new Supabase community schema, and keep the APK fully self-contained (no upstream
+web source checkout required for builds or tests).
+**Source of truth:** the APK's committed `supabase/` migrations (ported from the
+upstream schema/SQL dumps) + committed `www/` (pre-compiled UI). The web app
+source is no longer part of this repo's build or test pipeline.
 **Repos:**
-- `/data/data/com.termux/files/home/isotope-code` — web app (READ-ONLY reference, never edit from this repo)
 - `/data/data/com.termux/files/home/isotope-apk` — Capacitor Android wrapper (this repo, editable)
-- `isotope-code/isotope-apk-ref/` — pinned reference copy of the apk repo (must stay in sync)
+- `www/` — committed pre-compiled web UI (source of truth for the app)
 
 ---
 
@@ -87,7 +90,7 @@
 
 ## Phase 3 — www/ rebuild + patch verification
 
-- [x] `REPO_DIR=.../isotope-code node scripts/prepare-www.js` → 129 bundles, 53.7 MB.
+- [x] `REPO_DIR=.../web-source node scripts/prepare-www.js` → 129 bundles, 53.7 MB.
 - [ ] `node scripts/apply-android-patches.js` → **0 required-patch failures** (expect ~30+ patches).
 - [ ] Spot-verify patch markers in `www/assets/`:
       - `useAuthStore-*`: `planType:"ranker"`
@@ -104,12 +107,12 @@
 ## Phase 4 — Community SQL sync (env + schema + migrations)
 
 - [ ] **Naming fix:** replace stale `supabase/011_fix_rls_recursion.sql` stub with the real
-      `isotope-code/sql/011_community_join_guard.sql` content (preserve the 010 RLS work already
-      applied in prod; verify the two files don't regress each other — 011_join_guard is additive
+      community join-guard SQL content (preserve the 010 RLS work already
+      applied in prod; verify the two files don't regress each other — the join-guard is additive
       on top of 010).
-- [ ] **009 parity:** sync `isotope-code/sql/009_community_hardening.sql` (new version) into this
+- [ ] **009 parity:** sync the upstream `009_community_hardening.sql` (new version) into this
       repo root `009_community_hardening.sql` so root/ref copies match upstream.
-- [ ] **010 parity:** sync `isotope-code/sql/010_cleanup_group_members_rls.sql` — verify against the
+- [ ] **010 parity:** sync the upstream `010_cleanup_group_members_rls.sql` — verify against the
       APK's `013*` migrations for ordering/conflicts (013c/013d contain grants + FK + profile-read
       hardening that the dump also carries; do not duplicate or drop them).
 - [ ] **New schema (from dump):** `community_join_requests` table + `groups.join_policy` column +
@@ -167,7 +170,7 @@ future Supabase backup/rotation/deploy targets a different project without sourc
 - [ ] `scripts/deploy-supabase.js` — apply `supabase/*.sql` migrations (in filename order) to the
       target project via the Supabase Management API (uses `SUPABASE_ACCESS_TOKEN` secret env,
       `--project-ref` flag, dry-run by default). Replaces the manual SQL-editor workflow.
-- [ ] `scripts/backup-supabase.js` — mirror of isotope-code `backup.sh`: dump schema
+- [ ] `scripts/backup-supabase.js` — mirror of the upstream `backup.sh`: dump schema
       (`schema-dump.mjs`-style) + data to `backups/isotope-backup-<ts>/` using
       `SUPABASE_ACCESS_TOKEN` (+ service role for storage when available).
 - [ ] Document in README: `SUPABASE_URL=... SUPABASE_ANON_KEY=... npm run build` for a new
@@ -181,7 +184,7 @@ future Supabase backup/rotation/deploy targets a different project without sourc
       (`sb-<ref>-auth-token`) so sessions survive config-driven builds.
 - [ ] `npm test` includes a test asserting the config resolver: no env → prod defaults;
       env set → override wins; `.env` beats config file, env beats `.env`.
-- [ ] `backup.sh` / `supabase-backup.mjs` / `schema-dump.mjs` stay **isotope-code-side**; the APK
+- [ ] `backup.sh` / `supabase-backup.mjs` / `schema-dump.mjs` stay **upstream-side**; the APK
       consumes `sql/isotope-schema-restore.sql` as reference only (documented in README).
 
 ## Phase 6 — Tests & verification
@@ -198,7 +201,7 @@ future Supabase backup/rotation/deploy targets a different project without sourc
       (new session entry: bridge restore, deferred-scripts handling, www rebuild, community SQL).
 - [ ] Update `AGENTS.md` (already references this plan — keep pointer + phase status current).
 - [ ] `git add` only intended files (never `.env*`, never secrets). Commit message style: concise,
-      descriptive, matches history (e.g. `fix: sync apk with isotope-code deferred-scripts + community join-guard SQL`).
+      descriptive, matches history (e.g. `fix: sync apk with deferred-scripts + community join-guard SQL`).
 - [ ] Push to `main` immediately (repo rule: every completed fix pushed right away).
 
 ---

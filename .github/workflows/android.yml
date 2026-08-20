@@ -17,7 +17,6 @@ on:
 env:
   JAVA_VERSION: '17'
   NODE_VERSION: '22'
-  ISOTOPE_CODE_REF: '785f9ef06683d694fdd2376be3e5fb3c7da8b1bb'
 
 jobs:
   build-debug-apk:
@@ -26,30 +25,11 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      # ── Checkout this repo (Capacitor wrapper + bridge) ───────────────────
+      # ── Checkout this repo (Capacitor wrapper + bridge + prebuilt www/) ──────
       - name: Checkout isotope-apk
         uses: actions/checkout@v4
         with:
           path: isotope-apk
-
-      # ── Checkout source assets from isotope-code ──────────────────────────
-      # isotope-code is a public repo — no token needed
-      # NOTE: This repo may not always be available; we fall back to existing www/ if checkout fails
-      - name: Checkout isotope-code (source assets)
-        continue-on-error: true
-        id: checkout-isotope-code
-        uses: actions/checkout@v4
-        with:
-          repository: Suydev/isotope-code
-          ref: ${{ env.ISOTOPE_CODE_REF }}
-          path: isotope-code
-
-      - name: Checkout status
-        if: always()
-        run: |
-          if [ "${{ steps.checkout-isotope-code.outcome }}" != "success" ]; then
-            echo "⚠️ Warning: isotope-code checkout failed. Using pre-existing www/ assets."
-          fi
 
       # ── Node.js setup ─────────────────────────────────────────────────────
       - name: Setup Node.js ${{ env.NODE_VERSION }}
@@ -88,42 +68,7 @@ jobs:
         working-directory: isotope-apk
         run: npm test
 
-      # ── Verify source structure before copying ────────────────────────────
-      - name: Verify isotope-code source structure
-        if: steps.checkout-isotope-code.outcome == 'success'
-        run: |
-          echo "=== isotope-code root ==="
-          ls -la ${{ github.workspace }}/isotope-code/
-          echo ""
-          echo "=== isotope-code/public/ ==="
-          ls -la ${{ github.workspace }}/isotope-code/public/
-          echo ""
-          echo "=== isotope-code/public/assets/ (JS count) ==="
-          ls ${{ github.workspace }}/isotope-code/public/assets/*.js | wc -l
-          echo ""
-          echo "Key bundles:"
-          ls -lh ${{ github.workspace }}/isotope-code/public/assets/App-*.js 2>/dev/null || echo "No App-*.js found"
-          ls -lh ${{ github.workspace }}/isotope-code/public/assets/index-BPYJFSVW.js 2>/dev/null || echo "index-BPYJFSVW.js not found (may have new hash)"
-
-      # ── Prepare www/ directory ────────────────────────────────────────────
-      # REPO_DIR = isotope-code root (index.html lives HERE, not in public/)
-      # SOURCE_DIR = isotope-code/public/ (all static assets)
-      # prepare-www.js copies:
-      #   1. public/* → www/
-      #   2. root index.html → www/index.html  (overwrites if public/ had one)
-      #   3. android-bridge.js → www/ (first script injected into <head>)
-      #   4. Disables sw.js, pwa-local.js, update-checker.js
-      - name: Prepare www/ (copy assets + inject bridge)
-        if: steps.checkout-isotope-code.outcome == 'success'
-        working-directory: isotope-apk
-        env:
-          REPO_DIR: ${{ github.workspace }}/isotope-code
-          SOURCE_DIR: ${{ github.workspace }}/isotope-code/public
-          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
-          BRIDGE_FILE: ${{ github.workspace }}/isotope-apk/android-bridge.js
-        run: node scripts/prepare-www.js
-
-      # ── Report www/ size ──────────────────────────────────────────────────
+      # ── Report www/ size (prebuilt, committed) ───────────────────────────
       - name: Report www/ size
         working-directory: isotope-apk
         run: |
@@ -217,13 +162,6 @@ jobs:
         with:
           path: isotope-apk
 
-      - name: Checkout isotope-code (source assets)
-        uses: actions/checkout@v4
-        with:
-          repository: Suydev/isotope-code
-          ref: ${{ env.ISOTOPE_CODE_REF }}
-          path: isotope-code
-
       - name: Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
@@ -246,6 +184,9 @@ jobs:
       - name: Install Android SDK components
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
       - name: Install dependencies
         working-directory: isotope-apk
         run: npm ci
@@ -253,15 +194,6 @@ jobs:
       - name: Run regression tests
         working-directory: isotope-apk
         run: npm test
-
-      - name: Prepare www/
-        working-directory: isotope-apk
-        env:
-          REPO_DIR: ${{ github.workspace }}/isotope-code
-          SOURCE_DIR: ${{ github.workspace }}/isotope-code/public
-          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
-          BRIDGE_FILE: ${{ github.workspace }}/isotope-apk/android-bridge.js
-        run: node scripts/prepare-www.js
 
       - name: Apply patches and sync Capacitor Android
         working-directory: isotope-apk

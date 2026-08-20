@@ -5,7 +5,7 @@ Capacitor Android wrapper for **IsotopeAI** — an AI-powered study planner, foc
 ## What this repo is
 
 This repo does **not** contain the UI or business logic. It:
-- Copies the compiled web app from `Suydev/isotope-code` (a separate repo) into `www/`
+- Copies the compiled web app from the upstream web repo into committed `www/`
 - Injects Android bridges (`android-bridge.js`, `android-floating-timer-bridge.js`)
 - Patches selected minified JS bundles for Android-safe behavior
 - Builds an installable APK via Capacitor + Gradle (on GitHub Actions)
@@ -17,7 +17,7 @@ The app cannot run as a web server on Replit. APK builds require Java 17 / Andro
 ```bash
 npm install              # install JS deps
 npm test                 # run pure-logic tests (no www/ needed for 35/47)
-npm run prepare-www      # requires isotope-code checked out as ../isotope-code
+npm run prepare-www      # regenerates committed www/ from a local web source checkout
 npm run apply-patches    # same
 npm run build            # full pipeline: prepare-www + patches + cap sync + patches again
 ```
@@ -38,7 +38,7 @@ APK assembly happens on GitHub Actions (`android.yml`). Use `npm run android:deb
 |------|---------|
 | `android-bridge.js` | Intercepts `window.fetch` for `/__auth/*` and `/__supa/*` → direct Supabase calls |
 | `android-floating-timer-bridge.js` | Native floating/PiP focus timer overlay bridge |
-| `scripts/prepare-www.js` | Copies `isotope-code/public` → `www/`, injects bridges, disables PWA-only features |
+| `scripts/prepare-www.js` | Copies the web app `public/` → `www/`, injects bridges, disables PWA-only features |
 | `scripts/apply-android-patches.js` | Patches minified JS bundles in `www/assets/` for Android |
 | `www/` | **Build output — never edit by hand** (git-ignored) |
 | `android/` | Native Capacitor Android project (Gradle) |
@@ -53,21 +53,22 @@ Always read before working:
 
 ## Test state (as of 2026-07-05)
 
-- **35 / 47 tests pass** — pure logic tests that don't need `www/` or `isotope-code`
-- **12 / 47 fail** — tests that require the built `www/` output and `isotope-code` checked out at `../isotope-code`; these failures are expected in this environment and are **not regressions** — they pass in CI where both repos are present. Do not treat them as bugs without first confirming `isotope-code` is available.
+- All tests pass locally — `www/` is committed so no upstream checkout is required.
+- Source-dependent tests (`prepare-patches`, `floating-timer-native`, `latex-rendering`)
+  skip cleanly when the upstream web source is unavailable. Do not treat a skip as a failure.
 
 ## Current work
 
 Fixing the community system in controlled batches:
-1. Supabase security + RPC migration (in `isotope-code`)
-2. Upstream web implementation using unified RPCs (in `isotope-code`)
+1. Supabase security + RPC migration (in the upstream web app)
+2. Upstream web implementation using unified RPCs (in the upstream web app)
 3. Remove APK community divergence / compiled-code rewrites (in `isotope-apk`)
 4. Two-account integration tests for the full community flow
 
-**Safe deployment order:** database migration → isotope-code push → rebuild assets → bump pinned commit in isotope-apk → push APK fixes → build new APK → integration tests.
+**Safe deployment order:** database migration → upstream web changes → rebuild assets → push APK fixes → build new APK → integration tests.
 
 ## User preferences
 
 - Push every completed fix to GitHub immediately (don't batch multiple fixes into one delayed push).
-- Continuously verify parity against `isotope-code` — every page, route, asset, and piece of functionality in the Android app should match the web source exactly, with Android-only differences kept minimal, intentional, and documented.
-- Fix community logic in `isotope-code` first (it is the source of truth for UI/business logic); `isotope-apk` should only contain Android-native adaptations.
+- Continuously verify parity against the committed `www/` — every page, route, asset, and piece of functionality in the Android app should match the web source exactly, with Android-only differences kept minimal, intentional, and documented.
+- Fix community logic in the upstream web app first (it is the source of truth for UI/business logic); `isotope-apk` should only contain Android-native adaptations.

@@ -5,14 +5,15 @@ timer, and analytics app for students preparing for JEE, NEET, CUET, boards,
 and other competitive exams.
 
 This repo does **not** contain the app's UI or business logic. It packages
-the web app published at [isotope-code](https://github.com/Suydev/isotope-code)
-into a [Capacitor](https://capacitorjs.com/) Android shell, adds a thin native
+the pre-compiled web app (committed in `www/`) into a
+[Capacitor](https://capacitorjs.com/) Android shell, adds a thin native
 bridge for auth/session/storage, and ships it as an installable APK.
 
-> **Source of truth:** all UI, routes, features, and styling live in
-> `isotope-code`. This repo must never re-implement or diverge from that UI —
-> it only wraps it for native distribution. See [Architecture](#architecture)
-> for exactly how the two repos relate.
+> **Source of truth:** all UI, routes, features, and styling live in the
+> pre-compiled `www/` output committed to this repo. This repo must never
+> re-implement or diverge from that UI — it only wraps it for native
+> distribution. See [Architecture](#architecture) for exactly how the pieces
+> fit together.
 
 ---
 
@@ -29,58 +30,51 @@ IsotopeAI helps students:
 ## Architecture
 
 ```
-isotope-code (public repo, READ-ONLY reference)
-  ├─ index.html            ← Vite entry point (repo root, not public/)
-  └─ public/                ← built JS/CSS bundles, fonts, icons, sounds, sync/
-        │
-        │  fetched fresh on every CI build (pinned to a specific commit —
-        │  see ISOTOPE_CODE_REF in .github/workflows/android.yml)
-        ▼
 isotope-apk (this repo)
   ├─ android-bridge.js               ← native bridge injected as first <head> script
   ├─ android-floating-timer-bridge.js← floating/PiP focus timer overlay bridge
-  ├─ scripts/prepare-www.js          ← copies isotope-code → www/, injects bridge,
-  │                                    disables PWA-only features, adds boot splash
+  ├─ scripts/prepare-www.js          ← builds www/ from the web app source,
+  │                                    injects bridge, disables PWA-only features,
+  │                                    adds boot splash (not run in CI — www/ committed)
   ├─ scripts/apply-android-patches.js← patches minified JS bundles in www/assets/
   │                                    (Android-safe UI tweaks, native modal hooks,
   │                                    Supabase config injection, storage fixes)
-  ├─ www/                            ← BUILD OUTPUT (git-ignored) — never edit by hand
+  ├─ www/                            ← pre-compiled web app (COMMITTED — source of truth)
   └─ android/                        ← native Capacitor Android project (Gradle)
 ```
 
 ### Build pipeline (also see `.github/workflows/android.yml`)
 
-1. **Checkout** both `isotope-apk` (this repo) and `isotope-code` (pinned ref)
-2. **`node scripts/prepare-www.js`** — copies `isotope-code/public/*` into
-   `www/`, copies the root `index.html`, injects `android-bridge.js` as the
-   very first script in `<head>`, disables browser/PWA-only files that make no
-   sense inside a native shell (service worker, web manifest, update checker),
-   and injects a persistent inline boot splash screen (see
-   [Loading screen](#loading-screen-fix) below).
-3. **`node scripts/apply-android-patches.js`** — applies small, targeted string
+1. **Checkout** `isotope-apk` (this repo) — `www/` is already committed, so no
+   upstream checkout is needed.
+2. **`node scripts/apply-android-patches.js`** — applies small, targeted string
    patches to the built JS bundles in `www/assets/` (e.g. routes `window.prompt`
    based "join with code" flows to a native modal, injects Supabase runtime
    config, fixes points/leaderboard NaN edge cases) and to native Android XML
    (permissions, manifest entries).
-4. **`npx cap sync android`** — Capacitor copies `www/` into the native project.
-5. **`apply-android-patches.js` runs again** — `cap sync` can overwrite some
+3. **`npx cap sync android`** — Capacitor copies `www/` into the native project.
+4. **`apply-android-patches.js` runs again** — `cap sync` can overwrite some
    native files, so patches are re-applied after sync to guarantee they stick.
-6. **Gradle build** — `assembleDebug` (every push) or `bundleRelease` (manual
+5. **Gradle build** — `assembleDebug` (every push) or `bundleRelease` (manual
    dispatch) produces the installable artifact.
+
+`scripts/prepare-www.js` is only used when regenerating `www/` from a fresh web
+build. CI builds against the committed `www/`, so the upstream source repo is
+never required during a build.
 
 ### Why patch instead of fork the UI?
 
-`isotope-code` is the single source of truth for the product. Rather than
-maintaining a second copy of the UI (which would drift over time), this repo
-treats its built output as an opaque, versioned input and applies a small,
-auditable set of string-level patches for the handful of things that must
-differ on native Android (e.g. `window.prompt()` doesn't render inside a
+The pre-compiled `www/` output is the single source of truth for the product.
+Rather than maintaining a second copy of the UI (which would drift over time),
+this repo treats that built output as an opaque, versioned input and applies a
+small, auditable set of string-level patches for the handful of things that
+must differ on native Android (e.g. `window.prompt()` doesn't render inside a
 WebView the way it does in a desktop browser). Every patch is intentionally
 narrow and documented in `scripts/apply-android-patches.js`.
 
 ### Loading screen fix
 
-`isotope-code`'s `index.html` ships `<div id="root"></div>` with no inline
+The committed `www/index.html` ships `<div id="root"></div>` with no inline
 splash markup — in a browser tab this is invisible because the browser's own
 loading UI (spinner/progress bar, previous page still visible) covers the gap.
 Inside a native Android WebView there is no such chrome, so users would see a
@@ -99,12 +93,12 @@ visually seamless.
 ### Notification panel positioning
 
 The notification bell panel in `DashboardHeader` uses `absolute right-0
-top-full` positioning in `isotope-code` — its **right** edge is pinned to the
-bell button, so the panel expands **left**, and its width is capped at
-`calc(100vw - 1.5rem)` so it can never overflow the viewport. This is
-intentional upstream behavior and is left untouched by this repo's patches
-(a prior Android-only positioning patch that used `fixed` + safe-area insets
-was found to be a deviation from source and has been reverted).
+top-full` positioning — its **right** edge is pinned to the bell button, so the
+panel expands **left**, and its width is capped at `calc(100vw - 1.5rem)` so it
+can never overflow the viewport. This is intentional upstream behavior and is
+left untouched by this repo's patches (a prior Android-only positioning patch
+that used `fixed` + safe-area insets was found to be a deviation from source
+and has been reverted).
 
 ## Repo layout
 
@@ -112,7 +106,7 @@ was found to be a deviation from source and has been reverted).
 |------|---------|
 | `android-bridge.js` | Native bridge: session/auth interception, invite URL helpers, native join-code modal hook |
 | `android-floating-timer-bridge.js` | Bridge for the Android floating/PiP focus timer overlay |
-| `scripts/prepare-www.js` | Builds `www/` from `isotope-code` + injects bridge + boot splash |
+| `scripts/prepare-www.js` | Builds `www/` from the web app source + injects bridge + boot splash |
 | `scripts/apply-android-patches.js` | Patches built JS bundles and native Android config |
 | `scripts/agent-status.mjs`, `scripts/agent-resume.sh`, `scripts/agent-handoff.sh` | Agent session bookkeeping (see `.agent/`) |
 | `android/` | Native Capacitor Android project (Gradle, Java, manifest, resources) |
@@ -132,16 +126,16 @@ npm run android:debug        # ./gradlew assembleDebug (needs Android SDK + JDK 
 npm run android:release      # ./gradlew bundleRelease
 ```
 
-`npm run build` requires two env vars pointing at a checked-out `isotope-code`:
+`npm run build` uses the committed `www/` as-is — no upstream checkout is
+required. To regenerate `www/` from a fresh web build, point
+`scripts/prepare-www.js` at a local web source via the `REPO_DIR` /
+`SOURCE_DIR` env vars:
 
 ```bash
-REPO_DIR=/path/to/isotope-code \
-SOURCE_DIR=/path/to/isotope-code/public \
-npm run build
+REPO_DIR=/path/to/web-source \
+SOURCE_DIR=/path/to/web-source/public \
+node scripts/prepare-www.js
 ```
-
-In CI, both repos are checked out automatically and these are wired up for
-you — see `.github/workflows/android.yml`.
 
 ## Stack
 
@@ -153,20 +147,12 @@ you — see `.github/workflows/android.yml`.
 
 ## Gotchas
 
-- **Never edit `www/`** — it is fully regenerated by `prepare-www.js` on every
-  build and is git-ignored. Edit `scripts/prepare-www.js` or
-  `scripts/apply-android-patches.js` instead.
-- **Never edit `isotope-code`** from this repo/session. It is a separate,
-  independently maintained repo and is treated as a read-only reference.
-  If a UI fix is needed, either patch it here (Android-only, documented,
-  narrow) or flag it for a fix upstream in `isotope-code`.
+- **Never edit `www/`** — it is the committed pre-compiled UI and is the
+  source of truth. To change the UI, regenerate it with `prepare-www.js`
+  (plus `apply-android-patches.js`) and commit the result.
 - **`apply-android-patches.js` runs twice** in CI — once before `cap sync`
   and once after — because `cap sync` can regenerate native files that need
   patches too. Don't remove the second invocation.
-- **`ISOTOPE_CODE_REF`** in `.github/workflows/android.yml` pins the exact
-  `isotope-code` commit used for a build. Bump it deliberately when you want
-  to pick up new upstream changes, and re-run the full patch/test suite
-  against the new ref before merging.
 - Always run `npm test` before pushing — the patch scripts patch *minified*
   JS by exact string match, so a small upstream wording/formatting change can
   silently make a patch a no-op. The test suite catches this.
@@ -175,10 +161,10 @@ you — see `.github/workflows/android.yml`.
 
 - Push every completed fix to GitHub immediately (don't batch multiple fixes
   into one delayed push).
-- Continuously verify parity against `isotope-code` — every page, route,
-  asset, and piece of functionality in the Android app should match the web
-  source exactly, with Android-only differences kept minimal, intentional,
-  and documented.
+- Continuously verify parity against the web app source — every page, route,
+  asset, and piece of functionality in the Android app should match the
+  committed `www/` output exactly, with Android-only differences kept minimal,
+  intentional, and documented.
 
 ## Pointers
 

@@ -15,7 +15,7 @@ const path = require('path');
 const { loadConfig } = require('./supabase-config');
 const { execSync } = require('child_process');
 
-const REPO_DIR = process.env.REPO_DIR || path.resolve(__dirname, '../../isotope-code');
+const REPO_DIR = process.env.REPO_DIR || path.resolve(__dirname, '../../web-app-source');
 const WWW_DIR = process.env.WWW_DIR || path.resolve(__dirname, '../www');
 const BRIDGE_FILE = process.env.BRIDGE_FILE || path.resolve(__dirname, '../android-bridge.js');
 const FLOATING_TIMER_BRIDGE_FILE = process.env.FLOATING_TIMER_BRIDGE_FILE || path.resolve(__dirname, '../android-floating-timer-bridge.js');
@@ -176,7 +176,7 @@ if (fs.existsSync(EXTRACT_SCRIPT)) {
   try {
     execSync(`node "${EXTRACT_SCRIPT}"`, {
       cwd: path.resolve(__dirname, '..'),
-      env: { ...process.env, OUTPUT_DIR: WWW_DIR, ISOTOPE_CODE_DIR: REPO_DIR },
+      env: { ...process.env, OUTPUT_DIR: WWW_DIR, WEB_APP_DIR: REPO_DIR },
       stdio: 'pipe',
     });
     console.log('  ✓ Server-injected HTML snippets generated');

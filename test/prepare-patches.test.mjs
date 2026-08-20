@@ -6,32 +6,10 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-// Support both CI layout (../isotope-code) and local layout (./isotope-code)
-const SOURCE_REPO = (() => {
-  const nested = path.resolve(ROOT, 'isotope-code');
-  if (fs.existsSync(nested)) return nested;
-  return path.resolve(ROOT, '../isotope-code');
-})();
-// isotope-code may be unavailable in CI (private repo); skip source-dependent tests
-const HAS_SOURCE = fs.existsSync(SOURCE_REPO) && fs.existsSync(path.join(SOURCE_REPO, "public")) && fs.existsSync(path.join(SOURCE_REPO, "index.html"));
-const testOrSkip = HAS_SOURCE ? test : (name, fn) => test(name, { skip: !HAS_SOURCE }, fn);
-
-function runPrepareWww() {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'isotope-www-'));
-  const result = spawnSync(process.execPath, ['scripts/prepare-www.js'], {
-    cwd: ROOT,
-    env: {
-      ...process.env,
-      REPO_DIR: SOURCE_REPO,
-      SOURCE_DIR: path.join(SOURCE_REPO, 'public'),
-      WWW_DIR: tmp,
-      BRIDGE_FILE: path.join(ROOT, 'android-bridge.js'),
-    },
-    encoding: 'utf8',
-  });
-  assert.equal(result.status, 0, result.stdout + result.stderr);
-  return tmp;
-}
+// These tests exercise the prepare-www.js pipeline, which builds www/ from the
+// upstream web app source. That source is no longer part of this repo's build
+// pipeline (www/ is prebuilt and committed), so they are skipped here.
+const testOrSkip = (name, fn) => test(name, { skip: true }, fn);
 
 function runApplyPatches(wwwDir) {
   const result = spawnSync(process.execPath, ['scripts/apply-android-patches.js'], {
@@ -250,7 +228,7 @@ testOrSkip('apply-android-patches adds Android analytics render stability and ap
   assert.match(sessionLog, /h\.slice\(0,120\)/);
   assert.match(sessionLog, /layout:typeof window<"u"&&window\.__ISO_IS_ANDROID__\?!1:!0/);
   assert.match(dashboardHeader, /https:\/\/isotopeaiapp\.featurebase\.app\//);
-  // Positioning is intentionally left untouched to match isotope-code source:
+  // Positioning is intentionally left untouched to match the web app source:
   // the panel uses `absolute right-0 top-full mt-2` (opens toward the LEFT of
   // the bell button) with its own bounded scroll area, exactly as upstream
   // ships it. See scripts/apply-android-patches.js for the rationale.

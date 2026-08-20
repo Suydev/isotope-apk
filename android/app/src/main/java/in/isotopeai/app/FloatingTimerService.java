@@ -35,7 +35,7 @@ import org.json.JSONObject;
 /**
  * IsotopeAI Floating Timer overlay service.
  *
- * Visual design mirrors the isotope-code web app Focus page:
+ * Visual design mirrors the web app Focus page:
  *   - Card: zinc-950 dark / white light, 24dp corners, subtle border
  *   - Progress strip: brand-violet (running) or sky-blue (break)
  *   - Timer: 56sp monospace bold, full width centered
@@ -50,7 +50,7 @@ public class FloatingTimerService extends Service {
     public static final String ACTION_STOP   = "in.isotopeai.app.action.FLOATING_TIMER_STOP";
     public static final String EXTRA_STATE_JSON = "state_json";
 
-    // Brand / semantic colors — match isotope-code CSS variables
+    // Brand / semantic colors — match the web app CSS variables
     private static final int BRAND_500   = Color.rgb(139,  92, 246); // violet-500
     private static final int BRAND_600   = Color.rgb(124,  58, 237); // violet-600
     private static final int EMERALD_600 = Color.rgb(  5, 150, 105); // correct
@@ -724,7 +724,7 @@ public class FloatingTimerService extends Service {
         if (button == null) return;
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(bgColor);
-        bg.setCornerRadius(dp(16)); // rounded-2xl — matches isotope-code control buttons
+        bg.setCornerRadius(dp(16)); // rounded-2xl — matches the web app control buttons
         if (strokeColor != Color.TRANSPARENT) bg.setStroke(dp(1), strokeColor);
         button.setTextColor(textColor);
         button.setBackground(bg);

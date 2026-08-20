@@ -1,5 +1,5 @@
 -- NOTE: this migration was renamed upstream to `011_community_join_guard.sql`.
 -- The real, idempotent content now lives in `supabase/011_community_join_guard.sql`
--- (a mirror of `isotope-code/sql/011_community_join_guard.sql`). This file is kept
+-- (a mirror of the upstream `011_community_join_guard.sql`). This file is kept
 -- only so the original filename still resolves; it is a no-op so applying the whole
 -- supabase/ sequence never double-runs or fails on a stale cross-reference.

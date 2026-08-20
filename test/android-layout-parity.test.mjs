@@ -65,7 +65,7 @@ test('patches do not rewrite create_community_group RPC in a broken APK-only way
   // The APK must not introduce its own divergent community group creation that
   // bypasses the server-side RPC defined in sql/009_community_hardening.sql.
   // Acceptable: the patch may call create_community_group (the RPC) or use
-  // direct insert — but must not redefine it differently from isotope-code.
+  // direct insert — but must not redefine it differently from the web app source.
   // This test ensures we never inject a LOCAL re-implementation of the RPC body.
   assert.doesNotMatch(
     patches,
@@ -73,7 +73,7 @@ test('patches do not rewrite create_community_group RPC in a broken APK-only way
   );
 });
 
-test('patches preserve notification panel classes matching isotope-code', () => {
+test('patches preserve notification panel classes matching the web app source', () => {
   // The old divergent patches that changed p-4→p-3, items-center→items-start,
   // or added gap-3 to the notification panel header must NOT be present.
   assert.doesNotMatch(patches, /items-start justify-between gap-3/);

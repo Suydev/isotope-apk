@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * apply-android-patches.js (v2 — adapted for isotope-code v3.3.9+ bundles)
+ * apply-android-patches.js (v2 — adapted for the web app bundles)
  *
  * Applies runtime server.mjs patches to bundled JS in www/assets/
  * so the Android APK works without a Node.js server.
@@ -129,7 +129,7 @@ const authBundle = findAsset('Auth-');
 patchFile(authBundle, [
   // Replace the login handler to route through Android bridge
   // NOTE: the committed www/ Auth bundle already contains the equivalent __isoLogin
-  // injection (generated from a newer isotope-code build). This patch target is kept
+  // injection (generated from a newer upstream build). This patch target is kept
   // for regeneration parity but is non-required so the build does not fail when the
   // exact legacy login string is absent.
   [

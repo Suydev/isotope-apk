@@ -4,7 +4,7 @@
  *
  * Builds www/ for the Capacitor Android APK.
  *
- * Source layout in isotope-code:
+ * Source layout in the web app repo:
  *   <root>/index.html        ← entry point (at REPO root, NOT in public/)
  *   <root>/public/           ← all static assets (assets/, fonts/, icons/, sounds/, sync/, etc.)
  *
@@ -22,8 +22,8 @@
  *   ... etc.
  *
  * Env vars:
- *   REPO_DIR     = path to cloned isotope-code repo root   (contains index.html + public/)
- *   SOURCE_DIR   = path to isotope-code/public/            (default: REPO_DIR/public)
+ *   REPO_DIR     = path to the web app repo root          (contains index.html + public/)
+ *   SOURCE_DIR   = path to web-app/public/                (default: REPO_DIR/public)
  *   WWW_DIR      = path to output www/ directory           (default: ../www)
  *   BRIDGE_FILE  = path to android-bridge.js               (default: ../android-bridge.js)
  */
@@ -33,7 +33,7 @@
 const fs   = require('fs');
 const path = require('path');
 
-const REPO_DIR    = process.env.REPO_DIR    || path.resolve(__dirname, '../../isotope-code');
+const REPO_DIR    = process.env.REPO_DIR    || path.resolve(__dirname, '../../web-app-source');
 const SOURCE_DIR  = process.env.SOURCE_DIR  || path.join(REPO_DIR, 'public');
 const WWW_DIR     = process.env.WWW_DIR     || path.resolve(__dirname, '../www');
 const BRIDGE_FILE = process.env.BRIDGE_FILE || path.resolve(__dirname, '../android-bridge.js');
@@ -60,13 +60,13 @@ const rootIndexPath = path.join(REPO_DIR, 'index.html');
 
 if (!fs.existsSync(REPO_DIR)) {
   console.error('ERROR: REPO_DIR not found:', REPO_DIR);
-  console.error('  → Set REPO_DIR to the root of the cloned isotope-code repo.');
+  console.error('  → Set REPO_DIR to the root of the web app repo.');
   process.exit(1);
 }
 
 if (!fs.existsSync(rootIndexPath)) {
   console.error('ERROR: index.html not found at repo root:', rootIndexPath);
-  console.error('  → isotope-code has index.html at the REPO ROOT, not inside public/.');
+  console.error('  → The web app repo has index.html at the REPO ROOT, not inside public/.');
   console.error('  → Ensure REPO_DIR points to the repo root (not public/).');
   process.exit(1);
 }
@@ -104,7 +104,7 @@ const publicFiles = countFiles(WWW_DIR);
 console.log(`  ✓ Copied ${publicFiles} files from public/`);
 
 // ── 3. Copy root index.html → www/index.html ─────────────────────────────────
-//    NOTE: index.html lives at the REPO ROOT in isotope-code, not in public/.
+//    NOTE: index.html lives at the REPO ROOT in the web app repo, not in public/.
 //    This is the Vite entry point that references /assets/*.js and /assets/*.css.
 
 console.log('\nStep 3: Copying root index.html → www/index.html ...');
@@ -253,7 +253,7 @@ if (html.includes('/update-checker.js')) {
 }
 
 // 5c2. Disable deferred-scripts.js (server-injected runtime scripts).
-// isotope-code serves PREMIUM_SCRIPT / RELOAD_GUARD_SCRIPT / FEATURE_REMOVAL_STYLE /
+// The web app serves PREMIUM_SCRIPT / RELOAD_GUARD_SCRIPT / FEATURE_REMOVAL_STYLE /
 // KEY_SCRIPT / USERNAME_AUTH_SCRIPT from a /deferred-scripts.js endpoint in server.mjs.
 // There is no Node server inside the APK, and android-bridge.js already provides the
 // Android equivalents (auth interception, __isoLogin/__isoUp, premium via patches,
@@ -286,7 +286,7 @@ html = replaceOptional(html, /<meta\s+name="apple-mobile-web-app-status-bar-styl
 html = replaceOptional(html, /<meta\s+name="apple-mobile-web-app-title"\s+content="[^"]*"\s*\/>\s*/i, '', 'apple PWA title meta');
 html = replaceOptional(html, /<meta\s+name="mobile-web-app-capable"\s+content="yes"\s*\/>\s*/i, '', 'mobile web-app capable meta');
 
-// 5f. Persistent loading screen — isotope-code ships `<div id="root"></div>` with
+// 5f. Persistent loading screen — the web app ships `<div id="root"></div>` with
 // NO inline splash markup, so on native Android (no browser chrome, no address
 // bar loading indicator) users can see a completely blank/white screen during:
 //   - initial WebView boot + bridge script execution
@@ -417,7 +417,7 @@ console.log('  ✓ index.html patched');
 
 // ── 5e. Patch authored runtime bootstrap logic ──────────────────────────────
 // Keep this in prepare-www because restore-and-launch.js is authored runtime JS
-// copied from isotope-code/public/, not a minified hashed chunk.
+// copied from the web app public/ directory, not a minified hashed chunk.
 console.log('\nStep 5e: Patching restore-and-launch.js bootstrap contract ...');
 const restoreLaunchPath = path.join(WWW_DIR, 'restore-and-launch.js');
 if (fs.existsSync(restoreLaunchPath)) {
@@ -562,7 +562,7 @@ workboxFiles.forEach(f => {
 if (workboxFiles.length) console.log(`  ✓ Neutered ${workboxFiles.length} workbox file(s)`);
 
 // ── 6b. Repair KaTeX font assets ────────────────────────────────────────────
-// The pinned isotope-code bundle includes KaTeX CSS/JS, but the CSS references
+// The pinned web app bundle includes KaTeX CSS/JS, but the CSS references
 // several hashed font filenames that are absent from public/assets/. Copy those
 // exact target names from the pinned katex npm package so offline Android math
 // rendering has every declared font.
