@@ -68,11 +68,20 @@ jobs:
 
       # ── Checkout source assets from isotope-code (public repo) ───────────
       - name: ⬇️ Checkout isotope-code (source assets)
+        continue-on-error: true
+        id: checkout-isotope-code
         uses: actions/checkout@v4
         with:
           repository: Suydev/isotope-code
           ref: ${{ env.ISOTOPE_CODE_REF }}
           path: isotope-code
+
+      - name: Checkout status
+        if: always()
+        run: |
+          if [ "${{ steps.checkout-isotope-code.outcome }}" != "success" ]; then
+            echo "⚠️ Warning: isotope-code checkout failed. Using pre-existing www/ assets."
+          fi
 
       - name: 🟢 Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
@@ -112,6 +121,7 @@ jobs:
 
       # ── Build www/ and native Android project ─────────────────────────────
       - name: 🏗️ Prepare www/ (copy assets + inject bridge + boot splash)
+        if: steps.checkout-isotope-code.outcome == 'success'
         env:
           REPO_DIR: ${{ github.workspace }}/isotope-code
           SOURCE_DIR: ${{ github.workspace }}/isotope-code/public
