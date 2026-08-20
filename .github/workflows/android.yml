@@ -153,7 +153,15 @@ jobs:
       # ── Build Debug APK ───────────────────────────────────────────────────
       - name: Build Debug APK
         working-directory: isotope-apk/android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          echo "=== Gradle Version ==="
+          ./gradlew --version
+          echo ""
+          echo "=== Java Version ==="
+          java -version
+          echo ""
+          echo "=== Building Debug APK ==="
+          ./gradlew assembleDebug --no-daemon --stacktrace --info
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false"
 
