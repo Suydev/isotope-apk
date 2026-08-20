@@ -79,6 +79,50 @@
     });
   }
 
+  function isPlainObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function bootstrapDirect(session) {
+    var userId = session.user && session.user.id;
+    if (!userId) return Promise.resolve(null);
+    var headers = authHeaders(session.access_token);
+    var profileReq = fetch(supaUrl() + '/rest/v1/user_profiles?select=profile_data,updated_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET', headers: headers, credentials: 'omit' }).then(function (r) { return r.json().catch(function () { return []; }); });
+    var userReq = fetch(supaUrl() + '/rest/v1/users?select=username,name,avatar_url,coins,gems,plan_type,email&id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET', headers: headers, credentials: 'omit' }).then(function (r) { return r.json().catch(function () { return []; }); });
+    var onboardingReq = fetch(supaUrl() + '/rest/v1/user_onboarding?select=completed,completed_at,data&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET', headers: headers, credentials: 'omit' }).then(function (r) { return r.json().catch(function () { return []; }); });
+    return Promise.all([profileReq, userReq, onboardingReq]).then(function (results) {
+      var profileRows = Array.isArray(results[0]) ? results[0] : [];
+      var userRows = Array.isArray(results[1]) ? results[1] : [];
+      var onboardingRows = Array.isArray(results[2]) ? results[2] : [];
+      var profile = profileRows[0] || null;
+      var user = userRows[0] || null;
+      var onboarding = onboardingRows[0] || null;
+      var completed = isPlainObject(onboarding) && typeof onboarding.completed === 'boolean' ? onboarding.completed : undefined;
+      if (typeof completed !== 'boolean' && isPlainObject(profile) && isPlainObject(profile.profile_data) && typeof profile.profile_data.onboarding_completed === 'boolean') {
+        completed = profile.profile_data.onboarding_completed;
+      }
+      var bootstrapData = {
+        ok: true,
+        user_id: userId,
+        user: user,
+        profile: Object.assign({}, user || {}, profile ? profile.profile_data || {} : {}),
+        profile_data: profile ? profile.profile_data || {} : {},
+        onboarding: { completed: completed, completed_at: onboarding && onboarding.completed_at || null, data: onboarding && onboarding.data || null },
+        onboarding_completed: completed
+      };
+      try {
+        localStorage.setItem('isotope-bootstrap-cache', JSON.stringify({
+          ok: true,
+          cached_at: Date.now(),
+          user_id: userId,
+          profile: bootstrapData.profile,
+          onboarding_completed: completed
+        }));
+      } catch (e) {}
+      return bootstrapData;
+    }).catch(function () { return null; });
+  }
+
   function bootstrap(session) {
     if (!session || !session.access_token) return Promise.resolve(null);
     return jsonFetch('/__auth/bootstrap', {
@@ -89,17 +133,23 @@
       },
       cache: 'no-store'
     }).then(function (result) {
-      if (!result.response.ok || !result.data || !result.data.ok) return null;
-      try {
-        localStorage.setItem('isotope-bootstrap-cache', JSON.stringify({
-          ok: true,
-          cached_at: Date.now(),
-          user_id: result.data.user_id,
-          profile: result.data.profile || result.data.profile_data || null,
-          onboarding_completed: result.data.onboarding_completed
-        }));
-      } catch (e) {}
-      return result.data;
+      if (result.response.ok && result.data && result.data.ok) {
+        try {
+          localStorage.setItem('isotope-bootstrap-cache', JSON.stringify({
+            ok: true,
+            cached_at: Date.now(),
+            user_id: result.data.user_id,
+            profile: result.data.profile || result.data.profile_data || null,
+            onboarding_completed: result.data.onboarding_completed
+          }));
+        } catch (e) {}
+        return result.data;
+      }
+      result = result || {};
+      var data = result.data;
+      var serverless = typeof data === 'string' || !isPlainObject(data);
+      if (serverless) return bootstrapDirect(session);
+      return null;
     }).catch(function () { return null; });
   }
 
