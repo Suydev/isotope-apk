@@ -13,7 +13,7 @@ const SOURCE_REPO = (() => {
   return path.resolve(ROOT, '../isotope-code');
 })();
 // isotope-code may be unavailable in CI (private repo); skip source-dependent tests
-const HAS_SOURCE = fs.existsSync(SOURCE_REPO);
+const HAS_SOURCE = fs.existsSync(SOURCE_REPO) && fs.existsSync(path.join(SOURCE_REPO, "public")) && fs.existsSync(path.join(SOURCE_REPO, "index.html"));
 const testOrSkip = HAS_SOURCE ? test : (name, fn) => test(name, { skip: !HAS_SOURCE }, fn);
 
 function runPrepareWww() {
