@@ -105,6 +105,9 @@ jobs:
       - name: 📦 Install Android SDK Build Tools & Platform
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
       - name: 📥 Install npm dependencies
         run: npm ci
 
