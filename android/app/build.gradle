@@ -1,14 +1,24 @@
 apply plugin: 'com.android.application'
 
-// Read version from package.json at build time
-def packageJsonFile = file('../../../package.json')
+// Read version from package.json at build time with fallback
 def versionName = '3.4.6'
 def versionCode = 346
-if (packageJsonFile.exists()) {
-    def packageJson = new groovy.json.JsonSlurper().parseText(packageJsonFile.text)
-    versionName = packageJson.version
-    def versionParts = versionName.split('\\.')
-    versionCode = (versionParts[0] as int) * 10000 + (versionParts[1] as int) * 100 + (versionParts[2] as int)
+try {
+    def packageJsonFile = file('../../../package.json')
+    if (packageJsonFile.exists()) {
+        def packageJson = new groovy.json.JsonSlurper().parseText(packageJsonFile.getText('UTF-8'))
+        def v = packageJson.version
+        if (v) {
+            versionName = v
+            def versionParts = versionName.split('\\.')
+            if (versionParts.size() >= 3) {
+                versionCode = (versionParts[0] as int) * 10000 + (versionParts[1] as int) * 100 + (versionParts[2] as int)
+            }
+        }
+    }
+} catch (Exception e) {
+    println "Warning: Could not read version from package.json: ${e.message}"
+    // Use fallback values
 }
 
 android {
