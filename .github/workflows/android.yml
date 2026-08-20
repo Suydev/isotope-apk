@@ -161,6 +161,20 @@ jobs:
           ls -la ../../package.json
           cat ../../package.json | head -5
           echo ""
+          echo "=== Checking package.json from android/app ==="
+          ls -la ../../../package.json
+          cat ../../../package.json | head -5
+          echo ""
+          echo "=== Gradle Version ==="
+          ./gradlew --version
+          echo ""
+          echo "=== Java Version ==="
+          java -version
+          echo ""
+          echo "=== Package.json path check ==="
+          ls -la ../../../../package.json 2>/dev/null || echo "Not found at ../../../../"
+          cat ../../../../package.json | head -5 2>/dev/null || echo "Cannot read"
+          echo ""
           echo "=== Gradle Version ==="
           ./gradlew --version
           echo ""
