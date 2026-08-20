@@ -1,24 +1,25 @@
 apply plugin: 'com.android.application'
 
-// Read version from package.json at build time with fallback
-def versionName = '3.4.6'
-def versionCode = 346
+def VERSION_NAME = '3.4.6'
+def VERSION_CODE = 346
 try {
-    def packageJsonFile = file('../../../package.json')
+    def packageJsonPath = '../../../package.json'
+    def packageJsonFile = file(packageJsonPath)
     if (packageJsonFile.exists()) {
         def packageJson = new groovy.json.JsonSlurper().parseText(packageJsonFile.getText('UTF-8'))
         def v = packageJson.version
         if (v) {
-            versionName = v
-            def versionParts = versionName.split('\\.')
+            VERSION_NAME = v
+            def versionParts = VERSION_NAME.split('\\.')
             if (versionParts.size() >= 3) {
-                versionCode = (versionParts[0] as int) * 10000 + (versionParts[1] as int) * 100 + (versionParts[2] as int)
+                VERSION_CODE = (versionParts[0] as int) * 10000 + (versionParts[1] as int) * 100 + (versionParts[2] as int)
             }
         }
+    } else {
+        println "package.json not found at ${packageJsonPath}"
     }
 } catch (Exception e) {
     println "Warning: Could not read version from package.json: ${e.message}"
-    // Use fallback values
 }
 
 android {
@@ -29,8 +30,8 @@ android {
         applicationId "in.isotopeai.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode versionCode
-        versionName versionName
+        versionCode = VERSION_CODE
+        versionName = VERSION_NAME
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
