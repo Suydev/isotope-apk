@@ -2,6 +2,22 @@
 
 ---
 
+## DEC-000 — Build-time bundle patching is abolished
+
+**Date:** 2026-08-20
+**Context:** `apply-android-patches.js` corrupted six bundles (unbalanced braces / invalid
+`const` insertions) → WebView `Missing initializer in destructuring declaration` crash on
+every Android device. Forensic audit showed the same failure was reproducible in the phone
+browser and by acorn/esbuild; only a tolerant Node 26 V8 accepted the damaged files.
+**Decision:** DELETE `scripts/apply-android-patches.js` permanently. The build runs
+`prepare-www` → `npx cap sync android` only. Android integration (auth bootstrap hydrate,
+native online status, notification scheduling, floating timer, One Tap exposure) is baked
+directly into the committed `www/` bundles, which are verified by the CI "Validate www/ JS
+syntax" gate (node --check on every www JS file). Any future Android change = edit the
+committed bundle directly and re-verify with acorn/module-parse + tests.
+
+---
+
 ## DEC-001 — Capacitor over React Native rewrite
 
 **Date:** 2026-06-28

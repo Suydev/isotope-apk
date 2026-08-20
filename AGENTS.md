@@ -29,8 +29,8 @@ GitHub is the only permanent source of truth.
   (git-ignored) → committed `supabase.config.json` defaults. Defaults are the current prod
    project (`vteqquoqvksshmfhuepu.supabase.co`, matching the production project config). No env set ⇒ output
    is byte-identical to the old hardcoded build. `scripts/prepare-www.js` rewrites the bridge/auth
-   constants into `www/` from the resolved config (repo-root `android-bridge.js` stays authored);
-  `scripts/apply-android-patches.js` reads the same resolver. Tooling: `scripts/deploy-supabase.js`
+   constants into `www/` from the resolved config (repo-root `android-bridge.js` stays authored).
+   Tooling: `scripts/deploy-supabase.js`
   (apply `supabase/*.sql` via Management API, `SUPABASE_ACCESS_TOKEN`, dry-run default) and
   `scripts/backup-supabase.js` (schema+data dump). Never commit service-role keys, PATs, or
   signing credentials — `supabase.config.json` holds public values only.

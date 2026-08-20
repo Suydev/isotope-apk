@@ -4,6 +4,9 @@ description: DB has study_hours as goal_type; component config only knows hours/
 ---
 
 ## The rule
+> **2026-08-20:** `scripts/apply-android-patches.js` was **deleted** (never used at build
+> time again). The Android integration described below, if it still matters, must be
+> baked directly into the committed `www/` bundle instead. See AGENTS.md.
 The `EnhancedChallengeCard` component maps `goal_type` values to a config object `H`. If the DB has a `goal_type` value not in that map, the lookup returns `undefined` and reading `.icon` crashes React.
 
 **Why:** `group_challenges.goal_type` is a free-form text field in the DB. The component's hard-coded config only had: `hours`, `sessions`, `tasks`. DB seed data added `study_hours` which wasn't in the map.

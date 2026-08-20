@@ -96,23 +96,9 @@ jobs:
           node --check android-bridge.js
           node --check android-floating-timer-bridge.js
           node --check scripts/prepare-www.js
-          node --check scripts/apply-android-patches.js
-
-      # ── Apply Android patches to the committed www/ ────────────────────────
-      - name: 🩹 Apply Android bundle and native patches
-        env:
-          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
-          ANDROID_DIR: ${{ github.workspace }}/isotope-apk/android
-        run: node scripts/apply-android-patches.js
 
       - name: 🔄 Sync Capacitor
         run: npx cap sync android
-
-      - name: 🩹 Re-apply native patches after Capacitor sync
-        env:
-          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
-          ANDROID_DIR: ${{ github.workspace }}/isotope-apk/android
-        run: node scripts/apply-android-patches.js
 
       - name: 🔧 Make Gradle wrapper executable
         run: chmod +x android/gradlew

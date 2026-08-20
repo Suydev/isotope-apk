@@ -4,6 +4,9 @@ description: Three useGroupChallenges queries were premium-gated and had to be p
 ---
 
 # Community challenges premium gate unlock
+> **2026-08-20:** `scripts/apply-android-patches.js` was **deleted** (never used at build
+> time again). The Android integration described below, if it still matters, must be
+> baked directly into the committed `www/` bundle instead. See AGENTS.md.
 
 ## The rule
 `useGroupChallenges-*.js` has 3 premium-gated query hooks that must always be patched to `!0` (true) in the Android app. Upstream minification churn can change the function identifiers (L/B/R) and break these patches — check `npm test` output when upstream bundle changes.

@@ -33,13 +33,12 @@ IsotopeAI helps students:
 isotope-apk (this repo)
   ├─ android-bridge.js               ← native bridge injected as first <head> script
   ├─ android-floating-timer-bridge.js← floating/PiP focus timer overlay bridge
-  ├─ scripts/prepare-www.js          ← builds www/ from the web app source,
-  │                                    injects bridge, disables PWA-only features,
-  │                                    adds boot splash (not run in CI — www/ committed)
-  ├─ scripts/apply-android-patches.js← patches minified JS bundles in www/assets/
-  │                                    (Android-safe UI tweaks, native modal hooks,
-  │                                    Supabase config injection, storage fixes)
-  ├─ www/                            ← pre-compiled web app (COMMITTED — source of truth)
+  ├─ scripts/prepare-www.js          ← prepares committed www/ (injects bridge,
+  │                                    strips server-only tags, writes Supabase
+  │                                    config) — the only build-time transform
+  ├─ www/                            ← pre-compiled web app (COMMITTED — source of truth).
+  │                                    Already contains the Android integration;
+  │                                    files are never rewritten at build time.
   └─ android/                        ← native Capacitor Android project (Gradle)
 ```
 
@@ -47,30 +46,23 @@ isotope-apk (this repo)
 
 1. **Checkout** `isotope-apk` (this repo) — `www/` is already committed, so no
    upstream checkout is needed.
-2. **`node scripts/apply-android-patches.js`** — applies small, targeted string
-   patches to the built JS bundles in `www/assets/` (e.g. routes `window.prompt`
-   based "join with code" flows to a native modal, injects Supabase runtime
-   config, fixes points/leaderboard NaN edge cases) and to native Android XML
-   (permissions, manifest entries).
+2. **`node scripts/prepare-www.js`** — writes the resolved Supabase config and
+   strips server-only tags from the committed `www/`.
 3. **`npx cap sync android`** — Capacitor copies `www/` into the native project.
-4. **`apply-android-patches.js` runs again** — `cap sync` can overwrite some
-   native files, so patches are re-applied after sync to guarantee they stick.
-5. **Gradle build** — `assembleDebug` (every push) or `bundleRelease` (manual
+4. **Gradle build** — `assembleDebug` (every push) or `bundleRelease` (manual
    dispatch) produces the installable artifact.
 
-`scripts/prepare-www.js` is only used when regenerating `www/` from a fresh web
-build. CI builds against the committed `www/`, so the upstream source repo is
-never required during a build.
+The committed `www/` already carries the Android integration (auth bootstrap
+hydrate, native online status, notification scheduling, floating timer). It is
+never rewritten at build time — no patch script runs during build.
 
-### Why patch instead of fork the UI?
+### Why the committed www/ is final, not patched at build time
 
 The pre-compiled `www/` output is the single source of truth for the product.
 Rather than maintaining a second copy of the UI (which would drift over time),
-this repo treats that built output as an opaque, versioned input and applies a
-small, auditable set of string-level patches for the handful of things that
-must differ on native Android (e.g. `window.prompt()` doesn't render inside a
-WebView the way it does in a desktop browser). Every patch is intentionally
-narrow and documented in `scripts/apply-android-patches.js`.
+this repo treats that built output as an opaque, versioned input. Android
+integration is baked directly into the committed bundles; there is no
+build-time patch script.
 
 ### Loading screen fix
 
@@ -107,10 +99,9 @@ and has been reverted).
 | `android-bridge.js` | Native bridge: session/auth interception, invite URL helpers, native join-code modal hook |
 | `android-floating-timer-bridge.js` | Bridge for the Android floating/PiP focus timer overlay |
 | `scripts/prepare-www.js` | Builds `www/` from the web app source + injects bridge + boot splash |
-| `scripts/apply-android-patches.js` | Patches built JS bundles and native Android config |
 | `scripts/agent-status.mjs`, `scripts/agent-resume.sh`, `scripts/agent-handoff.sh` | Agent session bookkeeping (see `.agent/`) |
 | `android/` | Native Capacitor Android project (Gradle, Java, manifest, resources) |
-| `test/*.test.mjs` | Node test suite covering the bridge and patch logic |
+| `test/*.test.mjs` | Node test suite covering the bridge logic |
 | `.github/workflows/android.yml` | CI: builds debug APK on every push, optional release AAB on manual dispatch |
 | `.github/workflows/release.yml` | CI: tags a version and publishes a GitHub Release with the built APK attached |
 | `.agent/` | Session handoff docs for AI agents working on this repo (architecture, decisions, known issues, task queue) |
@@ -121,7 +112,7 @@ and has been reverted).
 ```bash
 npm ci                       # install dependencies
 npm test                     # run the Node test suite (test/*.test.mjs)
-npm run build                # prepare-www → apply-patches → cap sync → apply-patches
+npm run build                # prepare-www → cap sync
 npm run android:debug        # ./gradlew assembleDebug (needs Android SDK + JDK 17)
 npm run android:release      # ./gradlew bundleRelease
 ```
@@ -141,21 +132,15 @@ node scripts/prepare-www.js
 
 - [Capacitor](https://capacitorjs.com/) 6.x (Android)
 - Node.js 22, native Gradle/Java 17 build for the Android project
-- Plain Node.js build scripts (no bundler) — `prepare-www.js` and
-  `apply-android-patches.js` are the entire build pipeline
+- Plain Node.js build scripts (no bundler) — `prepare-www.js` is the build pipeline
 - `node --test` for the test suite (no external test framework)
 
 ## Gotchas
 
 - **Never edit `www/`** — it is the committed pre-compiled UI and is the
   source of truth. To change the UI, regenerate it with `prepare-www.js`
-  (plus `apply-android-patches.js`) and commit the result.
-- **`apply-android-patches.js` runs twice** in CI — once before `cap sync`
-  and once after — because `cap sync` can regenerate native files that need
-  patches too. Don't remove the second invocation.
-- Always run `npm test` before pushing — the patch scripts patch *minified*
-  JS by exact string match, so a small upstream wording/formatting change can
-  silently make a patch a no-op. The test suite catches this.
+  and commit the result.
+- Always run `npm test` before pushing.
 
 ## User preferences
 

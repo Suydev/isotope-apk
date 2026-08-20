@@ -4,6 +4,9 @@ description: useGroups createGroup mutation silently swallowed group_members INS
 ---
 
 ## Rule
+> **2026-08-20:** `scripts/apply-android-patches.js` was **deleted** (never used at build
+> time again). The Android integration described below, if it still matters, must be
+> baked directly into the committed `www/` bundle instead. See AGENTS.md.
 In `useGroups-*.js` `U()` mutation, the `group_members` INSERT error (`l`) must be thrown, not swallowed.
 
 ## Why

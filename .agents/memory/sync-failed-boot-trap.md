@@ -4,6 +4,9 @@ description: AppAccessGate syncFailed screen traps unauthenticated users if CTA 
 ---
 
 ## Rule
+> **2026-08-20:** `scripts/apply-android-patches.js` was **deleted** (never used at build
+> time again). The Android integration described below, if it still matters, must be
+> baked directly into the committed `www/` bundle instead. See AGENTS.md.
 When `Y === "syncFailed" && !u` (unauthenticated), the `ne` component CTA must point to `/auth`, not `/`.
 
 ## Why

@@ -6,8 +6,16 @@
 
 ### TASK ANDROID-012
 **Priority:** P0
-**Status:** ACTIVE — CI build triggered (commit 047d9d0); awaiting APK for device testing
+**Status:** ACTIVE — bundles fixed; awaiting phone browser + device verification
 **Objective:** Runtime-test the current APK on device.
+
+**Latest (2026-08-20):**
+- **`apply-android-patches.js` DELETED.** Build no longer rewrites bundles.
+  Any Android integration must be baked into the committed `www/` (see AGENTS.md).
+- WebView crash `Missing initializer in destructuring declaration` FIXED — corrupt
+  patches removed from `Auth`, `useOnlineStatus`, `useAuthStore`, `useNotificationStore`,
+  `workbox-window`, `Analytics`; all 141 www JS files parse as modules; tests 57/0.
+- Verify on phone browser first (http://192.168.1.63:8080/ → /signin), then build + test APK.
 
 **What's in the latest builds:**
 - pushState guard fix (63/63 tests pass)

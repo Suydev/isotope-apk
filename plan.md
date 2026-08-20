@@ -90,8 +90,13 @@ source is no longer part of this repo's build or test pipeline.
 
 ## Phase 3 — www/ rebuild + patch verification
 
+> **2026-08-20 — SUPERSEDED:** `apply-android-patches.js` was **deleted**. The build no
+> longer patches bundles at build time; Android integration is baked into the
+> committed `www/` (validated by the CI "Validate www/ JS syntax" step). The
+> gates below that reference the patch script are therefore N/A.
+
 - [x] `REPO_DIR=.../web-source node scripts/prepare-www.js` → 129 bundles, 53.7 MB.
-- [ ] `node scripts/apply-android-patches.js` → **0 required-patch failures** (expect ~30+ patches).
+- [x] `node scripts/apply-android-patches.js` — **REMOVED (2026-08-20)**, see note above.
 - [ ] Spot-verify patch markers in `www/assets/`:
       - `useAuthStore-*`: `planType:"ranker"`
       - `AppAccessGate-*`: `isotope-auth-token` absent from cleanup Set
@@ -155,11 +160,9 @@ future Supabase backup/rotation/deploy targets a different project without sourc
 - [ ] `projectRef` is derived automatically from `SUPABASE_URL` when not set explicitly.
 
 ### 5.2 Consume config in the build chain
-- [ ] `scripts/apply-android-patches.js` — read `SUPA_URL` / `SUPA_ANON_KEY` from the resolver
-      (env → .env → config file), no hardcoded literals.
-- [ ] `scripts/prepare-www.js` — new step: after copying the bridge into `www/`, rewrite the
-      auth constants (`SUPA_URL`, `SUPA_ANON_KEY`, `ref = '...'`, `sb-<ref>-auth-token` storage
-      keys) from the resolved config, so the generated `www/android-bridge.js` and
+- [x] `scripts/prepare-www.js` — rewrites bridge/auth constants (`SUPA_URL`, `SUPA_ANON_KEY`,
+      `ref = '...'`, `sb-<ref>-auth-token` storage keys) from the resolved config, so the
+      generated `www/android-bridge.js` and
       `www/auth-bridge.js` target the configured project. Defaults stay byte-identical to today
       when no env is set (parity preserved).
 - [ ] `android/app/src/main/assets/public/*` copies (`cap sync`) inherit this automatically.
@@ -190,9 +193,7 @@ future Supabase backup/rotation/deploy targets a different project without sourc
 ## Phase 6 — Tests & verification
 
 - [ ] `npm test` → expect 63/63 PASS (baseline) after Phase 3 rebuild + Phase 4 SQL edits.
-- [ ] If a minified patch target drifted (upstream wording change), update
-      `apply-android-patches.js` and/or the affected `test/*.test.mjs` assertion, then re-run.
-- [ ] `node --check` on `android-bridge.js`, `scripts/prepare-www.js`, `scripts/apply-android-patches.js`.
+- [ ] `node --check` on `android-bridge.js`, `scripts/prepare-www.js`.
 - [ ] Record actual-vs-inspected tests in `.agent/TEST_STATUS.md` (rule 13).
 
 ## Phase 7 — Docs, commit, push
@@ -210,7 +211,8 @@ future Supabase backup/rotation/deploy targets a different project without sourc
 
 1. `android-bridge.js` is the real bridge; `node --check` clean.
 2. `prepare-www.js` handles `deferred-scripts.js`; re-run shows no ERROR/exit.
-3. Fresh `www/` built + `apply-android-patches.js` runs with **0 failures**.
+3. Committed `www/` parses cleanly as modules (CI validates every `www/` JS file); build runs
+   `prepare-www` → `cap sync` with no patch step.
 4. All 32 bundle RPCs exist in migrated Supabase schema; join-guard + join_requests/join_policy
    migration applied to prod with evidence.
 5. `npm test` green (63/63 or documented equivalent).

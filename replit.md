@@ -7,7 +7,6 @@ Capacitor Android wrapper for **IsotopeAI** — an AI-powered study planner, foc
 This repo does **not** contain the UI or business logic. It:
 - Copies the compiled web app from the upstream web repo into committed `www/`
 - Injects Android bridges (`android-bridge.js`, `android-floating-timer-bridge.js`)
-- Patches selected minified JS bundles for Android-safe behavior
 - Builds an installable APK via Capacitor + Gradle (on GitHub Actions)
 
 The app cannot run as a web server on Replit. APK builds require Java 17 / Android SDK, which are not available here.
@@ -17,9 +16,8 @@ The app cannot run as a web server on Replit. APK builds require Java 17 / Andro
 ```bash
 npm install              # install JS deps
 npm test                 # run pure-logic tests (no www/ needed for 35/47)
-npm run prepare-www      # regenerates committed www/ from a local web source checkout
-npm run apply-patches    # same
-npm run build            # full pipeline: prepare-www + patches + cap sync + patches again
+npm run prepare-www      # prepares committed www/ (bridge + Supabase config)
+npm run build            # full pipeline: prepare-www + cap sync
 ```
 
 APK assembly happens on GitHub Actions (`android.yml`). Use `npm run android:debug` locally only if Java 17 + Android SDK are available.
@@ -39,7 +37,6 @@ APK assembly happens on GitHub Actions (`android.yml`). Use `npm run android:deb
 | `android-bridge.js` | Intercepts `window.fetch` for `/__auth/*` and `/__supa/*` → direct Supabase calls |
 | `android-floating-timer-bridge.js` | Native floating/PiP focus timer overlay bridge |
 | `scripts/prepare-www.js` | Copies the web app `public/` → `www/`, injects bridges, disables PWA-only features |
-| `scripts/apply-android-patches.js` | Patches minified JS bundles in `www/assets/` for Android |
 | `www/` | **Build output — never edit by hand** (git-ignored) |
 | `android/` | Native Capacitor Android project (Gradle) |
 | `.agent/` | Persistent agent context: architecture, decisions, known issues, next tasks |

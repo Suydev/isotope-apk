@@ -123,7 +123,6 @@ check_file() {
 check_file "capacitor.config.json"
 check_file "android-bridge.js"
 check_file "scripts/prepare-www.js"
-check_file "scripts/apply-android-patches.js"
 check_file ".github/workflows/android.yml"
 check_file ".agent/state.json"
 check_file ".agent/CURRENT_STATE.md"

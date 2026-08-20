@@ -84,26 +84,10 @@ jobs:
           echo "=== Largest files ==="
           find www/ -type f -printf '%s %p\n' | sort -rn | head -20 | awk '{printf "%.1f MB  %s\n", $1/1024/1024, $2}'
 
-      # ── Apply Android patches ─────────────────────────────────────────────
-      # Patches JS bundles in www/assets/ and validates native Android config
-      - name: Apply Android bundle and native patches
-        working-directory: isotope-apk
-        env:
-          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
-          ANDROID_DIR: ${{ github.workspace }}/isotope-apk/android
-        run: node scripts/apply-android-patches.js
-
       # ── Sync Capacitor ────────────────────────────────────────────────────
       - name: Sync Capacitor
         working-directory: isotope-apk
         run: npx cap sync android
-
-      - name: Re-apply native patches after Capacitor sync
-        working-directory: isotope-apk
-        env:
-          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
-          ANDROID_DIR: ${{ github.workspace }}/isotope-apk/android
-        run: node scripts/apply-android-patches.js
 
       # ── Validate www/ JS syntax (fail build if any bundle is corrupted) ──────
       - name: Validate www/ JS syntax
@@ -209,15 +193,9 @@ jobs:
         working-directory: isotope-apk
         run: npm test
 
-      - name: Apply patches and sync Capacitor Android
+      - name: Sync Capacitor Android
         working-directory: isotope-apk
-        env:
-          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
-          ANDROID_DIR: ${{ github.workspace }}/isotope-apk/android
-        run: |
-          node scripts/apply-android-patches.js
-          npx cap sync android
-          node scripts/apply-android-patches.js
+        run: npx cap sync android
 
       - name: Make Gradle executable
         working-directory: isotope-apk/android

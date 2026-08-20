@@ -1,9 +1,9 @@
 /**
  * test/android-layout-parity.test.mjs
  *
- * Verifies that android-bridge.js, apply-android-patches.js, and
- * FloatingTimerService.java contain the required layout/safety fixes
- * documented in the IsotopeAI Android tablet UI hardening spec.
+ * Verifies that android-bridge.js and FloatingTimerService.java contain the
+ * required layout/safety fixes documented in the IsotopeAI Android tablet UI
+ * hardening spec.
  *
  * These tests check behaviour (markers that prove the fix is present),
  * NOT exact whitespace or minified class ordering.
@@ -16,7 +16,6 @@ import path from 'node:path';
 const ROOT = path.resolve(import.meta.dirname, '..');
 
 const bridge  = fs.readFileSync(path.join(ROOT, 'android-bridge.js'), 'utf8');
-const patches = fs.readFileSync(path.join(ROOT, 'scripts/apply-android-patches.js'), 'utf8');
 const service = fs.readFileSync(
   path.join(ROOT, 'android/app/src/main/java/in/isotopeai/app/FloatingTimerService.java'),
   'utf8',
@@ -52,34 +51,6 @@ test('android-bridge does not globally shrink the entire app', () => {
   // Must not set font-size or zoom on html/body globally
   assert.doesNotMatch(bridge, /html\.iso-android\s*\{[^}]*font-size:\s*(?!1[0-9][0-9])/);
   assert.doesNotMatch(bridge, /body\s*\{\s*zoom:/);
-});
-
-// ── apply-android-patches.js checks ─────────────────────────────────────────
-
-test('patches pass pomodoroCycle to native floating timer state', () => {
-  assert.match(patches, /pomodoroCycle/);
-  assert.match(patches, /pomodoroSessionsUntilLongBreak/);
-});
-
-test('patches do not rewrite create_community_group RPC in a broken APK-only way', () => {
-  // The APK must not introduce its own divergent community group creation that
-  // bypasses the server-side RPC defined in sql/009_community_hardening.sql.
-  // Acceptable: the patch may call create_community_group (the RPC) or use
-  // direct insert — but must not redefine it differently from the web app source.
-  // This test ensures we never inject a LOCAL re-implementation of the RPC body.
-  assert.doesNotMatch(
-    patches,
-    /INSERT INTO.*groups[\s\S]{0,200}INSERT INTO.*group_members[\s\S]{0,200}INSERT INTO.*groups/,
-  );
-});
-
-test('patches preserve notification panel classes matching the web app source', () => {
-  // The old divergent patches that changed p-4→p-3, items-center→items-start,
-  // or added gap-3 to the notification panel header must NOT be present.
-  assert.doesNotMatch(patches, /items-start justify-between gap-3/);
-  assert.doesNotMatch(patches, /p-3 border-b.*flex items-start/);
-  // Mark-all button must not be restyled to shrink-0 / max-w-[6.5rem]
-  assert.doesNotMatch(patches, /shrink-0 max-w-\[6\.5rem\]/);
 });
 
 // ── FloatingTimerService.java checks ────────────────────────────────────────

@@ -1,9 +1,32 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-08-14 (session 5)
+**Updated:** 2026-08-20 (session 6)
 **Branch:** main
-**Latest commit:** 4b4244d
-**Current phase:** All CI passing — both Build Android APK and Release workflows green
+**Current phase:** `apply-android-patches.js` DELETED — build no longer patches bundles
+
+---
+
+## Verified This Session (2026-08-20 session 6)
+
+- [x] **Root cause of WebView "Missing initializer in destructuring declaration":** the
+      `apply-android-patches.js` build-time script corrupted 6 bundles with unbalanced braces /
+      invalid insertions (`Auth`, `useOnlineStatus`, `useAuthStore`, `useNotificationStore`,
+      `workbox-window`, `Analytics`). Fresh web files + corrected integration applied.
+- [x] Analyst evidence: exact device error reproduced in phone browser (Chrome/148) against
+      `www/`; acorn/esbuild/Node all flagged the same corrupt constructs.
+- [x] `scripts/apply-android-patches.js` **deleted** (user directive: never use it again).
+      Integration changes are baked directly into the committed `www/` bundles.
+- [x] 5 bundles regenerated from live site (`isotopeai.in/assets/`) + corrected Android
+      integration; `Analytics-B1QTymFp.js` taken clean from `isotope-code/public/assets/` (option B).
+- [x] Removed every reference: `package.json` (`apply-patches`, build chain),
+      `.github/workflows/android.yml` + `release.yml` (X steps), `scripts/agent-resume.sh`,
+      `test/prepare-patches.test.mjs` (deleted), `test/android-layout-parity.test.mjs` (patches
+      checks removed), README/replit/AGENTS/plan/memory docs.
+- [x] **All 141 `www/` JS files parse as ES modules** (acorn latest, module mode).
+- [x] `npm test`: **57 pass / 0 fail** (4 pre-existing skips) after test cleanup.
+- [x] Both workflow YAML files parse; CI no longer invokes the deleted script; CI runs
+      `prepare-www`? NO — CI uses committed `www/` + `npx cap sync android` + www JS syntax gate.
+- [ ] Phone browser confirmation of login screen (`http://192.168.1.63:8080/` → /signin).
 
 ---
 

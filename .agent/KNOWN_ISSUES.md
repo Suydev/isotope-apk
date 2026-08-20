@@ -2,6 +2,31 @@
 
 ---
 
+## ISSUE-030 — WebView "Missing initializer in destructuring declaration" (app never mounts)
+**Severity:** CRITICAL — **RESOLVED 2026-08-20**
+**Status:** FIXED, verification on phone browser in progress
+
+Exact device error (also reproduced in the phone's browser — Chrome/148 — against a plain
+HTTP copy of `www/`):
+```
+Auth-D0Y8CB1f.js:1 Uncaught SyntaxError: Missing initializer in destructuring declaration
+```
+**Root cause:** `scripts/apply-android-patches.js` inserted invalid code into six bundles:
+- Auth: One Tap exposure patch added `{` without the matching `}` (`if(x){...try{` — brace
+  imbalance cascaded to the effect deps array).
+- useOnlineStatus: `const c=...` injected inside a `return` expression (`return const c=...`).
+- Analytics: `const __androidStable=...;` injected mid-declarator list (inside a
+  `J=[...],je=...,...` chain).
+- useAuthStore / useNotificationStore / workbox-window: same patch-family corruption.
+acorn + esbuild + Node's strict module parser all rejected the outputs; Node 26's tolerant
+V8 hid the problem locally, which is why CI `node --check` never caught it.
+
+**Resolution:** script deleted; bundles regenerated from live site + corrected integrations;
+Analytics taken clean from isotope-code; CI now gates on module-parse of every www JS file.
+Tests: 57 pass / 0 fail; all 141 www JS files parse as modules.
+
+---
+
 ## ISSUE-023 — Rotation (portrait↔landscape) leaves WebView permanently black, no recovery
 **Severity:** CRITICAL
 **Status:** CODE FIX WRITTEN + UNIT TESTED (2026-07-09); APK RUNTIME UNVERIFIED

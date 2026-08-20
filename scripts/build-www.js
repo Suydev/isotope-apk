@@ -5,7 +5,7 @@
  * Reads Supabase config from .env (via supabase-config.js), injects into all
  * runtime files, and produces a www/ directory ready for Capacitor.
  *
- * Does NOT depend on the old prepare-www.js or apply-android-patches.js.
+ * Does NOT depend on prepare-www.js — the committed www/ is authoritative.
  */
 
 'use strict';
