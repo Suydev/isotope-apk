@@ -122,12 +122,12 @@ jobs:
       - name: 🔧 Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
-      # ── Release signing (optional) ─────────────────────────────────────────
-      # If keystore secrets are configured, decode them and expose signing env
-      # vars. build.gradle falls back to the debug keystore when they are absent,
-      # so a release build still succeeds without secrets (signed with debug key).
+      # ── Release signing ────────────────────────────────────────────────────
+      # Decode the release keystore from GitHub secrets and expose signing env
+      # vars. build.gradle signs the release APK with this keystore; if the
+      # secrets are absent the release build fails clearly (no debug fallback).
       - name: 🔑 Configure release signing (if secrets present)
-        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'release')
+        if: "github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'release')"
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -247,7 +247,7 @@ jobs:
           git push --force origin "refs/tags/$TAG"
 
       - name: 🎉 Create or update GitHub Release
-        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+        if: "github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
