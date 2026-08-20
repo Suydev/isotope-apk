@@ -15,7 +15,16 @@
 - WebView crash `Missing initializer in destructuring declaration` FIXED — corrupt
   patches removed from `Auth`, `useOnlineStatus`, `useAuthStore`, `useNotificationStore`,
   `workbox-window`, `Analytics`; all 141 www JS files parse as modules; tests 57/0.
+- **DONE 2026-08-20: asset graph complete.** Restored 28+5 missing chunks from git tag
+  `v3.3.9` (`60eae02a`) + 12 missing CSS from live site into `www/assets/`;
+  stripped old-app boot side-effect import (`index-BPYJFSVW.js`) from
+  `CommunityHub`/`Community`; removed stale mapDeps preloads → **0 unresolved
+  imports/www**; all files parse; tests 57/0 (61). Build pushed (run pending).
 - Verify on phone browser first (http://192.168.1.63:8080/ → /signin), then build + test APK.
+- **KNOWN LIMITATION:** community subgraph (old 3.3.9 chunks) loads a SECOND React
+  instance (old `vendor-react-BfU3Zn2J.js`) — community/group pages may misrender
+  or crash hooks at runtime. Rebuild-from-source (isotope-code) is the proper fix;
+  see KNOWN_ISSUES ISSUE-031.
 
 **What's in the latest builds:**
 - pushState guard fix (63/63 tests pass)

@@ -351,3 +351,14 @@ User reported the APK still felt PWA-like and requested the isotope-code logo, A
 **Evidence:** `npm test` verifies the Settings patch and Android native resource contracts. `npm run build` passed through sync and idempotent patching.
 
 **Remaining risk:** Needs device layout/keyboard/back-button verification from the GitHub-built APK.
+
+## ISSUE-031 — Community pages run a second React instance (fragile, not corrupt)
+Ported as-is from tag v3.3.9; old chunks (`CommunityHub`, `SingleGroup`, `GroupChat`,
+`useGroups`, `sessionSync`, …) link OLD vendors (`vendor-react-BfU3Zn2J.js`,
+`vendor-motion-Cp_NPzpZ.js`, `vendor-query-Rjz85D0S.js`, `vendor-router-CmoTwRnm.js`).
+Same-name CURRENT vendors export different minified symbols, so aliasing was impossible;
+a whole-graph port is self-consistent but executes a second React copy; dual-React →
+invalid-hook/perf hazards only on community/group screens. Main app (auth, onboarding,
+dashboard, focus, analytics, wrapped, landing) runs modern bundles + our baked Supabase.
+FIX PATH: rebuild community feature against current build (isotope-code source), or wait
+for next upstream build; do not delete old chunks (they resolve the graph).
