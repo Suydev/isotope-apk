@@ -1,8 +1,15 @@
 apply plugin: 'com.android.application'
 
-// Define ext properties at the top level
-ext.versionName = '3.4.6'
-ext.versionCode = 346
+// Read version from package.json at build time
+def packageJsonFile = file('../../../package.json')
+def versionName = '3.4.6'
+def versionCode = 346
+if (packageJsonFile.exists()) {
+    def packageJson = new groovy.json.JsonSlurper().parseText(packageJsonFile.text)
+    versionName = packageJson.version
+    def versionParts = versionName.split('\\.')
+    versionCode = (versionParts[0] as int) * 10000 + (versionParts[1] as int) * 100 + (versionParts[2] as int)
+}
 
 android {
     namespace "in.isotopeai.app"
@@ -12,8 +19,8 @@ android {
         applicationId "in.isotopeai.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode ext.versionCode
-        versionName ext.versionName
+        versionCode versionCode
+        versionName versionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
