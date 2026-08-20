@@ -4,9 +4,16 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*.*.*'
+  tags:
+    - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type (debug or release)'
+        required: false
+        default: 'debug'
+        type: choice
+        options: [debug, release]
 
 permissions:
   contents: write
@@ -18,16 +25,16 @@ env:
   REPO_DIR: ${{ github.workspace }}/isotope-code
 
 jobs:
-  release:
-    name: Build APK/AAB and Create or Update GitHub Release
+  build:
+    name: Build Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
       run:
         working-directory: isotope-apk
     concurrency:
-      group: release-${{ github.ref_name }}
-      cancel-in-progress: false
+      group: build-${{ github.ref_name }}
+      cancel-in-progress: true
 
     steps:
       # ── Checkout this repo (Capacitor wrapper + bridge) ───────────────────
@@ -37,8 +44,8 @@ jobs:
           fetch-depth: 0
           path: isotope-apk
 
-      - name: 🏷️ Get tag info
-        id: tag
+      - name: 🏷️ Get version info
+        id: version
         run: |
           set -euo pipefail
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
@@ -130,8 +137,16 @@ jobs:
       - name: 🔧 Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
-      - name: 🏗️ Build Release APK
-        run: android/gradlew -p android assembleRelease --no-daemon --stacktrace
+      - name: 🏗️ Build Android APK
+        run: |
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          if [ "$BUILD_TYPE" = "release" ]; then
+            echo "Building RELEASE APK..."
+            android/gradlew -p android assembleRelease --no-daemon --stacktrace
+          else
+            echo "Building DEBUG APK..."
+            android/gradlew -p android assembleDebug --no-daemon --stacktrace
+          fi
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false"
 
@@ -139,7 +154,12 @@ jobs:
         id: apk
         run: |
           set -euo pipefail
-          APK_PATH=$(find android -name "*.apk" -path "*release*" -type f | head -1)
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          if [ "$BUILD_TYPE" = "release" ]; then
+            APK_PATH=$(find android -name "*.apk" -path "*release*" -type f | head -1)
+          else
+            APK_PATH=$(find android -name "*.apk" -path "*debug*" -type f | head -1)
+          fi
           if [ -z "$APK_PATH" ]; then
             APK_PATH=$(find android -name "*.apk" -type f | head -1)
           fi
@@ -147,11 +167,92 @@ jobs:
             echo "❌ No APK found after build"
             exit 1
           fi
-          VERSION="${{ steps.tag.outputs.version }}"
-          RENAMED="IsotopeAI-v${VERSION}.apk"
+          VERSION="${{ steps.version.outputs.version }}"
+          RENAMED="IsotopeAI-v${VERSION}-${{ github.event.inputs.build_type || 'debug' }}.apk"
           cp "$APK_PATH" "$RENAMED"
           echo "path=${RENAMED}" >> "$GITHUB_OUTPUT"
           echo "Found APK: $APK_PATH ($(du -h "$APK_PATH" | cut -f1)) → $RENAMED"
+
+      # ── Release notes ──────────────────────────────────────────────────────
+      - name: 📋 Extract changelog section (if CHANGELOG.md exists)
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ -f "CHANGELOG.md" ]; then
+            NOTES=$(awk "/^## \[$VERSION\]/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md)
+          else
+            NOTES=""
+          fi
+          if [ -z "$NOTES" ]; then
+            NOTES="See the commit history for what's changed in this build."
+          fi
+          echo "$NOTES" > /tmp/changelog_notes.txt
+          {
+            echo "notes<<CHANGELOG_EOF"
+            cat /tmp/changelog_notes.txt
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 📝 Build release notes
+        run: |
+          cat > /tmp/release_notes.md <<EOF
+          ## IsotopeAI Android ${{ steps.version.outputs.tag }}
+
+          ${{ steps.changelog.outputs.notes }}
+
+          ---
+
+          ### 📱 Install
+          Download \`IsotopeAI-v${{ steps.version.outputs.version }}-${{ github.event.inputs.build_type || 'debug' }}.apk\` below and
+          install it on your Android device (Android 8.0+). You may need to allow
+          "install from unknown sources" for your browser/file manager.
+
+          ### 🧩 Built from
+          - isotope-apk @ \`${{ github.sha }}\`
+          - isotope-code @ \`${{ env.ISOTOPE_CODE_REF }}\`
+
+          ### ❤️ Support
+          UPI: \`9699393886@fam\` · [isotopeai.in](https://isotopeai.in)
+          EOF
+
+      - name: 🏷️ Ensure release tag points to this commit
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "$TAG" "$GITHUB_SHA"
+          git push --force origin "refs/tags/$TAG"
+
+      - name: 🎉 Create or update GitHub Release
+        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          APK="${{ steps.apk.outputs.path }}"
+          PRERELEASE_FLAG=()
+          if printf '%s' "$TAG" | grep -Eq -- '(-beta|-rc)'; then
+            PRERELEASE_FLAG=(--prerelease)
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "IsotopeAI Android ${TAG}" \
+              --notes-file /tmp/release_notes.md \
+              "${PRERELEASE_FLAG[@]}"
+          else
+            gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "IsotopeAI Android ${TAG}" \
+              --notes-file /tmp/release_notes.md \
+              "${PRERELEASE_FLAG[@]}"
+          fi
+          gh release upload "$TAG" "$APK" --clobber
+          echo "✅ Release ${TAG} published with ${APK}"
 
       # ── Release notes ──────────────────────────────────────────────────────
       - name: 📋 Extract changelog section (if CHANGELOG.md exists)
