@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-  tags:
-    - 'v*.*.*'
   workflow_dispatch:
     inputs:
       build_type:
@@ -27,10 +25,6 @@ jobs:
     defaults:
       run:
         working-directory: isotope-apk
-    concurrency:
-      group: release-${{ github.ref_name }}
-      cancel-in-progress: true
-
     steps:
       # ── Checkout this repo (Capacitor wrapper + bridge + prebuilt www/) ─────
       - name: ⬇️ Checkout isotope-apk
