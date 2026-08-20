@@ -34,12 +34,22 @@ jobs:
 
       # ── Checkout source assets from isotope-code ──────────────────────────
       # isotope-code is a public repo — no token needed
+      # NOTE: This repo may not always be available; we fall back to existing www/ if checkout fails
       - name: Checkout isotope-code (source assets)
+        continue-on-error: true
+        id: checkout-isotope-code
         uses: actions/checkout@v4
         with:
           repository: Suydev/isotope-code
           ref: ${{ env.ISOTOPE_CODE_REF }}
           path: isotope-code
+
+      - name: Checkout status
+        if: always()
+        run: |
+          if [ "${{ steps.checkout-isotope-code.outcome }}" != "success" ]; then
+            echo "⚠️ Warning: isotope-code checkout failed. Using pre-existing www/ assets."
+          fi
 
       # ── Node.js setup ─────────────────────────────────────────────────────
       - name: Setup Node.js ${{ env.NODE_VERSION }}
@@ -77,6 +87,7 @@ jobs:
 
       # ── Verify source structure before copying ────────────────────────────
       - name: Verify isotope-code source structure
+        if: steps.checkout-isotope-code.outcome == 'success'
         run: |
           echo "=== isotope-code root ==="
           ls -la ${{ github.workspace }}/isotope-code/
@@ -100,6 +111,7 @@ jobs:
       #   3. android-bridge.js → www/ (first script injected into <head>)
       #   4. Disables sw.js, pwa-local.js, update-checker.js
       - name: Prepare www/ (copy assets + inject bridge)
+        if: steps.checkout-isotope-code.outcome == 'success'
         working-directory: isotope-apk
         env:
           REPO_DIR: ${{ github.workspace }}/isotope-code
