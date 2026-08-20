@@ -12,6 +12,9 @@ const SOURCE_REPO = (() => {
   if (fs.existsSync(nested)) return nested;
   return path.resolve(ROOT, '../isotope-code');
 })();
+// isotope-code may be unavailable in CI (private repo); skip source-dependent tests
+const HAS_SOURCE = fs.existsSync(SOURCE_REPO);
+const testOrSkip = HAS_SOURCE ? test : (name, fn) => test(name, { skip: !HAS_SOURCE }, fn);
 
 function runPrepareWww() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'isotope-latex-www-'));
@@ -31,7 +34,7 @@ function runPrepareWww() {
   return tmp;
 }
 
-test('Android package resolves every KaTeX CSS font reference for offline LaTeX rendering', () => {
+testOrSkip('Android package resolves every KaTeX CSS font reference for offline LaTeX rendering', () => {
   const wwwDir = runPrepareWww();
   const html = fs.readFileSync(path.join(wwwDir, 'index.html'), 'utf8');
   const assetsDir = path.join(wwwDir, 'assets');
@@ -53,7 +56,7 @@ test('Android package resolves every KaTeX CSS font reference for offline LaTeX 
   assert.ok(refs.length >= 50, 'KaTeX CSS should declare the expected font set');
 });
 
-test('Markdown renderer keeps LaTeX delimiters and KaTeX rendering plugins wired', () => {
+testOrSkip('Markdown renderer keeps LaTeX delimiters and KaTeX rendering plugins wired', () => {
   const wwwDir = runPrepareWww();
   const assetsDir = path.join(wwwDir, 'assets');
   const rendererName = fs.readdirSync(assetsDir).find((name) => /^MarkdownRendererContent-.*\.js$/.test(name));
