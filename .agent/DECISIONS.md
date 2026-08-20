@@ -2,6 +2,29 @@
 
 ---
 
+## DEC-000-B — Real analyticsWorker restored; Supabase config rebaked
+
+**Date:** 2026-08-20
+**Context:** Forensics confirmed the web agent pipeline (isotope-code `68070cd`,
+isotope-apk `ce974c7`) committed the audit "FILE IDENTITY" metadata text as
+`analyticsWorker-Dpw5jo6o.js` — the worker never existed as code on main. The
+517-byte Android stub was safe (parent falls back to local `Dr()` computation,
+feature-complete) but forced main-thread compute (jank risk on Monthly switch).
+The REAL current-build worker (152,406 B, SHA-256 `6ac9b167…`) was recovered from
+`~/downloads/external-reference/isotope-premium-assets/scripts/` (a full prod asset
+scrape, 109/121 files byte-identical to www) and git blob `e49797a0`.
+**Decision:** restore the real worker at the exact path the bundles import
+(`www/assets/analyticsWorker-Dpw5jo6o.js`). Also took the latest isotope-code
+versions of 10 other differing assets and baked OUR Supabase config
+(URL + anon key from `supabase.config.json` → `ollsqiutzartjhiuzkbf`) into
+`useAuthStore` + `marketing-core`, wiping the stale `rcnekgzbdlwhcpmpoogz` refs
+that broke Google sign-in (`signInWithIdToken` went to the dead project) and
+post-login onboarding data reads (the black screen).
+**Note:** no `try/catch` around `new Worker` in Analytics-B1QTymFp.js — never let a
+build-time patcher touch this file again (ISSUE-030 failure class).
+
+---
+
 ## DEC-000 — Build-time bundle patching is abolished
 
 **Date:** 2026-08-20
