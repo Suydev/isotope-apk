@@ -209,6 +209,28 @@ jobs:
         working-directory: isotope-apk/android
         run: chmod +x gradlew
 
+      - name: 🔑 Configure release signing (from GitHub secrets)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > android/app/release.keystore
+            {
+              echo "KEYSTORE_FILE=${PWD}/android/app/release.keystore"
+              echo "KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}"
+              echo "KEY_ALIAS=${KEY_ALIAS}"
+              echo "KEY_PASSWORD=${KEY_PASSWORD}"
+            } >> "$GITHUB_ENV"
+            echo "✅ Release keystore configured"
+          else
+            echo "❌ ANDROID_KEYSTORE_BASE64 secret not set — cannot sign release AAB"
+            exit 1
+          fi
+
       - name: Build Release AAB
         working-directory: isotope-apk/android
         run: ./gradlew bundleRelease --no-daemon

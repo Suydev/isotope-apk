@@ -48,22 +48,17 @@ android {
         }
         release {
             // Release keystore is configured via environment variables (set by CI from
-            // GitHub secrets). Falls back to the debug keystore when signing secrets are
-            // absent so a release build still succeeds (signed with the debug key).
-            def keystoreFile = System.getenv('KEYSTORE_FILE')
-            def keystorePassword = System.getenv('KEYSTORE_PASSWORD')
-            def keyAlias = System.getenv('KEY_ALIAS')
-            def keyPassword = System.getenv('KEY_PASSWORD')
-            if (keystoreFile && keystorePassword && keyAlias && keyPassword) {
-                storeFile file(keystoreFile)
-                storePassword keystorePassword
-                keyAlias keyAlias
-                keyPassword keyPassword
-            } else {
-                storeFile file('debug.keystore')
-                storePassword 'android'
-                keyAlias 'androiddebugkey'
-                keyPassword 'android'
+            // GitHub secrets). No debug fallback: a release APK must be signed with the
+            // real keystore, so a release build fails clearly if the secrets are absent.
+            def relKeystoreFile = System.getenv('KEYSTORE_FILE')
+            def relKeystorePassword = System.getenv('KEYSTORE_PASSWORD')
+            def relKeyAlias = System.getenv('KEY_ALIAS')
+            def relKeyPassword = System.getenv('KEY_PASSWORD')
+            if (relKeystoreFile && relKeystorePassword && relKeyAlias && relKeyPassword) {
+                storeFile file(relKeystoreFile)
+                storePassword relKeystorePassword
+                keyAlias relKeyAlias
+                keyPassword relKeyPassword
             }
         }
     }
