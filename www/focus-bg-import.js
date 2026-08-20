@@ -643,6 +643,20 @@
     imgInput.onchange = function () {
       var file = imgInput.files && imgInput.files[0];
       if (!file) return;
+      if (window.__ISO_IS_ANDROID__ && typeof FileReader !== "undefined") {
+        var reader = new FileReader();
+        reader.onload = function () {
+          var dataUrl = String(reader.result || "");
+          if (!/^data:image\//i.test(dataUrl)) { toast("This image could not be opened.", "error"); return; }
+          idbPut(CUSTOM_KEY, { type: "url", kind: "image", url: dataUrl, name: file.name || "", mime: file.type || "", size: file.size || 0, savedAt: new Date().toISOString() }).catch(function () {});
+          closeModal();
+          applyBackground(dataUrl, false, false);
+          toast("Image background applied.");
+        };
+        reader.onerror = function () { toast("This image could not be opened.", "error"); };
+        reader.readAsDataURL(file);
+        return;
+      }
       idbPut(CUSTOM_KEY, mediaRecord('image', file)).catch(function () {});
       var url = URL.createObjectURL(file);
       closeModal();
