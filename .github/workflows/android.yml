@@ -105,6 +105,20 @@ jobs:
           ANDROID_DIR: ${{ github.workspace }}/isotope-apk/android
         run: node scripts/apply-android-patches.js
 
+      # ── Validate www/ JS syntax (fail build if any bundle is corrupted) ──────
+      - name: Validate www/ JS syntax
+        working-directory: isotope-apk
+        run: |
+          node -e '
+            const fs=require("fs");
+            const {execSync}=require("child_process");
+            function walk(d){let r=[];for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=d+"/"+e.name;if(e.isDirectory())r=r.concat(walk(p));else if(e.name.endsWith(".js"))r.push(p);}return r;}
+            const files=walk("www");const bad=[];
+            for(const f of files){try{execSync("node --check "+JSON.stringify(f),{stdio:"ignore"});}catch(e){bad.push(f);}}
+            if(bad.length){console.error("CORRUPTED JS FILES (build must not ship these):\n"+bad.join("\n"));process.exit(1);}
+            console.log("All www/ JS files valid ("+files.length+" files checked)");
+          '
+
       # ── Make Gradle executable ────────────────────────────────────────────
       - name: Make Gradle wrapper executable
         working-directory: isotope-apk/android
