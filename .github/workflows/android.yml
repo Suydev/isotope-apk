@@ -167,37 +167,8 @@ jobs:
 
       # ── Build Debug APK ───────────────────────────────────────────────────
       - name: Build Debug APK
-        working-directory: isotope-apk/android
-        run: |
-          echo "=== Current Directory ==="
-          pwd
-          echo ""
-          echo "=== Package.json check ==="
-          ls -la ../../package.json
-          cat ../../package.json | head -5
-          echo ""
-          echo "=== Checking package.json from android/app ==="
-          ls -la ../../../package.json
-          cat ../../../package.json | head -5
-          echo ""
-          echo "=== Gradle Version ==="
-          ./gradlew --version
-          echo ""
-          echo "=== Java Version ==="
-          java -version
-          echo ""
-          echo "=== Package.json path check ==="
-          ls -la ../../../../package.json 2>/dev/null || echo "Not found at ../../../../"
-          cat ../../../../package.json | head -5 2>/dev/null || echo "Cannot read"
-          echo ""
-          echo "=== Gradle Version ==="
-          ./gradlew --version
-          echo ""
-          echo "=== Java Version ==="
-          java -version
-          echo ""
-          echo "=== Building Debug APK ==="
-          ./gradlew assembleDebug --no-daemon --stacktrace --info
+        working-directory: isotope-apk
+        run: android/gradlew -p android assembleDebug --no-daemon --stacktrace
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false"
 
