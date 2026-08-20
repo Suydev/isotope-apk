@@ -47,11 +47,24 @@ android {
             keyPassword 'android'
         }
         release {
-            // Release keystore should be configured via environment variables or keystore.properties
-            // storeFile file('release.keystore')
-            // storePassword System.getenv('KEYSTORE_PASSWORD')
-            // keyAlias System.getenv('KEY_ALIAS')
-            // keyPassword System.getenv('KEY_PASSWORD')
+            // Release keystore is configured via environment variables (set by CI from
+            // GitHub secrets). Falls back to the debug keystore when signing secrets are
+            // absent so a release build still succeeds (signed with the debug key).
+            def keystoreFile = System.getenv('KEYSTORE_FILE')
+            def keystorePassword = System.getenv('KEYSTORE_PASSWORD')
+            def keyAlias = System.getenv('KEY_ALIAS')
+            def keyPassword = System.getenv('KEY_PASSWORD')
+            if (keystoreFile && keystorePassword && keyAlias && keyPassword) {
+                storeFile file(keystoreFile)
+                storePassword keystorePassword
+                keyAlias keyAlias
+                keyPassword keyPassword
+            } else {
+                storeFile file('debug.keystore')
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
         }
     }
     buildTypes {
@@ -60,8 +73,7 @@ android {
             minifyEnabled false
         }
         release {
-            // signingConfig signingConfigs.release  // Enable when release keystore is configured
-            signingConfig signingConfigs.debug  // Temporary: use debug for CI
+            signingConfig signingConfigs.release
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'

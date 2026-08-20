@@ -21,30 +21,28 @@ permissions:
 env:
   JAVA_VERSION: '17'
   NODE_VERSION: '22'
-  ISOTOPE_CODE_REF: 'f93f75752ecc74a00575819883193fe51d4e35cb'
-  REPO_DIR: ${{ github.workspace }}/isotope-code
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build & Publish Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
       run:
         working-directory: isotope-apk
     concurrency:
-      group: build-${{ github.ref_name }}
+      group: release-${{ github.ref_name }}
       cancel-in-progress: true
 
     steps:
-      # ── Checkout this repo (Capacitor wrapper + bridge) ───────────────────
+      # ── Checkout this repo (Capacitor wrapper + bridge + prebuilt www/) ─────
       - name: ⬇️ Checkout isotope-apk
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           path: isotope-apk
 
-      - name: 🏷️ Get version info
+      - name: 🏷️ Resolve version & tag
         id: version
         run: |
           set -euo pipefail
@@ -60,28 +58,11 @@ jobs:
             TAG="v${VERSION}"
           fi
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$'; then
-            echo "❌ Invalid package version: $VERSION"
+            echo "❌ Invalid version: $VERSION"
             exit 1
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      # ── Checkout source assets from isotope-code (public repo) ───────────
-      - name: ⬇️ Checkout isotope-code (source assets)
-        continue-on-error: true
-        id: checkout-isotope-code
-        uses: actions/checkout@v4
-        with:
-          repository: Suydev/isotope-code
-          ref: ${{ env.ISOTOPE_CODE_REF }}
-          path: isotope-code
-
-      - name: Checkout status
-        if: always()
-        run: |
-          if [ "${{ steps.checkout-isotope-code.outcome }}" != "success" ]; then
-            echo "⚠️ Warning: isotope-code checkout failed. Using pre-existing www/ assets."
-          fi
 
       - name: 🟢 Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
@@ -114,7 +95,7 @@ jobs:
       - name: ✅ Run regression tests
         run: npm test
 
-      - name: ✅ Release syntax checks
+      - name: ✅ Syntax checks
         run: |
           set -euo pipefail
           node --check android-bridge.js
@@ -122,16 +103,7 @@ jobs:
           node --check scripts/prepare-www.js
           node --check scripts/apply-android-patches.js
 
-      # ── Build www/ and native Android project ─────────────────────────────
-      - name: 🏗️ Prepare www/ (copy assets + inject bridge + boot splash)
-        if: steps.checkout-isotope-code.outcome == 'success'
-        env:
-          REPO_DIR: ${{ github.workspace }}/isotope-code
-          SOURCE_DIR: ${{ github.workspace }}/isotope-code/public
-          WWW_DIR: ${{ github.workspace }}/isotope-apk/www
-          BRIDGE_FILE: ${{ github.workspace }}/isotope-apk/android-bridge.js
-        run: node scripts/prepare-www.js
-
+      # ── Apply Android patches to the committed www/ ────────────────────────
       - name: 🩹 Apply Android bundle and native patches
         env:
           WWW_DIR: ${{ github.workspace }}/isotope-apk/www
@@ -150,9 +122,40 @@ jobs:
       - name: 🔧 Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
+      # ── Release signing (optional) ─────────────────────────────────────────
+      # If keystore secrets are configured, decode them and expose signing env
+      # vars. build.gradle falls back to the debug keystore when they are absent,
+      # so a release build still succeeds without secrets (signed with debug key).
+      - name: 🔑 Configure release signing (if secrets present)
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'release')
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEYSTORE_B64:-}" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > android/app/release.keystore
+            {
+              echo "KEYSTORE_FILE=${PWD}/android/app/release.keystore"
+              echo "KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}"
+              echo "KEY_ALIAS=${KEY_ALIAS}"
+              echo "KEY_PASSWORD=${KEY_PASSWORD}"
+            } >> "$GITHUB_ENV"
+            echo "✅ Release keystore configured"
+          else
+            echo "⚠️ No ANDROID_KEYSTORE_BASE64 secret — release will use the debug keystore"
+          fi
+
       - name: 🏗️ Build Android APK
         run: |
-          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            BUILD_TYPE=release
+          else
+            BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          fi
           if [ "$BUILD_TYPE" = "release" ]; then
             echo "Building RELEASE APK..."
             android/gradlew -p android assembleRelease --no-daemon --stacktrace
@@ -163,11 +166,15 @@ jobs:
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false"
 
-      - name: 🔎 Locate built APK
+      - name: 🔎 Locate & rename built APK
         id: apk
         run: |
           set -euo pipefail
-          BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            BUILD_TYPE=release
+          else
+            BUILD_TYPE="${{ github.event.inputs.build_type || 'debug' }}"
+          fi
           if [ "$BUILD_TYPE" = "release" ]; then
             APK_PATH=$(find android -name "*.apk" -path "*release*" -type f | head -1)
           else
@@ -181,7 +188,7 @@ jobs:
             exit 1
           fi
           VERSION="${{ steps.version.outputs.version }}"
-          RENAMED="IsotopeAI-v${VERSION}-${{ github.event.inputs.build_type || 'debug' }}.apk"
+          RENAMED="IsotopeAI-v${VERSION}-${BUILD_TYPE}.apk"
           cp "$APK_PATH" "$RENAMED"
           echo "path=${RENAMED}" >> "$GITHUB_OUTPUT"
           echo "Found APK: $APK_PATH ($(du -h "$APK_PATH" | cut -f1)) → $RENAMED"
@@ -222,7 +229,6 @@ jobs:
 
           ### 🧩 Built from
           - isotope-apk @ \`${{ github.sha }}\`
-          - isotope-code @ \`${{ env.ISOTOPE_CODE_REF }}\`
 
           ### ❤️ Support
           UPI: \`9699393886@fam\` · [isotopeai.in](https://isotopeai.in)
@@ -247,85 +253,6 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.version.outputs.tag }}"
-          APK="${{ steps.apk.outputs.path }}"
-          PRERELEASE_FLAG=()
-          if printf '%s' "$TAG" | grep -Eq -- '(-beta|-rc)'; then
-            PRERELEASE_FLAG=(--prerelease)
-          fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" \
-              --title "IsotopeAI Android ${TAG}" \
-              --notes-file /tmp/release_notes.md \
-              "${PRERELEASE_FLAG[@]}"
-          else
-            gh release create "$TAG" \
-              --target "$GITHUB_SHA" \
-              --title "IsotopeAI Android ${TAG}" \
-              --notes-file /tmp/release_notes.md \
-              "${PRERELEASE_FLAG[@]}"
-          fi
-          gh release upload "$TAG" "$APK" --clobber
-          echo "✅ Release ${TAG} published with ${APK}"
-
-      # ── Release notes ──────────────────────────────────────────────────────
-      - name: 📋 Extract changelog section (if CHANGELOG.md exists)
-        id: changelog
-        run: |
-          VERSION="${{ steps.tag.outputs.version }}"
-          if [ -f "CHANGELOG.md" ]; then
-            NOTES=$(awk "/^## \[$VERSION\]/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md)
-          else
-            NOTES=""
-          fi
-          if [ -z "$NOTES" ]; then
-            NOTES="See the commit history for what's changed in this build."
-          fi
-          echo "$NOTES" > /tmp/changelog_notes.txt
-          {
-            echo "notes<<CHANGELOG_EOF"
-            cat /tmp/changelog_notes.txt
-            echo "CHANGELOG_EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: 📝 Build release notes
-        run: |
-          cat > /tmp/release_notes.md <<EOF
-          ## IsotopeAI Android ${{ steps.tag.outputs.tag }}
-
-          ${{ steps.changelog.outputs.notes }}
-
-          ---
-
-          ### 📱 Install
-          Download \`IsotopeAI-v${{ steps.tag.outputs.version }}.apk\` below and
-          install it on your Android device (Android 8.0+). You may need to allow
-          "install from unknown sources" for your browser/file manager.
-
-          ### 🧩 Built from
-          - isotope-apk @ \`${{ github.sha }}\`
-          - isotope-code @ \`${{ env.ISOTOPE_CODE_REF }}\`
-
-          ### ❤️ Support
-          UPI: \`9699393886@fam\` · [isotopeai.in](https://isotopeai.in)
-          EOF
-
-      - name: 🏷️ Ensure release tag points to this commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG="${{ steps.tag.outputs.tag }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "$TAG" "$GITHUB_SHA"
-          git push --force origin "refs/tags/$TAG"
-
-      - name: 🎉 Create or update GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG="${{ steps.tag.outputs.tag }}"
           APK="${{ steps.apk.outputs.path }}"
           PRERELEASE_FLAG=()
           if printf '%s' "$TAG" | grep -Eq -- '(-beta|-rc)'; then
