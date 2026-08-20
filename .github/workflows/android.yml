@@ -154,6 +154,13 @@ jobs:
       - name: Build Debug APK
         working-directory: isotope-apk/android
         run: |
+          echo "=== Current Directory ==="
+          pwd
+          echo ""
+          echo "=== Package.json check ==="
+          ls -la ../../package.json
+          cat ../../package.json | head -5
+          echo ""
           echo "=== Gradle Version ==="
           ./gradlew --version
           echo ""
