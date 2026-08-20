@@ -122,12 +122,12 @@ jobs:
       - name: 🔧 Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
-      # ── Release signing ────────────────────────────────────────────────────
+       # ── Release signing ────────────────────────────────────────────────────
       # Decode the release keystore from GitHub secrets and expose signing env
       # vars. build.gradle signs the release APK with this keystore; if the
       # secrets are absent the release build fails clearly (no debug fallback).
-      - name: 🔑 Configure release signing (if secrets present)
-        if: "github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_type == 'release')"
+      - name: 🔑 Configure release signing (from GitHub secrets)
+        if: "github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'"
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -145,7 +145,7 @@ jobs:
             } >> "$GITHUB_ENV"
             echo "✅ Release keystore configured"
           else
-            echo "⚠️ No ANDROID_KEYSTORE_BASE64 secret — release will use the debug keystore"
+            echo "⚠️ ANDROID_KEYSTORE_BASE64 secret not set — release build will fail to sign"
           fi
 
       - name: 🏗️ Build Android APK
