@@ -3345,6 +3345,25 @@ var raw = localStorage.getItem('isotope-auth-token') ||
     });
   }
 
+  // ── Response patcher: ensure premium plan fields for React (web parity) ─────────
+  function patchPlanType(jsonStr) {
+    // Fast path: if already ranker or no plan_type, skip
+    if (jsonStr.indexOf('plan_type') === -1 && jsonStr.indexOf('effective_plan') === -1 && jsonStr.indexOf('access_source') === -1) return jsonStr;
+    // Rewrite all plan_type values to 'ranker'
+    return jsonStr
+      .replace(/"plan_type"\s*:\s*"[^"]*"/g, '"plan_type":"ranker"')
+      .replace(/"effective_plan"\s*:\s*"[^"]*"/g, '"effective_plan":"ranker"')
+      .replace(/"access_source"\s*:\s*"[^"]*"/g, '"access_source":"ranker"');
+  }
+
+  function patchResponseBody(text) {
+    if (!text || !text.trim()) return text;
+    if (text.trim().charAt(0) === '[' || text.trim().charAt(0) === '{') {
+      return patchPlanType(text);
+    }
+    return text;
+  }
+
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
     var method = (init && init.method ? init.method : 'GET').toUpperCase();
@@ -3563,6 +3582,24 @@ var raw = localStorage.getItem('isotope-auth-token') ||
     }
 
     // ── All other requests pass through ──────────────────────────────────────
+    // BUT: patch Supabase REST/RPC responses to ensure premium plan_type=ranker
+    // so React code expecting premium features does not crash (web parity with
+    // server.mjs PREMIUM_SCRIPT response patching).
+    if (url.indexOf(SUPA_URL) === 0) {
+      return _originalFetch.apply(this, arguments).then(function (resp) {
+        if (!resp || !resp.ok || resp.status !== 200) return resp;
+        var contentType = resp.headers && resp.headers.get('content-type') || '';
+        if (contentType.indexOf('application/json') === -1) return resp;
+        return resp.clone().text().then(function (text) {
+          var patched = patchResponseBody(text);
+          return new Response(patched, {
+            status: resp.status,
+            statusText: resp.statusText,
+            headers: resp.headers
+          });
+        }).catch(function () { return resp; });
+      });
+    }
     return _originalFetch.apply(this, arguments);
   };
 

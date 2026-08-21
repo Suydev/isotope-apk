@@ -62,6 +62,14 @@
     }
 
     function clearCachesAndReload() {
+        try {
+            var count = parseInt(window.sessionStorage.getItem('__iso_reload_count') || '0', 10);
+            if (count > 2) {
+                console.warn('[Isotope] Recovery reload limit reached; preventing infinite reload loop.');
+                return Promise.resolve(false);
+            }
+            window.sessionStorage.setItem('__iso_reload_count', String(count + 1));
+        } catch (e) {}
         if (recoveryStarted || readSessionValue(CACHE_RECOVERY_KEY) === '1') {
             return Promise.resolve(false);
         }
