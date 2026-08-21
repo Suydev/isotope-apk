@@ -537,13 +537,46 @@ var raw = localStorage.getItem('isotope-auth-token') ||
     groq:   ''
   };
 
-  // ── Helper: read session from localStorage ──────────────────────────────────
+  // ── Session persistence helpers (Capacitor Filesystem backup) ─────────────────
+  var SESSION_FILE = 'isotope_session.json';
+
+  function getFilesystem() {
+    try {
+      if (typeof window !== 'undefined' && window.Capacitor && Capacitor && Capacitor.Plugins && Capacitor.Plugins.Filesystem) {
+        return Capacitor.Plugins.Filesystem;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function backupSessionToFile(raw) {
+    var fs = getFilesystem();
+    if (!fs) return;
+    try {
+      fs.writeFile({ path: SESSION_FILE, data: raw, directory: 'Data' }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function readSessionFromFile() {
+    var fs = getFilesystem();
+    if (!fs) return null;
+    try {
+      var result = fs.readFile({ path: SESSION_FILE, directory: 'Data' });
+      if (result && result.data) return typeof result.data === 'string' ? result.data : String(result.data);
+    } catch (e) {}
+    return null;
+  }
+
   function getSession() {
     try {
       var ref = 'ollsqiutzartjhiuzkbf';
       var raw = localStorage.getItem('sb-' + ref + '-auth-token')
              || localStorage.getItem('isotope-auth-token')
              || localStorage.getItem('isotope-last-session-raw');
+      // Fallback to Capacitor Filesystem backup if localStorage is empty (process death)
+      if (!raw) {
+        raw = readSessionFromFile();
+      }
       if (!raw) return null;
       var s = JSON.parse(raw);
       if (s && s.session && s.session.access_token) s = s.session;
@@ -555,7 +588,18 @@ var raw = localStorage.getItem('isotope-auth-token') ||
         // Try to return expired session anyway — Supabase client will refresh
       }
       return s;
-    } catch (e) { return null; }
+    } catch (e) { 
+      // Last resort: try file backup
+      try {
+        raw = readSessionFromFile();
+        if (raw) {
+          var s2 = JSON.parse(raw);
+          if (s2 && s2.session && s2.session.access_token) return s2.session;
+          if (s2 && s2.access_token && s2.user) return s2;
+        }
+      } catch (e2) {}
+      return null; 
+    }
   }
 
   function getAccessToken() {
@@ -1685,7 +1729,7 @@ var raw = localStorage.getItem('isotope-auth-token') ||
             token_type: d.token_type || 'bearer',
             user: d.user
           };
-          // Write session to localStorage (mirrors what auth-bridge.js does)
+          // Write session to localStorage AND Capacitor Filesystem backup
           try {
             var raw = JSON.stringify(session);
             var ref = 'ollsqiutzartjhiuzkbf';
@@ -1693,6 +1737,8 @@ var raw = localStorage.getItem('isotope-auth-token') ||
             localStorage.setItem('sb-' + ref + '-auth-token', raw);
             localStorage.setItem('isotope-last-jwt', d.access_token);
             if (d.refresh_token) localStorage.setItem('isotope-last-rt', d.refresh_token);
+            // Backup to Capacitor Filesystem so session survives process death
+            backupSessionToFile(JSON.stringify(session));
           } catch (e) {}
           // Keep current-user-ID global in sync for community features
           try {
@@ -4712,6 +4758,8 @@ var raw = localStorage.getItem('isotope-auth-token') ||
     localStorage.setItem('isotope-last-jwt', accessToken);
     if (refreshToken) localStorage.setItem('isotope-last-rt', refreshToken);
     localStorage.setItem('isotope-last-session-raw', raw);
+    // Backup to Capacitor Filesystem so session survives process death
+    backupSessionToFile(raw);
 
     window.dispatchEvent(new Event('isotope:auth-unblock'));
     window.dispatchEvent(new Event('isotope:sync_refresh'));
