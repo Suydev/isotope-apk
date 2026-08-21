@@ -1770,6 +1770,8 @@ var raw = localStorage.getItem('isotope-auth-token') ||
       return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id', session: session, user_id: null }, 401));
     }
 
+    try { upgradeProfileToRanker(); } catch (e) {}
+
     var since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
     var fromDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     var profilePromise = supaJson('/rest/v1/user_profiles?select=profile_data,updated_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' });
@@ -3234,6 +3236,115 @@ var raw = localStorage.getItem('isotope-auth-token') ||
 
   // ── Main fetch interceptor ──────────────────────────────────────────────────
   var _originalFetch = window.fetch || fetch;
+  // ── Community leaderboard (mirrors server.mjs /__leaderboard) ────────────────
+  var __isoRankerUpgraded = {};
+  function upgradeProfileToRanker() {
+    try {
+      var s = getSession();
+      if (!s || !s.access_token || !s.user || !s.user.id) return;
+      var uid = s.user.id;
+      if (__isoRankerUpgraded[uid]) return;
+      __isoRankerUpgraded[uid] = true;
+      var payload = JSON.stringify({
+        plan_type: 'ranker',
+        billing_status: 'active',
+        plan_expires_at: '2099-12-31T23:59:59.000Z',
+        access_ends_at: '2099-12-31T23:59:59.000Z'
+      });
+      var hdrs = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + s.access_token,
+        'apikey': SUPA_ANON_KEY,
+        'Prefer': 'return=minimal'
+      };
+      function doPatch(table, col) {
+        return fetch(SUPA_URL + '/rest/v1/' + table + '?' + col + '=eq.' + encodeURIComponent(uid),
+          { method: 'PATCH', headers: hdrs, body: payload });
+      }
+      doPatch('users', 'id')
+        .then(function (r) {
+          if (r.status === 404 || r.status === 406) {
+            return doPatch('users', 'user_id').then(function (r2) {
+              if (r2.status === 404 || r2.status === 406) return doPatch('profiles', 'id');
+              return r2;
+            });
+          }
+          return r;
+        })
+        .then(function (r) {
+          if (r && (r.ok || r.status === 200 || r.status === 204)) {
+            console.log('[ISO-BRIDGE] profile upgraded to ranker (RLS unlocked)');
+          } else {
+            console.warn('[ISO-BRIDGE] ranker upgrade returned', r && r.status);
+          }
+        })
+        .catch(function (e) { console.warn('[ISO-BRIDGE] ranker upgrade failed', e && e.message); });
+    } catch (e) {}
+  }
+
+  function handleLeaderboard(init) {
+    var body = {};
+    try { if (init && init.body) body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body; } catch (e) {}
+    var period = String(body.period || 'weekly');
+    var limitN = Math.min(parseInt(String(body.limit || '50'), 10) || 50, 100);
+    var groupId = body.group_id ? String(body.group_id) : null;
+    var isDaily = period === 'daily';
+    var sortCol = period === 'monthly' ? 'monthly_hours' : 'weekly_hours';
+    var today = new Date().toISOString().slice(0, 10);
+
+    function getRows(path) {
+      return supaFetch(path, { method: 'GET' }).then(function (r) {
+        return r.json().then(function (j) { return Array.isArray(j) ? j : []; });
+      }).catch(function () { return []; });
+    }
+
+    var rowsP;
+    if (isDaily) {
+      rowsP = getRows('/rest/v1/daily_user_stats?select=user_id,seconds_studied&date=eq.' + today + '&order=seconds_studied.desc.nullslast&limit=' + limitN);
+    } else if (groupId) {
+      rowsP = getRows('/rest/v1/group_members?group_id=eq.' + encodeURIComponent(groupId) + '&select=user_id&limit=200').then(function (members) {
+        var ids = (members || []).map(function (m) { return m.user_id; }).filter(Boolean);
+        if (!ids.length) return [];
+        return getRows('/rest/v1/user_stats_summary?select=user_id,total_hours,weekly_hours,monthly_hours,total_sessions,current_streak,last_session_at&user_id=in.(' + ids.join(',') + ')&order=' + sortCol + '.desc.nullslast&limit=' + limitN);
+      });
+    } else {
+      rowsP = getRows('/rest/v1/user_stats_summary?select=user_id,total_hours,weekly_hours,monthly_hours,total_sessions,current_streak,last_session_at&order=' + sortCol + '.desc.nullslast&limit=' + limitN);
+    }
+
+    return rowsP.then(function (rows) {
+      if (!rows.length) return jsonResponse({ rankings: [], period: period, source: 'db', currentUserRank: null, display_names_resolved: true });
+      var ids = rows.map(function (r) { return r.user_id; }).filter(Boolean);
+      return getRows('/rest/v1/users?select=id,username,name,avatar_url&id=in.(' + ids.join(',') + ')&limit=200').then(function (users) {
+        var byId = {};
+        (users || []).forEach(function (x) { byId[x.id] = x; });
+        var rankings = rows.map(function (r, i) {
+          var u = byId[r.user_id] || {};
+          var hours = isDaily ? (Number(r.seconds_studied) || 0) / 3600 : Number(r[sortCol]) || 0;
+          return {
+            user_id: r.user_id, rank: i + 1,
+            name: u.name || u.username || 'Student',
+            username: u.username || null,
+            avatar_url: u.avatar_url || null,
+            hours: hours,
+            total_hours: Number(r.total_hours) || 0,
+            weekly_hours: Number(r.weekly_hours) || 0,
+            monthly_hours: Number(r.monthly_hours) || 0,
+            total_sessions: Number(r.total_sessions) || 0,
+            current_streak: Number(r.current_streak) || 0,
+            last_session_at: r.last_session_at || null,
+            score: hours
+          };
+        });
+        var s = getSession();
+        var uid = s && s.user && s.user.id;
+        var cur = uid ? (rankings.filter(function (x) { return x.user_id === uid; })[0] || null) : null;
+        return jsonResponse({ rankings: rankings, period: period, source: 'db', currentUserRank: cur, display_names_resolved: true });
+      });
+    }).catch(function (e) {
+      return jsonResponse({ rankings: [], period: period, source: 'error', error: e && e.message || 'Leaderboard query failed' }, 502);
+    });
+  }
+
   window.fetch = function (input, init) {
     var url = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
     var method = (init && init.method ? init.method : 'GET').toUpperCase();
@@ -3257,6 +3368,11 @@ var raw = localStorage.getItem('isotope-auth-token') ||
     // In Android mode, always report server as online.
     if (pathname === '/api/version') {
       return Promise.resolve(jsonResponse({ version: APP_VERSION, android: true }));
+    }
+
+    // ── Community leaderboard (server parity) ──────────────────────────────────
+    if (pathname === '/__leaderboard') {
+      return handleLeaderboard(init);
     }
 
     // ── Auth routes ───────────────────────────────────────────────────────────
