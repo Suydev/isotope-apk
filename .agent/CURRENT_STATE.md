@@ -1,8 +1,24 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-08-20 (session 6)
+**Updated:** 2026-08-21 (session 7)
 **Branch:** main
-**Current phase:** `apply-android-patches.js` DELETED — build no longer patches bundles
+**Current phase:** Community patches baked into www; awaiting APK build + device verification
+
+---
+
+## Verified This Session (2026-08-21 session 7)
+
+- [x] **Server.mjs capture & patch bake:** Ran `server.mjs` with local Supabase env,
+  captured 133 patched assets into `www/assets/`. Patches applied: communityApi
+  premium gate (`s=()=>!1`), chat/leaderboard methods (`getGroupMessages`, `sendGroupMessage`,
+  `getLeaderboard`), hub Store/Events removal, dashboard null-guard, PWA reload guard.
+- [x] **android-bridge.js `/__leaderboard` handler:** Added RESTful leaderboard query
+  (mirrors server.mjs implementation, uses user JWT for RLS).
+- [x] **auth-bridge.js `upgradeProfileToRanker()`:** Added profile upgrade on bootstrap
+  (patches `users`/`profiles` to `plan_type='ranker'`) to unlock RLS for community queries.
+- [x] **analyticsWorker restored:** Real worker (152KB) restored; was corrupted with
+  audit placeholder after earlier capture.
+- [x] **Commit 04d6896 pushed:** Baked patches, bridge handlers, analyticsWorker fix.
 
 ---
 

@@ -6,17 +6,22 @@
 
 ### TASK ANDROID-012
 **Priority:** P0
-**Status:** ACTIVE — bundles fixed; awaiting phone browser + device verification
+**Status:** IN PROGRESS — community patches baked; awaiting device APK build + test
 **Objective:** Runtime-test the current APK on device.
 
-**Latest (2026-08-20):**
-- **`apply-android-patches.js` DELETED.** Build no longer rewrites bundles.
-  Any Android integration must be baked into the committed `www/` (see AGENTS.md).
+**Latest (2026-08-21):**
+- **Server patches baked into www/** — ran `server.mjs` with local Supabase env,
+  captured 133 patched assets (communityApi, useAuthStore, Community-CEnEgsrd,
+  Dashboard, etc.) into `www/assets/`. Includes: premium gate disabled (s=()=>!1),
+  chat/leaderboard methods added, hub card removal, PWA reload guard.
+- **Added `/__leaderboard` handler in android-bridge.js** — mirrors server's
+  community leaderboard query (REST + RLS-friendly JWT auth).
+- **Added `upgradeProfileToRanker()` on bootstrap** — replicates PREMIUM_SCRIPT's
+  profile upgrade (plan_type='ranker', billing_status='active') for RLS unlock.
 - WebView crash `Missing initializer in destructuring declaration` FIXED — corrupt
-  patches removed from `Auth`, `useOnlineStatus`, `useAuthStore`, `useNotificationStore`,
-  `workbox-window`, `Analytics`; all 141 www JS files parse as modules; tests 57/0.
-- **DONE 2026-08-20: asset graph complete.** Restored 28+5 missing chunks from git tag
-  `v3.3.9` (`60eae02a`) + 12 missing CSS from live site into `www/assets/`;
+  patches removed; all 141 www JS files parse; tests 57/0.
+- **analyticsWorker restored** (152KB real worker, was corrupted with audit placeholder).
+- **`apply-android-patches.js` DELETED** — integration baked into committed www.
   stripped old-app boot side-effect import (`index-BPYJFSVW.js`) from
   `CommunityHub`/`Community`; removed stale mapDeps preloads → **0 unresolved
   imports/www**; all files parse; tests 57/0 (61). Build pushed (run pending).

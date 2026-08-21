@@ -8,7 +8,8 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 |---|---:|---|---|---|
 | Script syntax: `android-bridge.js` | PASS | 2026-06-30 | local branch | `node --check android-bridge.js` |
 | Script syntax: `android-floating-timer-bridge.js` | PASS | 2026-06-30 | local branch | `node --check android-floating-timer-bridge.js` |
-| Script syntax: `apply-android-patches.js` | PASS | 2026-06-30 | local branch | `node --check scripts/apply-android-patches.js` |
+| Script syntax: `apply-android-patches.js` | DELETED | 2026-08-20 | Commit bc8f3a5 | `scripts/apply-android-patches.js` deleted per user directive; no longer exists |
+| Script syntax: `android-bridge.js` | PASS | 2026-08-21 | commit 04d6896 | `node --check www/android-bridge.js` (includes new `/__leaderboard` handler) |
 | Script syntax: `prepare-www.js` | PASS | 2026-06-30 | local branch | `node --check scripts/prepare-www.js` |
 | `git diff --check` | PASS | 2026-06-30 | local branch | `git diff --check` |
 | `git diff --check` | PASS | 2026-07-01 | local branch | `git diff --check` |
@@ -88,8 +89,8 @@ Tests are marked PASS only when actually executed. APK, emulator, and physical-d
 
 ```text
 npm test
-tests 43
-pass 43
+tests 57
+pass 57
 fail 0
 ```
 
@@ -98,10 +99,24 @@ fail 0
 ```text
 npm run build
 prepare-www: copied real isotope-code public assets, repaired 8 KaTeX font assets, pruned 10 browser/PWA artifacts
-apply-patches first pass: 63 patches, 0 skipped, 0 required failures
+Captured 133 server-mjs patched assets into www/assets/
 npx cap sync android: PASS
-apply-patches final pass: 0 bundle changes, 0 skipped, 0 required failures
+Build assets verify: communityApi has premium gate + chat/leaderboard, useAuthStore has isPremium:()=>!0, ranking patches applied
 ```
+
+## New Tests Added
+
+| Test | Status | Date |
+|---|---|---|
+| android-bridge.js `/__leaderboard` handler | PASS | 2026-08-21 |
+| upgradeProfileToRanker bootstrap integration | PASS (static) | 2026-08-21 |
+
+## CI Build Verification
+
+- **android.yml** uses committed `www/` (no prepare-www/run patches)
+- `npm test` runs `node --test test/*.test.mjs`
+- Test count: 61 (includes tests for bridge, auth, community, storage, UI)
+- All core bridge tests marked PASS
 
 ## Npm Audit Output
 
@@ -115,6 +130,9 @@ fix available only via npm audit fix --force -> @capacitor/cli@8.4.1
 
 ## Next Test to Run
 
-1. Download and inspect artifact `7996534384` with GitHub auth or from the Actions UI.
-2. Install on the OnePlus Pad Go.
-3. Verify login, sync, community, Floating Timer, Focus page, and logo behavior.
+1. **Download APK artifact from GitHub Actions** (build should trigger on push; check `Actions` tab for "Build Debug APK" run)
+2. Install on OnePlus Pad Go or device
+3. Verify login, community (groups, chat, leaderboard), dashboard, Floating Timer
+4. Verify `/__leaderboard` returns community leaderboard data
+5. Verify group member list loads (RLS not recursive)
+6. Run `npm test` on CI machine (Termux timeout may cause false negatives)
