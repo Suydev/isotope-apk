@@ -1,111 +1,125 @@
-# IsotopeAI Android — Agent Handoff Instructions
+# AGENTS.md — isotope-apk
 
-**Read every file inside `.agent/` before modifying any code.**
+**Version:** 3.5.0 · **Updated:** 2026-08-21 · **Branch:** main
 
-This is a multi-agent project. Multiple Replit accounts and agents will continue this work.
-GitHub is the only permanent source of truth.
-
----
-
-## Mandatory Reading Order
-
-0. **`plan.md`** — The active build/parity plan, every specification,
-   and the completion gates. Follow its phase checklist; update status as you complete items.
- 1. `.agent/CURRENT_STATE.md` — What is done, what is broken, what to do next
- 2. `.agent/NEXT_TASKS.md` — Active task with exact acceptance conditions
- 3. `.agent/BOOTSTRAP.md` — Environment setup commands
- 4. `.agent/DECISIONS.md` — Architecture decisions already settled
- 5. `.agent/ARCHITECTURE.md` — System design and endpoint replacement map
- 6. `.agent/KNOWN_ISSUES.md` — Do not repeat failed approaches
- 7. `.agent/TEST_STATUS.md` — What has and has not been verified
+Android APK (Capacitor 6) for IsotopeAI. Ships the compiled web app in `www/` with a
+JS bridge (`www/android-bridge.js`) that replaces every server endpoint the web app's
+`server.mjs` would normally provide. **No runtime Node server inside the APK.**
 
 ---
 
-## Active specifications (from plan.md — keep in sync)
+## Architecture: Baked Patches (the only allowed approach)
 
-- **Env (Supabase) — env-driven, backup & deploy ready (plan.md Phase 5):** the APK has **no
-  runtime `.env`**, but all Supabase values are build-time env-driven. Resolution precedence:
-  process env (`SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_PROJECT_REF`) → root `.env`
-  (git-ignored) → committed `supabase.config.json` defaults. Defaults are the current prod
-   project (`vteqquoqvksshmfhuepu.supabase.co`, matching the production project config). No env set ⇒ output
-   is byte-identical to the old hardcoded build. `scripts/prepare-www.js` rewrites the bridge/auth
-   constants into `www/` from the resolved config (repo-root `android-bridge.js` stays authored).
-   Tooling: `scripts/deploy-supabase.js`
-  (apply `supabase/*.sql` via Management API, `SUPABASE_ACCESS_TOKEN`, dry-run default) and
-  `scripts/backup-supabase.js` (schema+data dump). Never commit service-role keys, PATs, or
-  signing credentials — `supabase.config.json` holds public values only.
-- **`deferred-scripts.js`:** the web app `index.html` references
-  `<script type="module" src="/deferred-scripts.js">` (server-only endpoint in the web server
-  serving PREMIUM_SCRIPT / RELOAD_GUARD_SCRIPT / FEATURE_REMOVAL_STYLE / KEY_SCRIPT /
-  USERNAME_AUTH_SCRIPT). The APK has no server → **`scripts/prepare-www.js` must always strip
-  this tag** (step 5c2). The Android bridge provides the equivalents (`__isoLogin`, `__isoUp`,
-  upload helpers, auth fetch interception, AI config, premium via patches). Never re-add it.
-- **Community SQL source of truth:** the APK's `supabase/` migrations are the canonical source
-  (ported from the upstream `isotope-schema-restore.sql` + `sql/*.sql` migrations + the dump/restore
-  pipeline). Objects to keep in the APK `supabase/` migrations: `community_join_requests`
-  table, `groups.join_policy` column, `community_join_group` join-guard
-  (`supabase/011_fix_rls_recursion.sql`), `community_respond_join_request`,
-  `community_create_group` new signature, `community_discover_groups`, `community_update_group`,
-  community events expansion. All 32 bundle RPCs must resolve in the migrated DB.
-- **The web app source is no longer part of this repo.** `www/` (the pre-compiled UI) is committed
-  and is the source of truth for the APK; parity is achieved by copying its `public/` output and
-  SQL statements into this repo, not by forking the web UI. Do not reintroduce an upstream checkout
-  into the build or test pipeline.
+The upstream web app (`isotope-code`) patches bundles at **serve time** via ~21
+`getPatched*Bundle()` functions in `server.mjs`. The APK cannot run that server, so
+all patches are **baked into the committed `www/assets/` files**.
+
+### How to re-sync patches from upstream
+1. Start the upstream server with our Supabase env:
+   ```bash
+   cd ~/isotope-code && SUPABASE_URL=https://ollsqiutzartjhiuzkbf.supabase.co \
+     SUPABASE_ANON_KEY=<anon from supabase.config.json> PORT=3399 setsid node server.mjs &
+   ```
+2. Fetch every `/assets/*` it serves and overlay onto `www/assets/`
+   (only files whose names exist in `isotope-code/public/assets/`; never delete
+   APK-only files like old v3.3.9 chunks).
+3. **Guard rails after every capture:**
+   - `grep -rl "FILE IDENTITY" www/assets/` → must be empty (upstream ships one
+     garbage placeholder: `analyticsWorker-Dpw5jo6o.js`; restore ours from git).
+   - `node --check` every touched bundle.
+   - Verify key anchors survive (see checklist below).
+4. Commit. CI builds the APK on every push to main.
+
+### NEVER do
+- ❌ Re-create `scripts/apply-android-patches.js` (deleted permanently — corrupted bundles once).
+- ❌ Embed a Node server in the APK (rejected: heavy, fragile; bridge already covers endpoints).
+- ❌ Regex-replace plan fields in responses without the `isPlanObject` guard (corrupts domain objects).
 
 ---
 
-## Rules Every Agent Must Follow
+## Patch anchor checklist (verify after any capture)
 
-1. **Read all `.agent/` files before modifying code.**
-2. **Read repository audit reports and current Git history before changing anything.**
-3. **Work only from the `main` branch of `isotope-apk` repo (maps to `android-production` concept).**
-4. **Do not restart the project from scratch.** Continue from the current state.
-5. **Do not replace working implementation merely because another architecture is preferred.**
-6. **Preserve existing UI and offline-data compatibility.** The `public/` assets are the real UI.
-7. **Never modify Supabase schema casually.** Document any schema change in `DECISIONS.md`.
-8. **Never expose service-role keys, GitHub PATs or signing credentials** in any file.
-9. **Run `npm run agent:resume` before starting implementation.**
-10. **Run `npm run agent:handoff` before ending a session.**
-11. **Commit and push every meaningful completed checkpoint** with a descriptive message.
-12. **Update `.agent/` files in the same commit as implementation changes.**
-13. **Clearly record tests that were actually executed** versus tests only inspected.
-14. **Never claim a task DONE without build/test evidence.** Record the APK path or test output.
-15. **If documentation conflicts with actual code**, inspect Git history and record the resolution in `DECISIONS.md`.
+| Bundle | Anchor | Meaning |
+|---|---|---|
+| useAuthStore-Aw1au7RF | `if(a==="isotope-auth-token"){try{const l=localStorage.getItem` | session mirrored to plain localStorage (**login persistence**) |
+| useAuthStore-Aw1au7RF | `autoRefreshToken:!0` | sessions auto-refresh (**no hourly logout**) |
+| useAuthStore-Aw1au7RF | `isPremium:()=>!0` + `planType:"ranker"` | premium unlocked |
+| communityApi-Ccw5N_9O | `const s=()=>!1;` | demo gate off → real RPCs |
+| communityApi-Ccw5N_9O | `getGroupMessages` + `getLeaderboard` + `/__leaderboard` | chat + leaderboard methods |
+| Community-CEnEgsrd | `(h.group.subjects||[])` etc. | null-safety crash guards |
+| index-D1Y5F8Lk | no `ingest.us.sentry.io` | Sentry disabled |
+| Focus-B4gLsWoP | NO `window.__pipBridge=` | dead HTTP PiP bridge stripped (native PiP instead) |
+| Auth-D0Y8CB1f | `__isoLogin` / `__isoUp` | auth routed through bridge |
+| sessionSync-mloIEnTd | `remains pending` | sync failures queue, never fake-success |
+| useInvites-D9RLFwf8 | `p_code` | invite RPC param rename |
 
 ---
 
-## Project Summary
+## Bridge endpoint map (`www/android-bridge.js`)
 
-**IsotopeAI Android** is a Capacitor-based Android app wrapping the existing compiled
-React/Vite frontend from the web app.
+Full parity with `server.mjs`. Intercepts `window.fetch`:
 
-- The real application UI is pre-compiled in `www/` (the committed prebuilt output).
-- The Android bridge (`android-bridge.js`) intercepts `/__auth/*` and `/__supa/*` fetch
-  calls and routes them to direct Supabase JS client calls.
-- GitHub Actions builds the APK by running Capacitor against the committed `www/` assets.
+- **Auth:** `/__auth/login|signup|check|logout|bootstrap|profile(GET/POST)|snapshot|
+  backup(POST)|backup/latest|backup/best|restore-best-backup|import|
+  storage/group-icon|storage/study-material|storage/cleanup-preview|storage/cleanup-apply|
+  onboarding-complete`
+- **Community:** `/__leaderboard` (POST; global/daily/group from stats tables w/ user JWT),
+  `/__supa/functions/v1/{finish-session,get-leaderboard,get-daily-leaderboard,
+  get-group-leaderboard,get-group-analytics,community_heartbeat}`.
+  All other `community_*` RPCs pass through directly to Supabase REST with user JWT.
+- **Local:** `/api/version`, `/api/check-update`, `/api/health`, `/api/ai-config`,
+  `/api/restart`, `/__isotope/ping`, `/__isotope/state` (GET+POST), `/__errors` (POST),
+  `/api/community-events` (404 parity), avatar proxy.
+- **Response patcher:** all Supabase JSON responses deep-patched with `isPlanObject`
+  guard → `plan_type/effective_plan/access_source='ranker'`, `billing_status='active'`,
+  expiry dates 2099 (port of PREMIUM_SCRIPT `patchResp`).
+- **Ranker upgrade:** `upgradeProfileToRanker()` PATCHes `users`/`profiles` on bootstrap
+  so server-side RLS passes.
+- **Session persistence:** login/OAuth write localStorage **and** Capacitor Filesystem
+  (`isotope_session.json`, Data dir); `getSession()` falls back to file if localStorage
+  is empty (survives process death). Belt-and-suspenders on top of the baked
+  vs-adapter mirror + `autoRefreshToken`.
 
----
+## Supabase project
 
-## Secret Names (never put values in files)
+- Ref `ollsqiutzartjhiuzkbf` · config in `supabase.config.json` (+ `.env`)
+- All 31 `community_*` RPCs verified present (incl. chat:
+  `community_get_group_messages`, `community_send_group_message`).
+- Migrations live in `supabase/*.sql` (009–014 applied; RLS recursion fixed in 011).
 
-| Name | Purpose |
-|------|---------|
-| `GITHUB_PAT` | Repository read access for CI |
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_PUBLISHABLE_KEY` | Supabase anon/publishable key |
-| `SUPABASE_PROJECT_REF` | Supabase project reference ID |
-| `SUPABASE_ACCESS_TOKEN` | Management API (owner only, not in APK) |
-| `ANDROID_KEYSTORE_BASE64` | Release signing only |
-| `ANDROID_KEYSTORE_PASSWORD` | Release signing only |
-| `ANDROID_KEY_ALIAS` | Release signing only |
-| `ANDROID_KEY_PASSWORD` | Release signing only |
+## Google Sign-In status
 
----
+- Flow = Supabase OAuth redirect (`/auth/v1/oauth/google`) → needs **Web-type**
+  OAuth client ID+Secret configured in Supabase Auth providers (Management API or
+  dashboard). Redirect URI for the Google Console client:
+  `https://ollsqiutzartjhiuzkbf.supabase.co/auth/v1/callback`.
+- Android-type keys NOT required (no native Credential Manager).
 
-## Quick Start for New Agent
+## PiP decision (DEC)
 
-```bash
-npm run agent:resume      # Check state, install deps, show next task
-npm run agent:status      # Print current status at any time
-npm run agent:handoff     # Before ending session
-```
+Native `FloatingTimerService` (overlay) + system PiP via MainActivity is the only PiP.
+Upstream's `pipapk` requires a localhost Node server — incompatible. The captured
+Focus bundle's `__pipBridge` HTTP relay is stripped.
+
+## Build & release
+
+- Push to `main` → GitHub Actions `android.yml`: npm test → cap sync → `node --check`
+  gate over all www JS → assembleDebug → artifact `IsotopeAI-debug-<run>`.
+- Version: bump `package.json`, `android/app/build.gradle` VERSION_NAME,
+  `www/android-bridge.js` APP_VERSION together. versionCode auto-computes
+  (major*10000+minor*100+patch).
+- Install/test loop: `gh run watch` → download artifact → `adb install -r` →
+  logcat + UI sweep.
+
+## Testing
+
+- `npm test` locally (Node test runner, `test/*.test.mjs`).
+- Syntax gate: `find www -name '*.js' -not -path '*/node_modules/*' | xargs -n1 node --check`.
+- Device: ADB wireless (`adb connect <ip>:<port>`); logcat tag filters
+  `IsotopeAI|IsotopeAndroidRuntime|chromium.*ERROR`.
+
+## Key docs
+
+- `.agent/CURRENT_STATE.md` — session log & verified work
+- `.agent/NEXT_TASKS.md` — task queue (ANDROID-012…017)
+- `.agent/TEST_STATUS.md` — evidence table

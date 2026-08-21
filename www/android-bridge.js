@@ -16,7 +16,7 @@
   'use strict';
 
   // ── Constants ───────────────────────────────────────────────────────────────
-  var APP_VERSION = '3.4.6';
+  var APP_VERSION = '3.5.0';
   var SUPA_URL       = 'https://ollsqiutzartjhiuzkbf.supabase.co';
   var SUPA_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
 
@@ -1685,30 +1685,77 @@ var raw = localStorage.getItem('isotope-auth-token') ||
   function handleLocalStatus(url) {
     var p = new URL(url).pathname;
     if (p === '/__isotope/ping') {
-      return Promise.resolve(jsonResponse({ pong: true, android: true }));
+      return Promise.resolve(jsonResponse({ ok: true, ts: Date.now(), android: true }));
     }
     if (p === '/__isotope/state') {
-      return Promise.resolve(jsonResponse({ android: true, version: APP_VERSION, serverOnline: true }));
+      // Web parity: server keeps { timerState, localStorage } app state store.
+      var st = { timerState: null, localStorage: {} };
+      try { st = JSON.parse(localStorage.getItem('isotope_app_state') || '') || st; } catch (e) {}
+      return Promise.resolve(jsonResponse(st));
     }
     if (p.startsWith('/api/health') || p === '/api/status') {
-      return Promise.resolve(jsonResponse({ status: 'ok', android: true, version: APP_VERSION }));
+      return Promise.resolve(jsonResponse({ ok: true, status: 'ok', ts: Date.now(), android: true, version: APP_VERSION }));
     }
     if (p === '/api/version') {
       return Promise.resolve(jsonResponse({
         version: APP_VERSION,
+        sha: 'local',
+        source: 'apk',
+        message: '',
+        updated_at: '',
+        repo: 'Suydev/isotope-apk',
+        local_server: true,
+        pwa_cache: 'isotope-android-shell-' + APP_VERSION,
         android: true,
         commit: 'local',
         update_available: false
       }));
     }
-    if (p === '/api/ai-config') {
-      return Promise.resolve(jsonResponse({ enabled: false, android: true }));
+    if (p === '/api/check-update') {
+      // APK updates ship via GitHub releases/Play — never report an in-app update.
+      return Promise.resolve(jsonResponse({
+        hasUpdate: false,
+        deployed_version: APP_VERSION,
+        latest_version: null,
+        repo: 'Suydev/isotope-apk',
+        android: true
+      }));
     }
-    if (p === '/api/community-events') {
-      // Return empty events — community still works via Supabase Realtime
-      return Promise.resolve(jsonResponse({ events: [], android: true }));
+    if (p === '/api/ai-config') {
+      return Promise.resolve(jsonResponse({ gemini: false, groq: false, enabled: false, android: true }));
+    }
+    if (p === '/api/community-events' || p === '/api/events' || p.indexOf('/api/events/') === 0 || p.indexOf('/api/events?') === 0) {
+      // Events removed upstream — 404 JSON parity with server.mjs
+      return Promise.resolve(jsonResponse({ error: 'Events has been removed from this installation.' }, 404));
     }
     return null;
+  }
+
+  // ── App state store (web parity for POST /__isotope/state) ──────────────────
+  function handleAppStatePost(init) {
+    var body = {};
+    try { if (init && init.body) body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body; } catch (e) {}
+    try {
+      var st = { timerState: null, localStorage: {} };
+      try { st = JSON.parse(localStorage.getItem('isotope_app_state') || '') || st; } catch (e) {}
+      if (body && body.timerState) st.timerState = body.timerState;
+      if (body && body.localStorage && typeof body.localStorage === 'object') {
+        st.localStorage = Object.assign({}, st.localStorage, body.localStorage);
+      }
+      localStorage.setItem('isotope_app_state', JSON.stringify(st));
+    } catch (e) {}
+    return Promise.resolve(jsonResponse({ ok: true }));
+  }
+
+  // Browser error bridge (web parity): swallow client error reports.
+  function handleErrorsPost(init) {
+    var n = 0;
+    try {
+      var body = init && init.body ? (typeof init.body === 'string' ? JSON.parse(init.body) : init.body) : {};
+      n = Array.isArray(body.errors) ? body.errors.length : 0;
+      if (n) console.warn('[IsotopeAndroid] client errors reported:', n);
+    } catch (e) {}
+    return Promise.resolve(jsonResponse({ ok: true, received: n }));
   }
 
   // POST /__auth/login
@@ -3392,22 +3439,45 @@ var raw = localStorage.getItem('isotope-auth-token') ||
   }
 
   // ── Response patcher: ensure premium plan fields for React (web parity) ─────────
-  function patchPlanType(jsonStr) {
-    // Fast path: if already ranker or no plan_type, skip
-    if (jsonStr.indexOf('plan_type') === -1 && jsonStr.indexOf('effective_plan') === -1 && jsonStr.indexOf('access_source') === -1) return jsonStr;
-    // Rewrite all plan_type values to 'ranker'
-    return jsonStr
-      .replace(/"plan_type"\s*:\s*"[^"]*"/g, '"plan_type":"ranker"')
-      .replace(/"effective_plan"\s*:\s*"[^"]*"/g, '"effective_plan":"ranker"')
-      .replace(/"access_source"\s*:\s*"[^"]*"/g, '"access_source":"ranker"');
+  // Exact port of server.mjs PREMIUM_SCRIPT patchResp(): JSON-parse + isPlanObject
+  // guard so domain objects that merely carry a plan_type field (tasks, exams,
+  // store items) are never corrupted. Only user/membership-shaped records patched.
+  function isoIsPlanObject(o) {
+    return ('plan_type' in o || 'billing_status' in o || 'access_ends_at' in o)
+      && !('title' in o || 'subject' in o || 'duration_minutes' in o
+           || 'question' in o || 'content' in o || 'message' in o);
+  }
+
+  function isoDeepPatchPlan(o) {
+    if (!o || typeof o !== 'object') return o;
+    if (Array.isArray(o)) return o.map(isoDeepPatchPlan);
+    var r = Object.assign({}, o);
+    if (isoIsPlanObject(r)) {
+      if ('plan_type' in r) r.plan_type = 'ranker';
+      if ('billing_status' in r) r.billing_status = 'active';
+      if ('plan_expires_at' in r) r.plan_expires_at = '2099-12-31T23:59:59.000Z';
+      if ('access_ends_at' in r) r.access_ends_at = '2099-12-31T23:59:59.000Z';
+      if ('effective_plan' in r) r.effective_plan = 'ranker';
+      if ('access_source' in r) r.access_source = 'ranker';
+      if ('cancel_at_period_end' in r) r.cancel_at_period_end = false;
+    }
+    for (var k in r) {
+      if (r[k] && typeof r[k] === 'object') r[k] = isoDeepPatchPlan(r[k]);
+    }
+    return r;
   }
 
   function patchResponseBody(text) {
     if (!text || !text.trim()) return text;
-    if (text.trim().charAt(0) === '[' || text.trim().charAt(0) === '{') {
-      return patchPlanType(text);
+    var ch = text.trim().charAt(0);
+    if (ch !== '[' && ch !== '{') return text;
+    try {
+      var data = JSON.parse(text);
+      var patched = isoDeepPatchPlan(data);
+      return JSON.stringify(patched);
+    } catch (e) {
+      return text;
     }
-    return text;
   }
 
   window.fetch = function (input, init) {
@@ -3427,6 +3497,22 @@ var raw = localStorage.getItem('isotope-auth-token') ||
     // ── Local static responses ────────────────────────────────────────────────
     var localResp = handleLocalStatus(url);
     if (localResp) return localResp;
+
+    // ── POST endpoints with web parity ────────────────────────────────────────
+    if (method === 'POST' && pathname === '/__isotope/state') {
+      return handleAppStatePost(init);
+    }
+    if (method === 'POST' && pathname === '/__errors') {
+      return handleErrorsPost(init);
+    }
+    if (method === 'POST' && pathname === '/api/restart') {
+      // Legacy no-op parity: APK updates ship via GitHub, nothing to restart.
+      return Promise.resolve(jsonResponse({
+        ok: true,
+        restart: 'manual-command-required',
+        message: 'Android app updates install from GitHub releases; no server to restart.'
+      }, 202));
+    }
 
     // ── Server-check from pwa-local.js: suppress and return ok ───────────────
     // pwa-local.js pings /api/version to check if local server is up.
