@@ -100,6 +100,71 @@ var raw = localStorage.getItem('isotope-auth-token') ||
     };
   })();
 
+  // ── Battery exemption: app-styled prompt (focus sessions survive exit) ──────
+  (function installBatteryPrompt() {
+    var DISMISS_KEY = 'isotope_battery_prompt_dismissed_v1';
+    function native() {
+      try { return window.IsotopeAndroid || null; } catch (e) { return null; }
+    }
+    function maybePrompt() {
+      var iso = native();
+      if (!iso || typeof iso.isBatteryOptimized !== 'function') return;
+      var optimized = false;
+      try { optimized = iso.isBatteryOptimized(); } catch (e) {}
+      if (!optimized) return;
+      try { if (localStorage.getItem(DISMISS_KEY) === '1') return; } catch (e) {}
+      if (document.getElementById('__iso_battery_modal__')) return;
+
+      var wrap = document.createElement('div');
+      wrap.id = '__iso_battery_modal__';
+      wrap.innerHTML =
+        '<div class="iso-bat-backdrop"></div>' +
+        '<div class="iso-bat-card" role="dialog" aria-modal="true">' +
+        '<div class="iso-bat-icon">' +
+        '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>' +
+        '</div>' +
+        '<h2>Keep focus sessions alive</h2>' +
+        '<p>Android stops background apps to save battery. Allow IsotopeAI to run uninterrupted so your <b>timer, sessions and notifications keep working</b> — even after you leave the app.</p>' +
+        '<div class="iso-bat-actions">' +
+        '<button class="iso-bat-later" type="button">Not now</button>' +
+        '<button class="iso-bat-allow" type="button">Allow</button>' +
+        '</div>' +
+        '</div>';
+      var css = document.createElement('style');
+      css.id = '__iso_battery_css__';
+      css.textContent =
+        '#__iso_battery_modal__{position:fixed;inset:0;z-index:2147483646;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}' +
+        '#__iso_battery_modal__ .iso-bat-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)}' +
+        '#__iso_battery_modal__ .iso-bat-card{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,400px);background:#0e0e11;border:1px solid rgba(249,115,22,.25);border-radius:20px;padding:26px 24px 20px;color:#f4f4f5;box-shadow:0 24px 70px rgba(0,0,0,.6)}' +
+        '#__iso_battery_modal__ .iso-bat-icon{width:52px;height:52px;border-radius:14px;background:rgba(249,115,22,.12);border:1px solid rgba(249,115,22,.3);display:flex;align-items:center;justify-content:center;margin-bottom:16px}' +
+        '#__iso_battery_modal__ h2{margin:0 0 8px;font-size:18px;font-weight:800;letter-spacing:-.01em}' +
+        '#__iso_battery_modal__ p{margin:0 0 18px;font-size:13.5px;line-height:1.55;color:#a1a1aa}' +
+        '#__iso_battery_modal__ p b{color:#e4e4e7}' +
+        '#__iso_battery_modal__ .iso-bat-actions{display:flex;gap:10px;justify-content:flex-end}' +
+        '#__iso_battery_modal__ button{border-radius:12px;padding:11px 18px;font-size:13.5px;font-weight:700;cursor:pointer;border:0}' +
+        '#__iso_battery_modal__ .iso-bat-later{background:#1c1c21;color:#a1a1aa}' +
+        '#__iso_battery_modal__ .iso-bat-allow{background:#f97316;color:#09090b}';
+      function close(remember) {
+        try { if (remember) localStorage.setItem(DISMISS_KEY, '1'); } catch (e) {}
+        if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+        if (css.parentNode) css.parentNode.removeChild(css);
+      }
+      wrap.querySelector('.iso-bat-later').addEventListener('click', function () { close(true); });
+      wrap.querySelector('.iso-bat-allow').addEventListener('click', function () {
+        close(false);
+        try { iso.requestBatteryExemption(); } catch (e) {}
+      });
+      document.body.appendChild(css);
+      document.body.appendChild(wrap);
+    }
+    // Prompt after the app settles (dashboard visible), never during boot.
+    if (typeof document !== 'undefined') {
+      var kick = function () { setTimeout(maybePrompt, 6000); };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', kick, { once: true });
+      else kick();
+    }
+  })();
+
   // ── Android tablet layout safety layer ──────────────────────────────────
   // Adds 'iso-android' class to <html> and injects targeted CSS fixes.
   // All DOM calls fully guarded — safe in Node.js test environments.
@@ -122,11 +187,40 @@ var raw = localStorage.getItem('isotope-auth-token') ||
         'html.iso-android [role="dialog"]{max-width:min(92vw,480px)!important;margin:auto!important;}',
         'html.iso-android [data-radix-popper-content-wrapper]{max-width:min(92vw,480px)!important;}',
         'html.iso-android [data-notification-panel]{max-height:min(24rem,calc(100dvh - 9rem))!important;overflow-y:auto!important;width:min(20rem,calc(100vw - 1.5rem))!important;right:0!important;left:auto!important;}',
+        // New-build dropdown panels (notifications etc.): anchor inside viewport
+        'html.iso-android [class*="top-full mt-2"]{right:0!important;left:auto!important;max-width:calc(100vw - 1rem)!important;}',
+        'html.iso-android body{overflow-x:hidden!important;}',
         'html.iso-android [class*="podium"],[class*="leaderboard"]{max-width:100%!important;overflow-x:hidden!important;}',
         'html.iso-android [class*="avatar-stack"] [class*="skeleton"]:empty,html.iso-android [class*="avatar-stack"] div:empty{display:none!important;}',
         'html.iso-android button[class*="p-2"]{min-width:44px!important;min-height:44px!important;}',
-        'html.iso-android [class*="max-h-\\[min\\(24rem"]{max-height:min(24rem,calc(100dvh - 9rem))!important;}',
+        'html.iso-android [class*="max-h-\\[min\\(24rem"]{max-height:min(24rem,calc(100dvh - 9rem))!important;}'
       ].join('\n');
+      // Potato-mode lag fix: kill GPU-heavy effects (backdrop-filter, SVG
+      // turbulence noise, blurs). Chromium logged "tile memory limits exceeded"
+      // repeatedly — these are the culprits on MediaTek devices.
+      // Auto-enables on low-end devices (cores/RAM heuristics), or manual flag.
+      var potato = false;
+      try {
+        potato = localStorage.getItem('isotope_potato_mode') === '1';
+        if (!potato) {
+          var cores = navigator.hardwareConcurrency || 4;
+          var memGB = parseFloat(navigator.deviceMemory || '0');
+          potato = cores <= 4 || (memGB > 0 && memGB <= 4);
+          if (potato) console.log('[IsotopeAI] low-end device detected (' + cores + ' cores, ' + memGB + 'GB) — potato visuals auto-enabled');
+        }
+      } catch (e) {}
+      if (potato) {
+        var ps = document.createElement('style');
+        ps.id = '__iso_potato_css';
+        ps.textContent = [
+          'html.iso-android *,html.iso-android *::before,html.iso-android *::after{',
+          'backdrop-filter:none!important;-webkit-backdrop-filter:none!important;',
+          'filter:none!important;will-change:auto!important;animation-duration:.01ms!important;',
+          'transition-duration:.01ms!important}',
+          'html.iso-android svg filter{display:none!important}'
+        ].join('\n');
+        document.head.appendChild(ps);
+      }
       document.head.appendChild(s);
     }
     // Inject immediately if DOM is ready, otherwise wait for DOMContentLoaded
@@ -2855,12 +2949,20 @@ var raw = localStorage.getItem('isotope-auth-token') ||
   }
 
   function withSyncLock(name, fn) {
+    var now = Date.now();
+    // Stale-lock safety: if a previous run has held the lock >3 min (crashed
+    // tab, hung request), override it instead of failing forever.
     if (syncLocks[name]) {
-      var locked = new Error('Cloud sync is already running.');
-      locked.code = 'SYNC_ALREADY_RUNNING';
-      return Promise.reject(locked);
+      if (syncLocks[name + ':at'] && now - syncLocks[name + ':at'] > 180000) {
+        console.warn('[IsotopeAI] stale sync lock overridden:', name);
+      } else {
+        var locked = new Error('Cloud sync is already running.');
+        locked.code = 'SYNC_ALREADY_RUNNING';
+        return Promise.reject(locked);
+      }
     }
     syncLocks[name] = true;
+    syncLocks[name + ':at'] = now;
     writeSyncMetadata({
       last_sync_status: 'syncing',
       last_error: null,

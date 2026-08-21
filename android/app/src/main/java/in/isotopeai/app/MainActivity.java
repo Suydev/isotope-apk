@@ -48,6 +48,13 @@ public class MainActivity extends BridgeActivity {
         handleDeepLinkIntent(getIntent(), false);
     }
 
+    /**
+     * Focus sessions must survive app exit / Doze. The JS layer shows an
+     * app-styled explainer card first (see __isoBatteryPrompt in
+     * android-bridge.js), then calls IsotopeAndroid.requestBatteryExemption()
+     * which fires the system intent. No jarring cold popup.
+     */
+
     @Override
     public void onStart() {
         super.onStart();
@@ -530,6 +537,30 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public void expandFocusPip() {
             runOnUiThread(() -> expandFloatingTimerInternal());
+        }
+
+        @JavascriptInterface
+        public boolean isBatteryOptimized() {
+            try {
+                android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+                return pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName());
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public void requestBatteryExemption() {
+            runOnUiThread(() -> {
+                try {
+                    SharedPreferences sp = getSharedPreferences("isotope_floating_timer", Context.MODE_PRIVATE);
+                    sp.edit().putBoolean("isotope_battery_prompted", true).apply();
+                    startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:" + getPackageName())));
+                } catch (Exception e) {
+                    android.util.Log.w("IsotopeAI", "battery exemption request failed: " + e.getMessage());
+                }
+            });
         }
     }
 }
