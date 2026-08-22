@@ -16,7 +16,7 @@
   'use strict';
 
   // ── Constants ───────────────────────────────────────────────────────────────
-  var APP_VERSION = '3.5.0';
+  var APP_VERSION = '3.5.1';
   var SUPA_URL       = 'https://ollsqiutzartjhiuzkbf.supabase.co';
   var SUPA_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
 
@@ -61,6 +61,37 @@ var raw = localStorage.getItem('isotope-auth-token') ||
   // Signal to pwa-local.js that server is "online" (no node server needed)
   window.__ISO_ANDROID_NATIVE__ = true;
   window.__ISO_ANDROID_ONLINE__ = true;
+
+  // ── Stale service-worker kill — community black screen fix ────────────────
+  // Old installs cached v3.3.9 bundles in a SW; mixing them with new chunks
+  // crashes React ("usePWA must be used within PWAProvider") → black screen.
+  // Unregister every SW + purge isotope caches ONCE per app version at boot.
+  (function killStaleServiceWorkers() {
+    var SW_KEY = 'iso-sw-purged-version';
+    try {
+      if (localStorage.getItem(SW_KEY) === APP_VERSION) return;
+      if (!('serviceWorker' in navigator) && !('caches' in window)) {
+        localStorage.setItem(SW_KEY, APP_VERSION);
+        return;
+      }
+      var jobs = [];
+      if ('serviceWorker' in navigator) {
+        jobs.push(navigator.serviceWorker.getRegistrations().then(function (regs) {
+          return Promise.all(regs.map(function (r) { return r.unregister().catch(function () {}); }));
+        }).catch(function () {}));
+      }
+      if ('caches' in window) {
+        jobs.push(caches.keys().then(function (keys) {
+          return Promise.all(keys.filter(function (k) { return /isotope|workbox|runtime|precache/i.test(k); })
+            .map(function (k) { return caches.delete(k).catch(function () {}); }));
+        }).catch(function () {}));
+      }
+      Promise.all(jobs).then(function () {
+        localStorage.setItem(SW_KEY, APP_VERSION);
+        console.log('[IsotopeAI] stale SW + caches purged for', APP_VERSION);
+      });
+    } catch (e) {}
+  })();
 
   // ── Runtime error capture — logs to Logcat via console.error ────────────
   window.__ISO_LAST_RUNTIME_ERROR__ = null;
@@ -184,8 +215,9 @@ var raw = localStorage.getItem('isotope-auth-token') ||
       var s = document.createElement('style');
       s.id = styleId;
       s.textContent = [
-        'html.iso-android [role="dialog"]{max-width:min(92vw,480px)!important;margin:auto!important;}',
-        'html.iso-android [data-radix-popper-content-wrapper]{max-width:min(92vw,480px)!important;}',
+        // Dialog sizing: phones keep the 480px cap; tablets let dialogs breathe
+        '@media (max-width:600px){html.iso-android [role="dialog"]{max-width:min(92vw,480px)!important;margin:auto!important;}html.iso-android [data-radix-popper-content-wrapper]{max-width:min(92vw,480px)!important;}}',
+        '@media (min-width:601px){html.iso-android [role="dialog"]{max-width:min(80vw,920px)!important;}html.iso-android [data-radix-popper-content-wrapper]{max-width:min(85vw,960px)!important;}}',
         'html.iso-android [data-notification-panel]{max-height:min(24rem,calc(100dvh - 9rem))!important;overflow-y:auto!important;width:min(20rem,calc(100vw - 1.5rem))!important;right:0!important;left:auto!important;}',
         // New-build dropdown panels (notifications etc.): anchor inside viewport
         'html.iso-android [class*="top-full mt-2"]{right:0!important;left:auto!important;max-width:calc(100vw - 1rem)!important;}',
@@ -2757,6 +2789,8 @@ var raw = localStorage.getItem('isotope-auth-token') ||
   }
 
   // POST /__supa/functions/v1/get-group-analytics
+  // RPC provides the day-series; member-level aggregates are computed here
+  // (port of server.mjs _handleLeaderboard group-analytics branch).
   function handleGetGroupAnalytics(body) {
     var groupId = body && (body.group_id || body.groupId || body.id) || null;
     if (!groupId) return Promise.resolve(jsonResponse({ ok: false, error: 'group_id_required', data: null }, 400));
@@ -2764,28 +2798,102 @@ var raw = localStorage.getItem('isotope-auth-token') ||
       p_group_id: groupId,
       p_days: intFrom(body && (body.days || body.p_days), 30, 1, 366)
     };
-    return rpcPost('/rest/v1/rpc/get_group_analytics_from_snapshots', rpcBody, 'Group analytics RPC failed', function (rows) {
+    return fetch(SUPA_URL + '/rest/v1/rpc/get_group_analytics_from_snapshots', {
+      method: 'POST',
+      headers: (function () {
+        var s = getSession();
+        return {
+          'apikey': SUPA_ANON_KEY,
+          'Authorization': 'Bearer ' + (s && s.access_token || SUPA_ANON_KEY),
+          'Content-Type': 'application/json'
+        };
+      })(),
+      body: JSON.stringify(rpcBody),
+      credentials: 'omit'
+    }).then(function (r) { return r.json().catch(function () { return []; }); }).then(function (rows) {
       var series = Array.isArray(rows) ? rows : [];
       var totalSeconds = series.reduce(function (sum, row) { return sum + Number(row.total_seconds || 0); }, 0);
-      var memberCount = series.reduce(function (max, row) { return Math.max(max, Number(row.member_count || 0)); }, 0);
-      return {
-        ok: true,
-        data: series,
-        group_id: groupId,
-        member_count: memberCount,
-        total_sessions: 0,
-        total_hours: Math.round((totalSeconds / 3600) * 100) / 100,
-        weekly_hours: Math.round((totalSeconds / 3600) * 100) / 100,
-        monthly_hours: Math.round((totalSeconds / 3600) * 100) / 100,
-        group_streak: 0,
-        members_active_today: 0,
-        avg_session_minutes: 0,
-        peak_hour: 12,
-        top_contributor: null,
-        source: 'rpc',
-        display_names_resolved: true,
-        android: true
-      };
+      var totalSessions = series.reduce(function (sum, row) { return sum + Number(row.session_count != null ? row.session_count : row.total_sessions || 0); }, 0);
+      return supaFetch('/rest/v1/group_members?group_id=eq.' + encodeURIComponent(groupId) + '&select=user_id&limit=500', { method: 'GET' })
+        .then(function (r) { return r.json().catch(function () { return []; }); })
+        .then(function (members) {
+          members = Array.isArray(members) ? members : [];
+          var ids = members.map(function (m) { return m.user_id; }).filter(Boolean);
+          var memberCount = Math.max(members.length, series.reduce(function (max, row) { return Math.max(max, Number(row.member_count || 0)); }, 0));
+          if (!ids.length) {
+            return baseResult(memberCount);
+          }
+          var idList = '(' + ids.join(',') + ')';
+          var today = new Date().toISOString().slice(0, 10);
+          return Promise.all([
+            supaFetch('/rest/v1/user_stats_summary?select=user_id,total_hours,weekly_hours,total_sessions,current_streak,last_session_at&user_id=in.' + idList + '&limit=500', { method: 'GET' }).then(function (r) { return r.json().catch(function () { return []; }); }),
+            supaFetch('/rest/v1/daily_user_stats?select=user_id&date=eq.' + today + '&user_id=in.' + idList + '&limit=500', { method: 'GET' }).then(function (r) { return r.json().catch(function () { return []; }); }),
+            supaFetch('/rest/v1/users?select=id,username,name,avatar_url&id=in.' + idList + '&limit=500', { method: 'GET' }).then(function (r) { return r.json().catch(function () { return []; }); })
+          ]).then(function (res) {
+            var stats = Array.isArray(res[0]) ? res[0] : [];
+            var activeTodayRows = Array.isArray(res[1]) ? res[1] : [];
+            var users = Array.isArray(res[2]) ? res[2] : [];
+            var byId = {};
+            users.forEach(function (u) { byId[u.id] = u; });
+            var groupStreak = stats.reduce(function (mx, s) { return Math.max(mx, Number(s.current_streak) || 0); }, 0);
+            var activeToday = activeTodayRows.length;
+            // Fallback: last_session_at today also counts as active.
+            if (!activeToday) {
+              var t0 = today;
+              activeToday = stats.filter(function (s) { return s.last_session_at && String(s.last_session_at).slice(0, 10) === t0; }).length;
+            }
+            var top = stats.reduce(function (best, s) {
+              return (!best || (Number(s.total_hours) || 0) > (Number(best.total_hours) || 0)) ? s : best;
+            }, null);
+            var topUser = top ? byId[top.user_id] : null;
+            var avgSessionMinutes = totalSessions > 0 ? Math.round((totalSeconds / totalSessions / 60) * 10) / 10 : 0;
+            var out = baseResult(memberCount);
+            out.group_streak = groupStreak;
+            out.members_active_today = activeToday;
+            out.avg_session_minutes = avgSessionMinutes;
+            out.total_sessions = totalSessions;
+            out.top_contributor = top ? {
+              user_id: top.user_id,
+              name: (topUser && (topUser.name || topUser.username)) || 'Student',
+              avatar_url: (topUser && topUser.avatar_url) || null,
+              total_hours: Number(top.total_hours) || 0
+            } : null;
+            out.members = stats.map(function (s) {
+              var u = byId[s.user_id] || {};
+              return {
+                user_id: s.user_id,
+                name: u.name || u.username || 'Student',
+                username: u.username || null,
+                avatar_url: u.avatar_url || null,
+                total_hours: Number(s.total_hours) || 0,
+                weekly_hours: Number(s.weekly_hours) || 0,
+                current_streak: Number(s.current_streak) || 0
+              };
+            });
+            return out;
+          });
+        });
+
+      function baseResult(memberCount) {
+        return {
+          ok: true,
+          data: series,
+          group_id: groupId,
+          member_count: memberCount,
+          total_sessions: totalSessions,
+          total_hours: Math.round((totalSeconds / 3600) * 100) / 100,
+          weekly_hours: Math.round((totalSeconds / 3600) * 100) / 100,
+          monthly_hours: Math.round((totalSeconds / 3600) * 100) / 100,
+          group_streak: 0,
+          members_active_today: 0,
+          avg_session_minutes: totalSessions > 0 ? Math.round((totalSeconds / totalSessions / 60) * 10) / 10 : 0,
+          peak_hour: 12,
+          top_contributor: null,
+          source: 'rpc+computed',
+          display_names_resolved: true,
+          android: true
+        };
+      }
     });
   }
 
@@ -3785,6 +3893,10 @@ var raw = localStorage.getItem('isotope-auth-token') ||
         if (fnName === 'get-group-analytics' || fnName === 'get_group_analytics') {
           return handleGetGroupAnalytics(efBody);
         }
+        // Community presence heartbeat — local handler (no edge function deployed)
+        if (fnName === 'community_heartbeat') {
+          return handleCommunityHeartbeat(efBody);
+        }
         // Unknown edge function — fall through to proxy
         return handleSupaProxy(url, init || {}, init && init.body);
       });
@@ -3812,6 +3924,28 @@ var raw = localStorage.getItem('isotope-auth-token') ||
       return fetch(SUPA_URL + '/storage/v1/object/public/avatars/' + avatarPath, {
         headers: { 'apikey': SUPA_ANON_KEY },
         credentials: 'omit'
+      });
+    }
+
+    // ── Community RPCs: direct Supabase → localhost:3000 fallback ────────────
+    // Groups/invites/session-sync RPCs go straight to Supabase with the user's
+    // JWT. If that fails (RLS hiccup, transient policy issue) and an isotope-code
+    // server is running on this device at 127.0.0.1:3000, retry through its
+    // /__supa proxy once. Standalone APK unaffected when no server exists.
+    var mCommunityRpc = url.indexOf(SUPA_URL) === 0 &&
+      /^\/rest\/v1\/rpc\/(community_|accept_invite|get_invite_details|finish_session_sync|get_leaderboard|get_group_leaderboard)/.test(pathname);
+    if (mCommunityRpc) {
+      return _originalFetch.apply(this, arguments).then(function (resp) {
+        if (resp.ok && resp.status !== 404) return resp;
+        var fbUrl = 'http://127.0.0.1:3000/__supa' + url.slice(SUPA_URL.length);
+        var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        var timer = ctl ? setTimeout(function () { try { ctl.abort(); } catch (e) {} }, 2500) : null;
+        var fbInit = {};
+        for (var kk in (init || {})) fbInit[kk] = init[kk];
+        if (ctl) fbInit.signal = ctl.signal;
+        return _originalFetch.call(window, fbUrl, fbInit)
+          .then(function (fbResp) { clearTimeout(timer); return fbResp.ok ? fbResp : resp; })
+          .catch(function () { clearTimeout(timer); return resp; });
       });
     }
 

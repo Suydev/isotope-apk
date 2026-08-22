@@ -864,6 +864,13 @@ function preloadAssets() {
 
   // Step 3: routing. Deep links are preserved unless their resolved boot state
   // contradicts the target, because UNKNOWN must never render onboarding.
+  //
+  // ⚠️ OAuth-return guard: when this page load carries OAuth tokens in the URL,
+  // restore-and-launch would otherwise see "no session yet" (tokens live only
+  // in the fragment until supabase-js consumes it) and rewrite /dashboard →
+  // /auth, DESTROYING the login. Skip every route rewrite in that case.
+  const __isoOAuthReturn = /[&#](?:access_token|refresh_token|code)=/.test(window.location.href);
+  if (!__isoOAuthReturn) {
   const currentPath = window.location.pathname;
   const isRoot      = (currentPath === '/' || currentPath === '');
   const isOnboardingPath = currentPath === '/onboarding' || currentPath.startsWith('/onboarding/');
@@ -885,6 +892,7 @@ function preloadAssets() {
     window.history.replaceState(null, '', '/onboarding');
   } else if (session && bootDecision?.state === BOOT_STATES.SYNC_FAILED && (isOnboardingPath || isAuthPath)) {
     // Preserve current route so the app can show retry/loading instead of guessing.
+  }
   }
 
   // Step 4: preload the app bundle

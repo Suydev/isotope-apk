@@ -27,6 +27,7 @@
   var _renderedUrl = null;
   var _renderedKind = null;
   var _renderedTarget = null;
+  var _revivedFor = null;
 
   function openIdb() {
     return new Promise(function (resolve, reject) {
@@ -463,6 +464,26 @@
       if (playAfterMeta && playAfterMeta.catch) playAfterMeta.catch(function () {});
     };
     vid.onerror = function () {
+      // Self-heal: blob: URLs can die (revoked/GC'd across SPA remounts).
+      // Re-read the persisted blob from IndexedDB, mint a FRESH object URL,
+      // and retry once before surfacing an error.
+      if (/^blob:/i.test(url) && _revivedFor !== url) {
+        _revivedFor = url;
+        idbGet(CUSTOM_KEY).then(function (saved) {
+          var blob = saved && saved.type === 'blob' && saved.blob instanceof Blob
+            ? saved.blob
+            : (saved instanceof Blob ? saved : null);
+          if (!blob) {
+            toast('This video could not play. Use MP4 or WebM for best support.', 'error');
+            return;
+          }
+          var fresh = URL.createObjectURL(blob);
+          applyBackground(fresh, true, true);
+        }).catch(function () {
+          toast('This video could not play. Use MP4 or WebM for best support.', 'error');
+        });
+        return;
+      }
       toast('This video could not play. Use MP4 or WebM for best support.', 'error');
     };
     vid.load();
@@ -478,6 +499,16 @@
 
   function ensureActiveBackground() {
     if (!_activeUrl || !isOnFocus()) return;
+    // Liveness check: a video element that errored (dead blob URL) or a target
+    // removed from the DOM must be re-applied, not skipped.
+    var vidEl = document.getElementById('__iso_focus_vid__');
+    var deadVideo = _activeKind === 'video' && (!vidEl || vidEl.error ||
+      (_renderedTarget && !document.contains(_renderedTarget)) ||
+      _renderedUrl !== _activeUrl);
+    if (deadVideo) {
+      applyVideoToDom(_activeUrl);
+      return;
+    }
     if (_renderedUrl === _activeUrl && _renderedKind === _activeKind && _renderedTarget && isVisible(_renderedTarget)) {
       refreshBlur();
       return;

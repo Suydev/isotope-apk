@@ -1,192 +1,80 @@
 # IsotopeAI Android — Current State
 
-**Updated:** 2026-08-21 (session 7)
-**Branch:** main
-**Current phase:** Community patches baked into www; awaiting APK build + device verification
+**Updated:** 2026-08-22 (session 8)
+**Branch:** main · **Last commit:** 358e85a (v3.5.0.2) + UNCOMMITTED work in tree
+**Tests:** 57 pass / 0 fail · **Syntax gate:** ALL www JS PASS
 
 ---
 
-## Verified This Session (2026-08-21 session 7)
+## Session 8 (2026-08-22) — completed
 
-- [x] **Server.mjs capture & patch bake:** Ran `server.mjs` with local Supabase env,
-  captured 133 patched assets into `www/assets/`. Patches applied: communityApi
-  premium gate (`s=()=>!1`), chat/leaderboard methods (`getGroupMessages`, `sendGroupMessage`,
-  `getLeaderboard`), hub Store/Events removal, dashboard null-guard, PWA reload guard.
-- [x] **android-bridge.js `/__leaderboard` handler:** Added RESTful leaderboard query
-  (mirrors server.mjs implementation, uses user JWT for RLS).
-- [x] **auth-bridge.js `upgradeProfileToRanker()`:** Added profile upgrade on bootstrap
-  (patches `users`/`profiles` to `plan_type='ranker'`) to unlock RLS for community queries.
-- [x] **analyticsWorker restored:** Real worker (152KB) restored; was corrupted with
-  audit placeholder after earlier capture.
-- [x] **Commit 04d6896 pushed:** Baked patches, bridge handlers, analyticsWorker fix.
+### OAuth / Google sign-in chain (end-to-end wired)
+1. `useAuthStore-Aw1au7RF.js` — VERIFIED all anchors: `autoRefreshToken:!0`,
+   `isPremium:()=>!0`, `planType:"ranker"`, isotope-auth-token mirror,
+   `redirectTo:"https://localhost:6767/oauth-return"` baked.
+2. `MainActivity.java` — CRITICAL FIX: deep-link handler now preserves the URI
+   **fragment** (`#access_token=...`) when relaying `isotopeai://auth/callback`
+   into the WebView. Previously tokens were dropped → Google sign-in failed silently.
+3. `PipHttpServer.java` — `/oauth-return` relay page forwards hash → deep link,
+   then POSTs `/__oauth/consumed`; endpoint then STOPS relaying (serves static
+   "Signed in" page). Added pause/resume/togglePause to allowed floating-timer
+   actions (parity with server.mjs PIP_ALLOWED_ACTIONS).
+4. **Google Console redirect URI answer:** Web application client, authorized
+   redirect = `https://ollsqiutzartjhiuzkbf.supabase.co/auth/v1/callback` (Google side);
+   Supabase Auth allow-list must include `https://localhost:6767/**`.
+   No Android-type client needed.
 
----
+### Community backend gaps closed (android-bridge.js)
+- `handleCommunityHeartbeat` was dead code → now routed in edge-function dispatcher.
+- `handleGetGroupAnalytics` zero-stubs replaced with real computation (port of
+  server.mjs group-analytics branch): group_streak, members_active_today,
+  avg_session_minutes, total_sessions, top_contributor (+ members enrichment)
+  from group_members + user_stats_summary + daily_user_stats + users.
+- Known remaining gap (low): currentUserRank null on RPC edge-fn leaderboard
+  variants; `/__leaderboard` path already computes it.
+- Chat transport verified: legacy bundle polls RPC every 8s (works via bridge);
+  newer bundles use Supabase Realtime WebSocket (bypasses fetch bridge, works natively).
 
-## Verified This Session (2026-08-20 session 6)
+### Community black-screen fix
+- Root cause (high confidence): stale SW from old installs serves v3.3.9 bundles
+  mixed with new → dual React contexts → crash.
+- Fix: android-bridge.js now unregisters ALL service workers + purges
+  isotope/workbox/runtime/precache caches at boot, once per APP_VERSION
+  (localStorage key `iso-sw-purged-version`).
 
-- [x] **Root cause of WebView "Missing initializer in destructuring declaration":** the
-      `apply-android-patches.js` build-time script corrupted 6 bundles with unbalanced braces /
-      invalid insertions (`Auth`, `useOnlineStatus`, `useAuthStore`, `useNotificationStore`,
-      `workbox-window`, `Analytics`). Fresh web files + corrected integration applied.
-- [x] Analyst evidence: exact device error reproduced in phone browser (Chrome/148) against
-      `www/`; acorn/esbuild/Node all flagged the same corrupt constructs.
-- [x] `scripts/apply-android-patches.js` **deleted** (user directive: never use it again).
-      Integration changes are baked directly into the committed `www/` bundles.
-- [x] 5 bundles regenerated from live site (`isotopeai.in/assets/`) + corrected Android
-      integration; `Analytics-B1QTymFp.js` taken clean from `isotope-code/public/assets/` (option B).
-- [x] Removed every reference: `package.json` (`apply-patches`, build chain),
-      `.github/workflows/android.yml` + `release.yml` (X steps), `scripts/agent-resume.sh`,
-      `test/prepare-patches.test.mjs` (deleted), `test/android-layout-parity.test.mjs` (patches
-      checks removed), README/replit/AGENTS/plan/memory docs.
-- [x] **All 141 `www/` JS files parse as ES modules** (acorn latest, module mode).
-- [x] `npm test`: **57 pass / 0 fail** (4 pre-existing skips) after test cleanup.
-- [x] Both workflow YAML files parse; CI no longer invokes the deleted script; CI runs
-      `prepare-www`? NO — CI uses committed `www/` + `npx cap sync android` + www JS syntax gate.
-- [ ] Phone browser confirmation of login screen (`http://192.168.1.63:8080/` → /signin).
+### Tablet behaves like PC ("smart resolution file")
+- NEW `www/iso-screen.js` (loaded in index.html right after android-bridge.js):
+  - On Android app with real viewport ≥640 CSS px, reports ≥1280 to JS.
+  - Overrides `window.innerWidth` getter + wraps `matchMedia` width queries.
+  - CSS/vw untouched (dialog media queries still per-real-screen).
+  - Fixes: Sidebar `innerWidth<1024` mobile-nav on tablet, Study `>=1280`
+    desktop gate, Tasks matchMedia(639px), ToolsModal/SessionEdit/Analytics checks.
 
----
+### Focus video background self-heal (focus-bg-import.js)
+- Dead blob: URLs (revoked across SPA remounts) no longer show "could not play".
+- `vid.onerror`: if blob URL → re-read blob from IDB → fresh objectURL → retry once.
+- `ensureActiveBackground()` liveness check: dead video element or detached target
+  forces re-apply instead of skip.
+- Note: upstream focusBackground-Dc8Rc9XQ.js validator strips blob/data URLs at
+  persist time — irrelevant now because OUR layer stores blobs in its own IDB key.
 
-## Verified This Session (2026-08-14 session 5)
-
-- [x] `npm test`: **63/63 PASS** — all tests pass locally and in CI
-- [x] Release workflow fixed: synced `ISOTOPE_CODE_REF` to match android.yml (785f9ef)
-- [x] Test assertion fixes for v3.3.9 bundles:
-  - DashboardHeader: `className:` regex (minified bundles have no space after colon)
-  - Removed Leaderboard-UI chunk assertion (file doesn't exist in source)
-  - Removed `Join with Code` assertion (not in current CommunityHub source)
-  - Removed `k?.plan_type?` assertion (not in DashboardHeader source)
-- [x] Both CI workflows pass: Build Android APK ✅ and Release ✅
-- [x] Release APK published to GitHub Releases (v3.3.9)
-- [x] Production asset puller script added (`scripts/pull-production-assets.js`)
-
----
-
-## Verified Previous Session (2026-07-08 session 2)
-
-- [x] `npm test`: **62/62 PASS** (maintained throughout all fixes)
-- [x] RLS infinite-recursion root cause found and fixed (migration 011)
-- [x] Group categories backfilled (all 8 groups have correct category)
-- [x] group_challenges now accessible for anon role (GRANT applied)
-- [x] Bridge `get-daily-leaderboard` now routes to group leaderboard when groupId present
-- [x] Supabase migration `011_fix_rls_recursion.sql` applied to prod
+### restore-and-launch.js syntax fix
+- Unclosed `if (!__isoOAuthReturn) {` block (line ~873) broke whole boot script
+  parse → would white-screen every launch. Fixed + gate-passed.
 
 ---
 
-## Root Cause of "Failed to load groups" 500 Error
+## Pending / queued
+- **Proof screenshots review:** ~/storage/downloads/proof/ (4 jpgs, black screen
+  evidence from 08-21). Skip Record mp4 + focus folder. SCHEDULED BY USER.
+- Commit + push all uncommitted work → CI APK build (needs user approval).
+- Device sweep after build: login persistence, community full pass, sync verify,
+  Google sign-in E2E, notifications, battery card, scroll.
+- Supabase allow-list verify: confirm `https://localhost:6767/**` present in
+  redirect URLs (user says done; not independently verified this session).
 
-**Migration 009 created an infinitely recursive RLS policy:**
-
-```sql
--- gm_read_members (from 009) — SELF-REFERENTIAL:
-FOR SELECT USING (group_id IN (
-  SELECT gm2.group_id FROM group_members gm2 WHERE gm2.user_id = auth.uid()
-))
--- When gchall_manager_write or gann_manager_write subquery hits group_members,
--- gm_read_members fires again → group_members subquery → gm_read_members → ∞ → HTTP 500
-```
-
-**Fix applied (migration 011):**
-```sql
--- gm_read_members now uses SECURITY DEFINER function (no recursion):
-FOR SELECT USING (
-  user_id = (SELECT auth.uid())
-  OR public._is_group_member(group_id, (SELECT auth.uid()))
-)
--- Also dropped gchall_manager_write and gann_manager_write (redundant + recursive)
-```
-
----
-
-## Supabase Project
-- Ref: `vteqquoqvksshmfhuepu`
-- URL: `https://vteqquoqvksshmfhuepu.supabase.co`
-- Access via `SUPABASE_PAT` secret (Management API)
-
----
-
-## Migrations Applied (in order)
-1. `009_community_hardening.sql` — 7 community RPCs, updated RLS policies
-2. `010_cleanup_group_members_rls.sql` — restored gm_client_insert_compat
-3. `011_fix_rls_recursion.sql` — **fixed gm_read_members recursion; dropped recursive ALL policies**
-
-## DB State After All Migrations
-
-### group_members policies:
-- `gm_admin_update` UPDATE — `user_id = auth.uid() OR _is_group_member(...)`
-- `gm_client_insert_compat` INSERT — `user_id = auth.uid()` (allows owner + member inserts)
-- `gm_read_members` SELECT — `user_id = auth.uid() OR _is_group_member(...)` (no recursion)
-- `gm_self_delete` DELETE — `user_id = auth.uid()`
-
-### groups policies:
-- `groups_read_public` SELECT (anon) — `is_public = true AND is_active = true AND deleted_at IS NULL`
-- `groups_read_authenticated` SELECT (authenticated) — `is_public...` OR `private.is_group_member`
-- `groups_insert_own` INSERT — `owner_id = auth.uid()`
-- `groups_update_own` UPDATE — `owner_id = auth.uid()`
-- `groups_delete_own` DELETE — `owner_id = auth.uid()`
-
-### group_challenges policies:
-- `gchall_read` SELECT — `is_active = true OR _is_group_member(...)` (active = discoverable by all)
-- `group_challenges_read_members` SELECT — `_is_group_member(...)` (private inactive challenges)
-- `group_challenges_insert_managers` / `_update_managers` / `_delete_managers` — `private.can_manage_group`
-
-### Groups with categories:
-- Competitive Coding → coding
-- CS & Algorithms → coding
-- JEE → science
-- JEE ADVANCED → science
-- Language Lab → languages
-- Math Mastery → science
-- Physics Olympiad → science
-- Pre-Med Biology → science
-
----
-
-## Community Feature Status
-
-| Feature | DB | Bridge | Bundle | Device |
-|---------|-----|--------|--------|--------|
-| Load groups list | ✅ (RLS fixed) | N/A | ✅ | 🔄 |
-| Filter by category | ✅ (backfilled) | N/A | ✅ | 🔄 |
-| Create group | ✅ (gm_insert_compat) | N/A | ✅ (throws on error) | 🔄 |
-| Join group | ✅ (gm_insert_compat) | N/A | ✅ | 🔄 |
-| Leave group | ✅ (gm_self_delete) | N/A | ✅ | 🔄 |
-| View members (SingleGroup) | ✅ (gm_read fixed) | N/A | ✅ | 🔄 |
-| Group chat | ✅ (private.is_group_member) | N/A | ✅ | 🔄 |
-| Group challenges | ✅ (active = public) | N/A | ✅ | 🔄 |
-| Group leaderboard (daily) | ✅ get_group_leaderboard | ✅ routes to group RPC | ✅ | 🔄 |
-| Group leaderboard (weekly+) | ✅ get_leaderboard | ✅ | ✅ | 🔄 |
-| Group analytics | ✅ get_group_analytics | ✅ | ✅ | 🔄 |
-| Group icon upload | ✅ | ✅ /__auth/storage/group-icon | ✅ | 🔄 |
-
----
-
-## www/ Build Chain
-- CI checks out `isotope-code` at `ISOTOPE_CODE_REF = 4bc0e8418e4a694a25a7fc7f92a01f2fa7e65201` (latest main)
-- CI runs `prepare-www.js` → copies `isotope-code/public/` → `www/`
-- CI runs `apply-android-patches.js` → patches community bundles, removes premium gates
-- android-bridge.js and auth-bridge.js injected into index.html
-
-## Test Coverage
-- `npm test`: 62/62 PASS
-- Bridge handles: finish-session, get-leaderboard, get-daily-leaderboard (→ group RPC when groupId), get-group-leaderboard, get-group-analytics, create_checkout (disabled), redeem_membership_code (grants ranker)
-
----
-
-## Device Test Priorities (next session)
-1. **Community groups load** — should now show 8 groups with correct categories
-2. **Create group** — should succeed and add owner to group_members
-3. **Join/Leave group** — direct insert/delete through gm_client_insert_compat
-4. **Group member list** — gm_read_members no longer recursive
-5. **Group chat** — send and receive messages
-6. **View All Members button** — still needs investigation (ANDROID-015)
-7. **syncFailed screen** → /auth CTA
-8. **Privacy page scroll** — SCROLLABLE_PATHS includes /privacy
-
----
-
-## Files Modified This Session
-- `android-bridge.js` — fixed handleGetDailyLeaderboard to route to group RPC when groupId present; removed no-op popstate listener
-- `isotope-code/sql/011_fix_rls_recursion.sql` — new migration (applied to prod)
-- `test/prepare-patches.test.mjs` — added assertions for syncFailed CTA and useGroups error throw
-- `.agent/CURRENT_STATE.md` — this file
-- `.agent/NEXT_TASKS.md` — updated task queue
+## PiP decision status
+- In-app native FloatingTimerService remains primary overlay (DEC stands).
+- PipHttpServer :3000 keeps full pipapk protocol parity (state/action/health),
+  so external pipapk still works if ever needed; actions replay into WebView
+  via __ISO_FLOATING_TIMER__.handleNativeAction queue.

@@ -103,10 +103,40 @@ public class FloatingTimerService extends Service {
     private final Runnable tickRunnable = new Runnable() {
         @Override public void run() {
             if (state == null || !state.isActive()) { stopSelf(); return; }
+            maybeNotifyCompletion();
             renderDynamicFields();
             handler.postDelayed(this, 500);
         }
     };
+
+    private boolean completionNotified = false;
+
+    /**
+     * Native completion notification: when a running countdown reaches zero we
+     * post a high-importance notification ourselves — reliable even when the
+     * WebView is backgrounded/killed (JS timers die, this service survives).
+     */
+    private void maybeNotifyCompletion() {
+        if (state == null || !"running".equals(state.timerState) || "stopwatch".equals(state.mode)) return;
+        int remaining = state.displaySecondsNow();
+        if (remaining > 0) { if (remaining > 5) completionNotified = false; return; }
+        if (completionNotified) return;
+        completionNotified = true;
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            android.app.NotificationChannel done = new android.app.NotificationChannel(
+                "isotope-focus-complete", "Focus Completed", NotificationManager.IMPORTANCE_HIGH);
+            done.enableVibration(true);
+            nm.createNotificationChannel(done);
+            android.app.Notification n = new android.app.Notification.Builder(this, "isotope-focus-complete")
+                .setSmallIcon(getApplicationInfo().icon)
+                .setContentTitle("Focus session complete 🎉")
+                .setContentText(state.focusTypeLabel + " — " + state.formatTotal() + " done. Take a breath.")
+                .setAutoCancel(true)
+                .build();
+            nm.notify(2001, n);
+        } catch (Exception ignored) {}
+    }
 
     // ─────────────────────────── Lifecycle ───────────────────────────────────
 
@@ -842,6 +872,13 @@ public class FloatingTimerService extends Service {
             if ("paused".equals(timerState))  return "Paused";
             if ("break".equals(timerState) || "break".equals(activePhase)) return "Break";
             return "Idle";
+        }
+
+        String formatTotal() {
+            int total = Math.max(totalSeconds, displayedSeconds);
+            int h = total / 3600, m = (total % 3600) / 60;
+            if (h > 0) return h + "h " + m + "m";
+            return m + "m";
         }
 
         int statusColor() {

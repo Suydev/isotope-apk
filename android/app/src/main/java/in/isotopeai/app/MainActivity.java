@@ -44,6 +44,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         installIsotopeAndroidBridge();
         registerFloatingActionReceiver();
+        PipHttpServer.start(this);
         // Handle cold-start deep link (app launched from invite/community link)
         handleDeepLinkIntent(getIntent(), false);
     }
@@ -142,8 +143,15 @@ public class MainActivity extends BridgeActivity {
         Uri uri = intent.getData();
         if (uri == null) return;
 
+        // OAuth return carries tokens in the URI fragment (#access_token=...&refresh_token=...).
+        // The WebView MUST receive that fragment verbatim so supabase-js can consume it
+        // (detectSessionInUrl); dropping it destroys the Google sign-in.
+        String fragment = uri.getEncodedFragment();
         String webRoute = resolveDeepLinkRoute(uri);
         if (webRoute == null) return;
+        if (fragment != null && !fragment.isEmpty() && webRoute.startsWith("/auth/callback") && !webRoute.contains("#")) {
+            webRoute = webRoute + "#" + fragment;
+        }
 
         if (immediate) {
             navigateWebViewTo(webRoute);
@@ -281,6 +289,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void startFloatingTimerService(String stateJson) {
+        PipHttpServer.setLastState(stateJson);
         if (!hasOverlayPermissionInternal()) {
             requestOverlayPermissionInternal();
             return;
@@ -296,6 +305,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void updateFloatingTimerService(String stateJson) {
+        PipHttpServer.setLastState(stateJson);
         if (!hasOverlayPermissionInternal()) {
             return;
         }
@@ -415,14 +425,17 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    private static boolean isAllowedFloatingTimerAction(String type) {
+    static boolean isAllowedFloatingTimerAction(String type) {
         return "correct".equals(type)
             || "incorrect".equals(type)
             || "skipped".equals(type)
             || "undo".equals(type)
             || "setTarget".equals(type)
             || "expand".equals(type)
-            || "close".equals(type);
+            || "close".equals(type)
+            || "pause".equals(type)
+            || "resume".equals(type)
+            || "togglePause".equals(type);
     }
 
     private static JSONArray readActionQueue(Context context) {
