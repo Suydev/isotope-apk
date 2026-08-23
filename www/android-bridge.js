@@ -16,7 +16,7 @@
   'use strict';
 
   // ── Constants ───────────────────────────────────────────────────────────────
-  var APP_VERSION = '3.5.1';
+  var APP_VERSION = '3.5.2';
   var SUPA_URL       = 'https://ollsqiutzartjhiuzkbf.supabase.co';
   var SUPA_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
 
