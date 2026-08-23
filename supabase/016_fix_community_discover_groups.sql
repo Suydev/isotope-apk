@@ -26,7 +26,7 @@ DECLARE
   v_result jsonb;
 BEGIN
   v_sql := 'SELECT COALESCE(jsonb_agg(jsonb_build_object('
-    || '''id'', g.id, ''name'', g.name, ''slug'', lower(regexp_replace(g.name, ''[^a-z0-9]+'', ''-'', ''g'')),'
+    || '''id'', g.id, ''name'', g.name, ''slug'', trim(both ''-'' from lower(regexp_replace(lower(g.name), ''[^a-z0-9]+'', ''-'', ''g''))),'
     || '''memberCount'', (SELECT COUNT(*) FROM public.group_members gm WHERE gm.group_id = g.id),'
     || '''activeNow'', 0, ''visualKey'', g.visual_key, ''exam'', g.exam, ''targetYear'', g.target_year'
     || ')), ''[]''::jsonb) FROM public.groups g WHERE g.deleted_at IS NULL';
