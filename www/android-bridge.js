@@ -339,7 +339,10 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
         'html.iso-android [class*="avatar-stack"] [class*="skeleton"]:empty,html.iso-android [class*="avatar-stack"] div:empty{display:none!important;}',
         'html.iso-android button[class*="p-2"]{min-width:44px!important;min-height:44px!important;}',
         'html.iso-android [class*="max-h-\\[min\\(24rem"]{max-height:min(24rem,calc(100dvh - 9rem))!important;}',
-        'html.iso-android [class*="pwa"], html.iso-android [data-pwa], html.iso-android button[class*="update"]{display:none!important;}'
+        'html.iso-android [class*="pwa"], html.iso-android [data-pwa], html.iso-android button[class*="update"]{display:none!important;}',
+        'html.iso-android .community-modal-backdrop{position:absolute!important;height:100dvh!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important;overscroll-behavior:contain!important;}',
+        'html.iso-android .community-modal{max-height:80vh!important;max-width:min(92vw,480px)!important;margin:12px auto!important;padding:12px!important;}',
+        'html.iso-android .community-modal input, html.iso-android .community-modal textarea, html.iso-android .community-modal select{font-size:16px!important;}'
       ].join('\n');
       // Potato-mode lag fix: kill GPU-heavy effects (backdrop-filter, SVG
       // turbulence noise, blurs). Chromium logged "tile memory limits exceeded"
