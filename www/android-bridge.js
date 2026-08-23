@@ -384,6 +384,22 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     }
   })();
 
+  // ── Global NaN display fix: invalid dates → "just now" ────────────────────
+  (function(){
+    try{
+      setInterval(function(){
+        try{
+          var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);
+          var n; while(n=w.nextNode()){
+            if(n.nodeValue&&n.nodeValue.indexOf('NaN')!==-1){
+              n.nodeValue=n.nodeValue.replace(/NaN[smhdw]?\s*ago/g,'just now').replace(/NaNa/g,'—').replace(/NaN/g,'—');
+            }
+          }
+        }catch(e){}
+      },1200);
+    }catch(e){}
+  })();
+
   // ── Scroll enabler for long-content pages (Privacy, About, Settings, etc.) ──
   // Android WebView inherits the app's `overflow: hidden` on html/body, which
   // blocks scrolling on the landing-page static routes. This IIFE listens for
