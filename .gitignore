@@ -10,3 +10,9 @@ web-app-source/
 .replit-tmp/
 
 .agents/skills/
+
+# Local secrets & scratch files
+.pat
+.pat.b64
+gate.log
+*.log

@@ -62,6 +62,117 @@ var raw = localStorage.getItem('isotope-auth-token') ||
   window.__ISO_ANDROID_NATIVE__ = true;
   window.__ISO_ANDROID_ONLINE__ = true;
 
+  // ── Ghost mode store — wires Settings "Ghost Mode" toggle to community privacy ──
+  // Reads/writes stealthMode via community_get_privacy / community_save_privacy
+  // (through this bridge's Supabase REST path). LocalStorage mirrors the value
+  // so the Settings toggle can hydrate synchronously before React mounts.
+  (function installGhostModeStore() {
+    var LS_KEY = 'iso-ghost-mode';
+    var listeners = [];
+    function cached() {
+      try { return localStorage.getItem(LS_KEY) === '1'; } catch (e) { return false; }
+    }
+    var value = cached();
+    function notify(v) { listeners.forEach(function (fn) { try { fn(v); } catch (e) {} }); }
+    function getAccessToken() {
+      try {
+        var raw = localStorage.getItem('isotope-auth-token') ||
+                  localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token');
+        if (!raw) return null;
+        var p = JSON.parse(raw);
+        return (p && p.access_token) || null;
+      } catch (e) { return null; }
+    }
+    window.__isoGhostStore = {
+      get value() { return value; },
+      subscribe: function (fn) { listeners.push(fn); return function () { listeners = listeners.filter(function (f) { return f !== fn; }); }; },
+      refresh: function () {
+        var token = getAccessToken();
+        if (!token || typeof supaFetch !== 'function' || typeof getSession !== 'function') return Promise.resolve(value);
+        return supaFetch('/rest/v1/rpc/community_get_privacy', {
+          method: 'POST',
+          headers: { apikey: SUPA_ANON_KEY, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: '{}',
+          credentials: 'omit'
+        }).then(function (r) { return r.json(); }).then(function (d) {
+          if (d && (typeof d.stealthMode === 'boolean' || typeof d.stealth_mode === 'boolean')) {
+            value = d.stealthMode === true || d.stealth_mode === true;
+            try { localStorage.setItem(LS_KEY, value ? '1' : '0'); } catch (e) {}
+            notify(value);
+          }
+          return value;
+        }).catch(function () { return value; });
+      },
+      set: function (v) {
+        value = v === true;
+        try { localStorage.setItem(LS_KEY, value ? '1' : '0'); } catch (e) {}
+        notify(value);
+        var token = getAccessToken();
+        if (!token || typeof supaFetch !== 'function') return Promise.resolve(false);
+        // Read current settings first so we don't clobber other toggles.
+        return supaFetch('/rest/v1/rpc/community_get_privacy', {
+          method: 'POST',
+          headers: { apikey: SUPA_ANON_KEY, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: '{}',
+          credentials: 'omit'
+        }).then(function (r) { return r.json().catch(function () { return {}; }); }).then(function (cur) {
+          cur = cur && typeof cur === 'object' ? cur : {};
+          if (typeof cur.stealth_mode === 'boolean' && typeof cur.stealthMode === 'undefined') cur.stealthMode = cur.stealth_mode;
+          var settings = Object.assign({
+            shareLiveStatus: true, shareCurrentSubject: true, shareCurrentTask: true,
+            shareTasks: true, shareExactTime: true, shareSubjectBreakdown: true,
+            shareQuestionCounts: true, shareStreak: true,
+            allowStartNotifications: false, stealthMode: false
+          }, cur, { scope: 'global', targetId: '', stealthMode: value });
+          delete settings.stealth_mode;
+          return supaFetch('/rest/v1/rpc/community_save_privacy', {
+            method: 'POST',
+            headers: { apikey: SUPA_ANON_KEY, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ p_settings: settings }),
+            credentials: 'omit'
+          }).then(function (r) { return r.json().catch(function () { return null; }); }).then(function (d) {
+            if (d && d.error) return false;
+            return true;
+          }).catch(function () { return false; });
+        });
+      }
+    };
+    // Observe privacy reads made by the app itself to keep the cache fresh.
+    // Deferred so we attach AFTER this bridge replaces window.fetch — otherwise
+    // _originalFetch doesn't exist yet (defined later in the file).
+    setTimeout(function () {
+      try {
+        var currentFetch = window.fetch;
+        if (!currentFetch || currentFetch.__isoGhostObserver) return;
+        var wrappedFetch = function (input, init) {
+          var url = typeof input === 'string' ? input : (input && input.url) || '';
+          var promise = currentFetch.apply(this, arguments);
+          try {
+            if (url.indexOf('/rest/v1/rpc/community_get_privacy') !== -1) {
+              promise.then(function (resp) {
+                try {
+                  resp.clone().json().then(function (d) {
+                    if (d && (typeof d.stealthMode === 'boolean' || typeof d.stealth_mode === 'boolean')) {
+                      value = d.stealthMode === true || d.stealth_mode === true;
+                      try { localStorage.setItem(LS_KEY, value ? '1' : '0'); } catch (e) {}
+                      notify(value);
+                    }
+                  }).catch(function () {});
+                } catch (e) {}
+              }).catch(function () {});
+            }
+          } catch (e) {}
+          return promise;
+        };
+        wrappedFetch.__isoGhostObserver = true;
+        window.fetch = wrappedFetch;
+      } catch (e) {}
+    }, 0);
+    setTimeout(function () {
+      try { if (typeof window.__isoGhostStore.refresh === 'function') window.__isoGhostStore.refresh(); } catch (e) {}
+    }, 2500);
+  })();
+
   // ── Stale service-worker kill — community black screen fix ────────────────
   // Old installs cached v3.3.9 bundles in a SW; mixing them with new chunks
   // crashes React ("usePWA must be used within PWAProvider") → black screen.

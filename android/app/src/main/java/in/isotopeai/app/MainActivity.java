@@ -575,5 +575,51 @@ public class MainActivity extends BridgeActivity {
                 }
             });
         }
+
+        /**
+         * Saves a file into the public Downloads folder (MediaStore) so the user
+         * can retrieve it with any file manager. Used by the Settings "Export
+         * JSON backup" flow — Android WebView silently drops <a download> clicks
+         * for blob: URLs, so exports must go through the native layer.
+         *
+         * @param fileName target file name in Downloads (e.g. isotope-backup-2026-08-22.json)
+         * @param base64Content base64-encoded file body
+         * @return "OK:<path>" on success, "ERR:<message>" on failure
+         */
+        @JavascriptInterface
+        public String saveToDownloads(String fileName, String base64Content) {
+            try {
+                byte[] data = android.util.Base64.decode(base64Content, android.util.Base64.DEFAULT);
+                String safeName = fileName == null ? "isotope-export.json"
+                    : fileName.replaceAll("[^A-Za-z0-9._ ()-]", "_");
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    android.content.ContentValues cv = new android.content.ContentValues();
+                    cv.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, safeName);
+                    cv.put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/json");
+                    cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
+                    android.net.Uri uri = getContentResolver().insert(
+                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                    if (uri == null) return "ERR:MediaStore insert failed";
+                    try (java.io.OutputStream os = getContentResolver().openOutputStream(uri)) {
+                        os.write(data);
+                    }
+                    cv.clear();
+                    cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
+                    getContentResolver().update(uri, cv, null, null);
+                    return "OK:" + safeName;
+                } else {
+                    java.io.File dir = android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS);
+                    if (!dir.exists()) dir.mkdirs();
+                    java.io.File out = new java.io.File(dir, safeName);
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                        fos.write(data);
+                    }
+                    return "OK:" + out.getAbsolutePath();
+                }
+            } catch (Exception e) {
+                return "ERR:" + e.getMessage();
+            }
+        }
     }
 }

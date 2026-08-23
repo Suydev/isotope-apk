@@ -886,7 +886,9 @@ function preloadAssets() {
     // Unknown cloud state stays unresolved; do not assume dashboard or onboarding.
   } else if (!session && (isProtectedPath || isOnboardingPath)) {
     window.history.replaceState(null, '', '/auth');
-  } else if (session && completed && isOnboardingPath) {
+  } else if (session && completed && (isOnboardingPath || isAuthPath)) {
+    // Signed-in + onboarded users should never see auth pages — always dashboard.
+    // This also prevents "back" navigation into stale /auth screens after login.
     window.history.replaceState(null, '', '/dashboard');
   } else if (session && incomplete && isProtectedPath) {
     window.history.replaceState(null, '', '/onboarding');
