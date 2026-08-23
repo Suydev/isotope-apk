@@ -343,10 +343,38 @@
     }
   };
 
+  // ── PiP button → in-app overlay (direct, no external pipapk) ──────────────
+  // On Android, Browser PiP (documentPictureInPicture / requestPictureInPicture)
+  // cannot host interactive app UI. Intercept those calls and show the native
+  // FloatingTimerService overlay instead, wired to the same Focus store.
+  try {
+    if (typeof HTMLVideoElement !== 'undefined' && HTMLVideoElement.prototype.requestPictureInPicture) {
+      var _origPiP = HTMLVideoElement.prototype.requestPictureInPicture;
+      HTMLVideoElement.prototype.requestPictureInPicture = function () {
+        if (activeController && isActiveTimerState(getControllerState())) {
+          try { window.__isoOpenFloatingTimer(activeController); return Promise.resolve(this); } catch (e) {}
+        }
+        return _origPiP.apply(this, arguments);
+      };
+    }
+    if (typeof document !== 'undefined' && 'pictureInPictureEnabled' in document) {
+      try { Object.defineProperty(document, 'pictureInPictureEnabled', { get: function(){ return false; }, configurable:true }); } catch(e){}
+    }
+    // Also intercept any click on a PiP-labelled button as fallback
+    document.addEventListener('click', function (ev) {
+      var t = ev.target && ev.target.closest ? ev.target.closest('button') : null;
+      if (!t) return;
+      var txt = (t.textContent || t.getAttribute('aria-label') || '').toLowerCase();
+      if (txt.indexOf('pip') === -1 && txt.indexOf('picture') === -1) return;
+      if (!activeController || !isActiveTimerState(getControllerState())) return;
+      try { ev.preventDefault(); ev.stopPropagation(); window.__isoOpenFloatingTimer(activeController); } catch(e){}
+    }, true);
+  } catch (e) {}
+
   repairStoredFocusIconsOnce();
   window.addEventListener('beforeunload', function () {
     try { window.__ISO_FLOATING_TIMER__.close(); } catch (error) {}
   });
 
-  console.log('[IsotopeAI] Android Floating Timer bridge installed');
+  console.log('[IsotopeAI] Android Floating Timer bridge installed — in-app PiP wired directly');
 })();
