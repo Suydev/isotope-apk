@@ -608,6 +608,29 @@ public class MainActivity extends BridgeActivity {
                     cv.clear();
                     cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
                     getContentResolver().update(uri, cv, null, null);
+                    final String doneName = safeName;
+                    runOnUiThread(() -> {
+                        try { android.widget.Toast.makeText(MainActivity.this, "Saved to Downloads/" + doneName + " — open Files app to view", android.widget.Toast.LENGTH_LONG).show(); } catch (Exception ignored) {}
+                        try {
+                            android.app.NotificationManager nm = (android.app.NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                            if (nm != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                android.app.NotificationChannel ch = new android.app.NotificationChannel("isotope-downloads", "Downloads", android.app.NotificationManager.IMPORTANCE_DEFAULT);
+                                nm.createNotificationChannel(ch);
+                            }
+                            android.content.Intent view = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                            view.setDataAndType(uri, "application/json");
+                            view.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(MainActivity.this, doneName.hashCode(), view, android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+                            android.app.Notification n = new android.app.Notification.Builder(MainActivity.this, "isotope-downloads")
+                                .setSmallIcon(getApplicationInfo().icon)
+                                .setContentTitle("Backup saved")
+                                .setContentText("Downloads/" + doneName + " — tap to open")
+                                .setContentIntent(pi)
+                                .setAutoCancel(true)
+                                .build();
+                            nm.notify(doneName.hashCode() & 0x7fffffff, n);
+                        } catch (Exception ignored) {}
+                    });
                     return "OK:" + safeName;
                 } else {
                     java.io.File dir = android.os.Environment.getExternalStoragePublicDirectory(
@@ -617,6 +640,10 @@ public class MainActivity extends BridgeActivity {
                     try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
                         fos.write(data);
                     }
+                    final String donePath = out.getAbsolutePath();
+                    runOnUiThread(() -> {
+                        try { android.widget.Toast.makeText(MainActivity.this, "Saved to " + donePath, android.widget.Toast.LENGTH_LONG).show(); } catch (Exception ignored) {}
+                    });
                     return "OK:" + out.getAbsolutePath();
                 }
             } catch (Exception e) {
