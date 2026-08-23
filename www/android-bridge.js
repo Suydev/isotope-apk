@@ -3652,6 +3652,11 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
 
   // ── Main fetch interceptor ──────────────────────────────────────────────────
   var _originalFetch = window.fetch || fetch;
+  var _pipCache = null; var _pipSeq = 0; var _pipAt = 0;
+  var PIP_ALLOWED_BRIDGE = { correct:1, incorrect:1, skipped:1, undo:1, setTarget:1, expand:1, close:1, pause:1, resume:1, togglePause:1 };
+  function _pipDefaultSnapshot(){ return { ok:true, active:false, timerState:'idle', mode:'pomodoro', activePhase:null, displayedSeconds:0, totalSeconds:0, completionAtMs:0, updatedAtMs:_pipAt, pomodoroCycle:1, pomodoroSessionsUntilLongBreak:4, questionsAttempted:0, questionsCorrect:0, questionsIncorrect:0, questionsSkipped:0, targetQuestions:0, undoAvailable:false, showQuestionControls:false, focusTypeLabel:'Focus', focusTypeIcon:'', theme:'dark', pipConnected:_pipAt>0, pipStateAt:_pipAt }; }
+  function _pipStatePayload(){ var snap=_pipCache ? Object.assign({}, _pipCache) : _pipDefaultSnapshot(); snap.ok=true; snap.seq=_pipSeq; snap.pipClients=0; snap.pipConnected=_pipAt>0; snap.pipStateAt=_pipAt; return snap; }
+  window.__isoPipCache = { get: function(){ return _pipCache; }, set: function(s){ try{ _pipCache = typeof s==='string'?JSON.parse(s):s; _pipAt=Date.now(); _pipSeq++; }catch(e){} } };
   // ── Community leaderboard (mirrors server.mjs /__leaderboard) ────────────────
   var __isoRankerUpgraded = {};
   function upgradeProfileToRanker() {
@@ -3814,8 +3819,26 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       }
     } catch (e) {}
 
+    var isLoopback = url.indexOf('127.0.0.1:3000') !== -1 || url.indexOf('127.0.0.1:6767') !== -1 || url.indexOf('localhost:3000') !== -1;
+    if (isLoopback) return _originalFetch.apply(this, arguments);
+
     var pathname;
     try { pathname = new URL(url).pathname; } catch (e) { pathname = url; }
+
+    if (pathname === '/api/pip/state' && method === 'GET') { return Promise.resolve(jsonResponse(_pipStatePayload())); }
+    if (pathname === '/api/pip/action' && method === 'POST') {
+      var __b = init && init.body; var __a={}; try{ __a = typeof __b==='string'?JSON.parse(__b):(__b||{}); }catch(e){}
+      var __type = __a && typeof __a.type==='string'?__a.type:''; if (!PIP_ALLOWED_BRIDGE[__type]) return Promise.resolve(jsonResponse({ok:false,error:'unknown action type'},400));
+      try{ if(window.__ISO_FLOATING_TIMER__ && typeof window.__ISO_FLOATING_TIMER__.handleNativeAction==='function') window.__ISO_FLOATING_TIMER__.handleNativeAction(__a); }catch(e){}
+      var __snap=_pipStatePayload(); __snap.applied=true; return Promise.resolve(jsonResponse(__snap));
+    }
+    if (pathname === '/__pip/state' && method === 'POST') {
+      try{ var __pb = init && init.body; var __pj = typeof __pb==='string'?JSON.parse(__pb):(__pb||{}); if(__pj && typeof __pj==='object'){ _pipCache=__pj; _pipAt=Date.now(); _pipSeq++; } }catch(e){}
+      return Promise.resolve(jsonResponse({ok:true,seq:_pipSeq}));
+    }
+    if (pathname === '/__pip/events' && method === 'GET') {
+      return Promise.resolve(new Response('retry: 2000\n\n', { status:200, headers:{'Content-Type':'text/event-stream','Cache-Control':'no-cache'}}));
+    }
 
     // ── Local static responses ────────────────────────────────────────────────
     var localResp = handleLocalStatus(url);

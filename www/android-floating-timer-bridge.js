@@ -193,6 +193,8 @@
       questionsSkipped: clampNumber(raw.questionsSkipped, 0, 999999, 0),
       targetQuestions: targetQuestions,
       undoAvailable: !!raw.undoAvailable,
+      pomodoroCycle: clampNumber(raw.pomodoroCycle, 1, 999, 1),
+      pomodoroSessionsUntilLongBreak: clampNumber(raw.pomodoroSessionsUntilLongBreak, 1, 99, 4),
       theme: raw.theme === 'light' ? 'light' : 'dark',
       route: raw.route || '/focus',
       active: timerState === 'running' || timerState === 'paused' || timerState === 'break'
@@ -209,22 +211,26 @@
   }
 
   function sendStateToNative() {
-    var bridge = nativeBridge();
     var state = getControllerState();
-    if (!bridge || !state) return false;
+    if (!state) return false;
     if (!isActiveTimerState(state)) {
-      try { if (typeof bridge.stopFloatingTimer === 'function') bridge.stopFloatingTimer(); } catch (error) {}
+      var __b0 = nativeBridge();
+      try { if (__b0 && typeof __b0.stopFloatingTimer === 'function') __b0.stopFloatingTimer(); } catch (error) {}
       stopStatePump();
       activeController = null;
       return false;
     }
     var payload = JSON.stringify(state);
+    try { if (window.__isoPipCache && window.__isoPipCache.set) window.__isoPipCache.set(state); } catch (e) {}
+    try { fetch('http://127.0.0.1:3000/__pip/state', { method:'POST', headers:{'Content-Type':'application/json'}, body:payload, keepalive:true }).catch(function(){}); } catch (e) {}
+    var bridge = nativeBridge();
+    if (!bridge) return true;
     try {
       if (typeof bridge.updateFloatingTimerState === 'function') bridge.updateFloatingTimerState(payload);
       return true;
     } catch (error) {
       console.error('[IsotopeAI Floating Timer] Native state update failed:', error);
-      return false;
+      return true;
     }
   }
 
@@ -238,7 +244,7 @@
 
   function validateAction(input) {
     var type = typeof input === 'string' ? input : input && input.type;
-    if (['correct', 'incorrect', 'skipped', 'undo', 'expand', 'close'].indexOf(type) >= 0) {
+    if (['correct', 'incorrect', 'skipped', 'undo', 'expand', 'close', 'pause', 'resume', 'togglePause'].indexOf(type) >= 0) {
       return { type: type };
     }
     if (type === 'setTarget') {
@@ -278,6 +284,13 @@
         try { if (bridge && typeof bridge.stopFloatingTimer === 'function') bridge.stopFloatingTimer(); } catch (error) {}
         stopStatePump();
         activeController = null;
+        return true;
+      }
+      if (action.type === 'pause' || action.type === 'resume' || action.type === 'togglePause') {
+        if (!dispatchToStore(action)) {
+          try { if (activeController && typeof activeController.toggleTimer === 'function') activeController.toggleTimer(); } catch (e) { return false; }
+        }
+        setTimeout(sendStateToNative, 0);
         return true;
       }
       if (!dispatchToStore(action)) return false;

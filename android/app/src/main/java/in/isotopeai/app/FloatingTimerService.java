@@ -100,12 +100,16 @@ public class FloatingTimerService extends Service {
     private int     resizeStartWidth  = 0;
     private int     resizeStartHeight = 0;
 
+    private int lastNotifiedSeconds = -1;
+    private String lastNotifiedText = "";
+
     private final Runnable tickRunnable = new Runnable() {
         @Override public void run() {
             if (state == null || !state.isActive()) { stopSelf(); return; }
             maybeNotifyCompletion();
             renderDynamicFields();
-            handler.postDelayed(this, 500);
+            updateNotificationIfChanged();
+            handler.postDelayed(this, 1000);
         }
     };
 
@@ -153,13 +157,17 @@ public class FloatingTimerService extends Service {
         if (ACTION_STOP.equals(action)) { stopSelf(); return START_NOT_STICKY; }
 
         String stateJson = intent != null ? intent.getStringExtra(EXTRA_STATE_JSON) : null;
+        if (stateJson == null || stateJson.isEmpty()) stateJson = PipHttpServer.getLastStateJson();
         TimerState nextState = TimerState.fromJson(stateJson);
         if (!nextState.isActive()) { stopSelf(); return START_NOT_STICKY; }
         state = nextState;
 
         if (!hasOverlayPermission()) { stopSelf(); return START_NOT_STICKY; }
 
+        lastNotifiedSeconds = -1;
+        lastNotifiedText = "";
         ensureForeground();
+        updateNotificationIfChanged(true);
         ensureOverlay();
         renderAll();
         handler.removeCallbacks(tickRunnable);
@@ -184,12 +192,54 @@ public class FloatingTimerService extends Service {
     }
 
     private void ensureForeground() {
-        if (foregroundStarted) return;
+        if (foregroundStarted) {
+            updateNotificationIfChanged(true);
+            return;
+        }
         startForeground(NOTIFICATION_ID, buildNotification());
         foregroundStarted = true;
     }
 
+    private void updateNotificationIfChanged() { updateNotificationIfChanged(false); }
+
+    private void updateNotificationIfChanged(boolean force) {
+        if (!foregroundStarted || state == null) return;
+        int seconds = state.displaySecondsNow();
+        String text = notificationTextFor(state, seconds);
+        String title = notificationTitleFor(state);
+        if (!force && seconds == lastNotifiedSeconds && text.equals(lastNotifiedText)) return;
+        lastNotifiedSeconds = seconds;
+        lastNotifiedText = text;
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(NOTIFICATION_ID, buildNotificationWith(title, text, seconds));
+        } catch (Exception ignored) {}
+    }
+
+    private String notificationTitleFor(TimerState s) {
+        if (s == null || !s.isActive()) return "Focus Timer";
+        boolean isBreak = "break".equals(s.timerState) || "break".equals(s.activePhase);
+        if ("paused".equals(s.timerState)) return isBreak ? "Break — paused" : s.focusTypeLabel + " — paused";
+        if (isBreak) return "Break";
+        return s.focusTypeLabel;
+    }
+
+    private String notificationTextFor(TimerState s, int seconds) {
+        if (s == null || !s.isActive()) return "Focus ready — start a session";
+        String time = formatSeconds(seconds);
+        boolean isBreak = "break".equals(s.timerState) || "break".equals(s.activePhase);
+        boolean isPaused = "paused".equals(s.timerState);
+        if (isPaused) return time + " • paused — tap to resume";
+        if ("stopwatch".equals(s.mode)) return time + " elapsed" + (isBreak ? " • Break" : " • Studying");
+        return time + " remaining" + (isBreak ? " • Break" : " • Focus");
+    }
+
     private Notification buildNotification() {
+        if (state == null) return buildNotificationWith("Focus Timer", "IsotopeAI focus session is running", 0);
+        return buildNotificationWith(notificationTitleFor(state), notificationTextFor(state, state.displaySecondsNow()), state.displaySecondsNow());
+    }
+
+    private Notification buildNotificationWith(String title, String text, int seconds) {
         Intent openIntent = new Intent(this, MainActivity.class)
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent contentIntent = PendingIntent.getActivity(
@@ -198,14 +248,24 @@ public class FloatingTimerService extends Service {
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? new Notification.Builder(this, CHANNEL_ID)
             : new Notification.Builder(this);
-        return builder
+        boolean isRunning = state != null && ("running".equals(state.timerState) || "break".equals(state.timerState));
+        boolean isStopwatch = state != null && "stopwatch".equals(state.mode);
+        builder
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Focus Timer")
-            .setContentText("IsotopeAI focus session is running")
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(new Notification.BigTextStyle().bigText(text))
             .setContentIntent(contentIntent)
             .setOngoing(true)
-            .setShowWhen(false)
-            .build();
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false);
+        if (isRunning && !isStopwatch && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setUsesChronometer(false);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setCategory(Notification.CATEGORY_SERVICE);
+        }
+        return builder.build();
     }
 
     private void createNotificationChannel() {

@@ -59,6 +59,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onStart() {
         super.onStart();
+        PipHttpServer.start(this);
         installIsotopeAndroidBridge();
         replayFloatingTimerActions();
     }
@@ -66,6 +67,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        PipHttpServer.start(this);
         installIsotopeAndroidBridge();
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
