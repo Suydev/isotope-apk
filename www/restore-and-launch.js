@@ -134,21 +134,25 @@ function clearStore(db, storeName) {
 
 /**
  * Scan localStorage for any Supabase session. Checks:
- *   • 'isotope-auth-token'      (legacy app key)
  *   • 'sb-{ref}-auth-token'     (Supabase JS v2 standard)
  *   • 'isotope-last-session-raw' (bridge/interceptor fallback)
+ *   • 'isotope-auth-token'      (legacy app key)
  *   • any key matching sb-*-auth-token pattern
  */
 function findSessionRaw() {
   try {
-    const legacy = localStorage.getItem(SUPABASE_TOKEN_KEY);
-    if (legacy) return legacy;
+    // Prefer the standard supabase-js key: it is written by the live client
+    // and tracks the CURRENT login. The legacy 'isotope-auth-token' may hold
+    // a session from a previous project/user — using it first caused stale-
+    // JWT API calls (401/406 noise) after switching login methods.
     if (SUPA_REF) {
       const standard = localStorage.getItem('sb-' + SUPA_REF + '-auth-token');
       if (standard) return standard;
     }
     const lastRaw = localStorage.getItem('isotope-last-session-raw');
     if (lastRaw) return lastRaw;
+    const legacy = localStorage.getItem(SUPABASE_TOKEN_KEY);
+    if (legacy) return legacy;
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) {
@@ -752,22 +756,6 @@ async function ensureSchema() {
   }
 }
 
-// ── Asset preload ───────────────────────────────────────────────────────────
-
-function preloadAssets() {
-  const link       = document.createElement('link');
-  link.rel         = 'modulepreload';
-  link.crossOrigin = '';
-  link.href        = '/assets/vendor-react-BWKHxYQy.js';
-  document.head.appendChild(link);
-
-  const script       = document.createElement('script');
-  script.type        = 'module';
-  script.crossOrigin = '';
-  script.src         = '/assets/index-D1Y5F8Lk.js';
-  document.head.appendChild(script);
-}
-
 // ── Main ────────────────────────────────────────────────────────────────────
 
 (async () => {
@@ -778,6 +766,26 @@ function preloadAssets() {
 
   if (window.location.pathname !== '/demo') {
     try { sessionStorage.removeItem('isotope-demo-mode'); } catch (_) {}
+  }
+
+  // ── OAuth return short-circuit ────────────────────────────────────────────
+  // After Google/other OAuth, Supabase redirects back with the session in the
+  // URL hash (access_token=…) or as a PKCE ?code=…. supabase-js consumes it
+  // via detectSessionInUrl when the app initializes — but this script runs
+  // FIRST. If we read localStorage now we see no session yet, and rewriting
+  // history to /auth would destroy the fragment and log the user out.
+  // So: publish an unresolved boot state and let the app own the return.
+  const _oauthHash = window.location.hash || '';
+  const _oauthQuery = window.location.search || '';
+  const isOAuthReturn = _oauthHash.includes('access_token=')
+    || _oauthHash.includes('error=')
+    || /[#&?]code=/.test(_oauthQuery + _oauthHash);
+  if (isOAuthReturn) {
+    publishBootState(BOOT_STATES.CLOUD_LOADING, {
+      source: 'oauth_return',
+      onboarding: { state: 'unknown' },
+    });
+    return;
   }
 
   // Step 1: clean up any stale / fake data from old script versions
@@ -791,13 +799,41 @@ function preloadAssets() {
   // Step 2: authenticated cloud bootstrap before routing/app preload.
   // Refresh expired/near-expired access tokens before any route decision or sync.
   let session = parseSession(findSessionRaw());
-  if (session) {
+  let bootDecision = null;
+  const offlineNow = typeof navigator !== 'undefined' && navigator.onLine === false;
+  if (session && offlineNow) {
+    // Device has no internet but localhost works. Refresh/bootstrap calls to
+    // Supabase cannot succeed right now, so skip them entirely and route from
+    // the trusted cached cloud snapshot instead of stalling ~10s on doomed
+    // fetches.
+    const cached = readTrustedCloudSnapshot(session.user.id);
+    if (cached) {
+      applyCachedCloudSnapshot(cached);
+      bootDecision = publishBootState(BOOT_STATES.OFFLINE_CACHED, {
+        user_id: session.user.id,
+        cached: true,
+        onboarding: {
+          state: cached.onboarding.completed ? 'completed' : 'incomplete',
+          completed: cached.onboarding.completed,
+          completed_at: cached.onboarding.completed_at || null,
+        },
+        source: 'cached_cloud_snapshot',
+        snapshotDownloadedAt: cached.downloaded_at || null,
+      });
+    } else {
+      bootDecision = publishBootState(BOOT_STATES.SYNC_FAILED, {
+        user_id: session.user.id,
+        onboarding: { state: 'unknown' },
+        source: 'unavailable',
+        error: 'Device is offline and no trusted cached cloud snapshot exists.',
+      });
+    }
+  } else if (session) {
     const refreshed = await refreshStoredSessionIfNeeded(session);
     if (refreshed) session = refreshed;
     else if (sessionExpiresSoon(session) && refreshStoredSessionIfNeeded.lastFailure === 'auth') session = null;
   }
-  let bootDecision = null;
-  if (session) {
+  if (session && !offlineNow) {
     publishBootState(BOOT_STATES.CLOUD_LOADING, {
       user_id: session.user.id,
       onboarding: { state: 'unknown' },
@@ -855,7 +891,7 @@ function preloadAssets() {
         });
       }
     }
-  } else {
+  } else if (!session) {
     bootDecision = publishBootState(BOOT_STATES.READY_LOGGED_OUT, {
       onboarding: { state: 'unknown' },
       source: 'auth',
@@ -864,13 +900,6 @@ function preloadAssets() {
 
   // Step 3: routing. Deep links are preserved unless their resolved boot state
   // contradicts the target, because UNKNOWN must never render onboarding.
-  //
-  // ⚠️ OAuth-return guard: when this page load carries OAuth tokens in the URL,
-  // restore-and-launch would otherwise see "no session yet" (tokens live only
-  // in the fragment until supabase-js consumes it) and rewrite /dashboard →
-  // /auth, DESTROYING the login. Skip every route rewrite in that case.
-  const __isoOAuthReturn = /[&#](?:access_token|refresh_token|code)=/.test(window.location.href);
-  if (!__isoOAuthReturn) {
   const currentPath = window.location.pathname;
   const isRoot      = (currentPath === '/' || currentPath === '');
   const isOnboardingPath = currentPath === '/onboarding' || currentPath.startsWith('/onboarding/');
@@ -883,7 +912,8 @@ function preloadAssets() {
     if (!session) window.history.replaceState(null, '', '/auth');
     else if (completed) window.history.replaceState(null, '', '/dashboard');
     else if (incomplete) window.history.replaceState(null, '', '/onboarding');
-    // Unknown cloud state stays unresolved; do not assume dashboard or onboarding.
+    else if (bootDecision?.state === BOOT_STATES.SYNC_FAILED) window.history.replaceState(null, '', '/dashboard'); // cloud unreachable → local data
+    else window.history.replaceState(null, '', '/onboarding'); // unknown state → onboarding (safe default)
   } else if (!session && (isProtectedPath || isOnboardingPath)) {
     window.history.replaceState(null, '', '/auth');
   } else if (session && completed && (isOnboardingPath || isAuthPath)) {
@@ -893,12 +923,10 @@ function preloadAssets() {
   } else if (session && incomplete && isProtectedPath) {
     window.history.replaceState(null, '', '/onboarding');
   } else if (session && bootDecision?.state === BOOT_STATES.SYNC_FAILED && (isOnboardingPath || isAuthPath)) {
-    // Preserve current route so the app can show retry/loading instead of guessing.
-  }
+    window.history.replaceState(null, '', '/dashboard');
   }
 
-  // Step 4: preload the app bundle
-  // preloadAssets() removed — the SW now caches route bundles on demand via
-  // networkFirstNavigation. Eagerly inserting <link rel=modulepreload> and a
-  // <script type=module> doubled first-paint JS for no benefit.
+  // Step 4: the SW caches route bundles on demand via networkFirstNavigation.
+  // Do not eagerly insert <link rel=modulepreload> / <script type=module> here —
+  // that doubles first-paint JS and pins hashes that rot on rebuilds.
 })();

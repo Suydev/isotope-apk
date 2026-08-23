@@ -50,8 +50,9 @@
   // Seed current user ID from persisted session (updated on login)
   window.__ISO_CURRENT_USER_ID__ = (function () {
     try {
-var raw = localStorage.getItem('isotope-auth-token') ||
-                  localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token');
+var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
+                  localStorage.getItem('isotope-last-session-raw') ||
+                  localStorage.getItem('isotope-auth-token');
       if (!raw) return '';
       var p = JSON.parse(raw);
       return (p && p.user && p.user.id) || '';
@@ -76,8 +77,9 @@ var raw = localStorage.getItem('isotope-auth-token') ||
     function notify(v) { listeners.forEach(function (fn) { try { fn(v); } catch (e) {} }); }
     function getAccessToken() {
       try {
-        var raw = localStorage.getItem('isotope-auth-token') ||
-                  localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token');
+        var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
+                  localStorage.getItem('isotope-last-session-raw') ||
+                  localStorage.getItem('isotope-auth-token');
         if (!raw) return null;
         var p = JSON.parse(raw);
         return (p && p.access_token) || null;
@@ -808,8 +810,8 @@ var raw = localStorage.getItem('isotope-auth-token') ||
     try {
       var ref = 'ollsqiutzartjhiuzkbf';
       var raw = localStorage.getItem('sb-' + ref + '-auth-token')
-             || localStorage.getItem('isotope-auth-token')
-             || localStorage.getItem('isotope-last-session-raw');
+             || localStorage.getItem('isotope-last-session-raw')
+             || localStorage.getItem('isotope-auth-token');
       // Fallback to Capacitor Filesystem backup if localStorage is empty (process death)
       if (!raw) {
         raw = readSessionFromFile();
@@ -5229,8 +5231,9 @@ var raw = localStorage.getItem('isotope-auth-token') ||
   window.__isoSilentAuth = function() {
     return new Promise(function(resolve) {
       try {
-        var raw = localStorage.getItem('isotope-auth-token') ||
-                  localStorage.getItem('sb-' + SUPA_REF + '-auth-token');
+        var raw = localStorage.getItem('sb-' + SUPA_REF + '-auth-token') ||
+                  localStorage.getItem('isotope-last-session-raw') ||
+                  localStorage.getItem('isotope-auth-token');
         if (!raw) return resolve({ ok: false, reason: 'no_session' });
         var session = JSON.parse(raw);
         if (!session || !session.access_token) return resolve({ ok: false, reason: 'invalid_session' });

@@ -16,3 +16,4 @@ web-app-source/
 .pat.b64
 gate.log
 *.log
+.oldpat
