@@ -4315,7 +4315,40 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       }
     } catch (e) {}
 
-    // ── Supabase proxy (__supa/*) ─────────────────────────────────────────────
+    // ── Community RPC passthrough (with offline guard + .catch) ─────────────
+    if (pathname.startsWith('/rest/v1/rpc/community_') ||
+        pathname.startsWith('/rest/v1/rpc/accept_invite') ||
+        pathname.startsWith('/rest/v1/rpc/get_invite_details') ||
+        pathname.startsWith('/rest/v1/rpc/finish_session_sync') ||
+        pathname.startsWith('/rest/v1/rpc/get_leaderboard') ||
+        pathname.startsWith('/rest/v1/rpc/get_group_leaderboard')) {
+      if (!window.__isoIsOnline()) {
+        return Promise.resolve(jsonResponse({ ok: false, error: 'offline', success: false }, 503));
+      }
+      var rpcUrl = url;
+      if (url.startsWith(SUPA_URL)) rpcUrl = url;
+      else if (pathname.startsWith('/rest/')) rpcUrl = SUPA_URL + pathname + (new URL(url, 'http://x').search || '');
+      var _rpcInit = Object.assign({}, init, { headers: supaFetchHeaders(init) });
+      return fetch(rpcUrl, _rpcInit).then(function (response) {
+        return response.text().then(function (text) {
+          var payload = safeJsonParse(text, text ? { raw: text } : null);
+          if (!response.ok) return jsonResponse(payload || { ok: false, error: 'RPC failed' }, response.status || 500);
+          if (typeof handleDirectInviteRpc === 'function' && pathname.indexOf('invite') !== -1) {
+            return normalizeInviteRpcPayload(payload).then(function (normalized) { return jsonResponse(normalized, 200); });
+          }
+          return jsonResponse(payload, 200);
+        });
+      }).catch(function (e) {
+        return jsonResponse({ ok: false, error: e && e.message || 'Community RPC failed', offline: !window.__isoIsOnline() }, 503);
+      });
+    }
+
+    // ── Supabase REST passthrough (with offline guard) ────────────────────────
+    if (pathname.startsWith('/rest/') || pathname.startsWith('/storage/') || pathname.startsWith('/auth/')) {
+      if (!window.__isoIsOnline()) {
+        return Promise.resolve(jsonResponse({ ok: false, error: 'offline' }, 503));
+      }
+    }
     if (pathname.startsWith('/__supa/')) {
       return handleSupaProxy(url, init || {}, init && init.body);
     }
