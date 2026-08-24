@@ -592,7 +592,6 @@ public class MainActivity extends BridgeActivity {
          * @return "OK:<path>" on success, "ERR:<message>" on failure
          */
         @JavascriptInterface
-        @JavascriptInterface
         public void openExternalUrl(String url) {
             runOnUiThread(() -> {
                 try {
