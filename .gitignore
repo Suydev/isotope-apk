@@ -17,3 +17,6 @@ web-app-source/
 gate.log
 *.log
 .oldpat
+release-keys.properties
+android/app/release.keystore
+*.jks
