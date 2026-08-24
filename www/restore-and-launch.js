@@ -134,9 +134,9 @@ function clearStore(db, storeName) {
 
 /**
  * Scan localStorage for any Supabase session. Checks:
+ *   • 'isotope-auth-token'      (legacy app key)
  *   • 'sb-{ref}-auth-token'     (Supabase JS v2 standard)
  *   • 'isotope-last-session-raw' (bridge/interceptor fallback)
- *   • 'isotope-auth-token'      (legacy app key)
  *   • any key matching sb-*-auth-token pattern
  */
 function findSessionRaw() {
@@ -596,19 +596,6 @@ function sessionLogRowsToLocal(rows) {
 
 function applyBootstrapSnapshot(snapshot) {
   if (!snapshot || !snapshot.ok) return null;
-  const completed =
-    typeof snapshot?.onboarding?.completed === 'boolean'
-      ? snapshot.onboarding.completed
-      : (typeof snapshot.onboarding_completed === 'boolean' ? snapshot.onboarding_completed : undefined);
-  const canonicalOnboarding = typeof completed === 'boolean'
-    ? {
-        ...(isObject(snapshot.onboarding) ? snapshot.onboarding : {}),
-        state: completed ? 'completed' : 'incomplete',
-        completed,
-        completed_at: snapshot.onboarding?.completed_at || snapshot.onboarding_completed_at || null,
-        data: isObject(snapshot.onboarding?.data) ? snapshot.onboarding.data : {},
-      }
-    : snapshot.onboarding;
   const profile = snapshot.profile_data || snapshot.profile || {};
   const mergedProfile = {
     ...profile,
@@ -625,7 +612,7 @@ function applyBootstrapSnapshot(snapshot) {
     fetched_at: snapshot.fetched_at || new Date().toISOString(),
     profile: snapshot.profile || {},
     profile_data: mergedProfile,
-    onboarding: canonicalOnboarding,
+    onboarding: snapshot.onboarding,
     settings: snapshot.settings || {},
     cloud_snapshot: snapshot.cloud_snapshot || null,
     stats_summary: snapshot.stats_summary || null,
@@ -638,9 +625,9 @@ function applyBootstrapSnapshot(snapshot) {
 
   const onboarded = cloudSnapshot
     ? cloudSnapshot.onboarding.completed === true
-    : (typeof completed === 'boolean' ? completed : undefined);
-  if (onboarded === true) writeLocalOnboardingComplete();
-  else if (onboarded === false) { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }
+    : snapshot.onboarding && snapshot.onboarding.completed === true;
+  if (onboarded) writeLocalOnboardingComplete();
+  else { try { localStorage.removeItem(ZUSTAND_ONBOARDING_KEY); } catch (_) {} }
 
   const tours = mergedProfile.tours || {};
   if (tours && typeof tours === 'object') {
@@ -833,7 +820,7 @@ async function ensureSchema() {
     if (refreshed) session = refreshed;
     else if (sessionExpiresSoon(session) && refreshStoredSessionIfNeeded.lastFailure === 'auth') session = null;
   }
-  if (session && !offlineNow) {
+  if (session) {
     publishBootState(BOOT_STATES.CLOUD_LOADING, {
       user_id: session.user.id,
       onboarding: { state: 'unknown' },
@@ -845,7 +832,7 @@ async function ensureSchema() {
       try { dbResult = await fetchProfileFromDB(session); } catch (_) {}
     }
 
-    if (dbResult !== null && typeof dbResult.isOnboarded === 'boolean') {
+    if (dbResult !== null) {
       bootDecision = dbResult.isOnboarded
         ? publishBootState(BOOT_STATES.READY_DASHBOARD, {
             user_id: session.user.id,
@@ -891,7 +878,7 @@ async function ensureSchema() {
         });
       }
     }
-  } else if (!session) {
+  } else {
     bootDecision = publishBootState(BOOT_STATES.READY_LOGGED_OUT, {
       onboarding: { state: 'unknown' },
       source: 'auth',
@@ -916,9 +903,7 @@ async function ensureSchema() {
     else window.history.replaceState(null, '', '/onboarding'); // unknown state → onboarding (safe default)
   } else if (!session && (isProtectedPath || isOnboardingPath)) {
     window.history.replaceState(null, '', '/auth');
-  } else if (session && completed && (isOnboardingPath || isAuthPath)) {
-    // Signed-in + onboarded users should never see auth pages — always dashboard.
-    // This also prevents "back" navigation into stale /auth screens after login.
+  } else if (session && completed && isOnboardingPath) {
     window.history.replaceState(null, '', '/dashboard');
   } else if (session && incomplete && isProtectedPath) {
     window.history.replaceState(null, '', '/onboarding');

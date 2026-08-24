@@ -207,13 +207,16 @@ public class MainActivity extends BridgeActivity {
             if (path.startsWith("/community")) {
                 return path;
             }
+            if (path.startsWith("/auth/callback")) {
+                return "/auth/callback";
+            }
         }
 
-        // HTTP localhost OAuth callback (Capacitor dev server fallback)
-        if ("http".equalsIgnoreCase(scheme) &&
+        // HTTP/HTTPS localhost OAuth callback (Capacitor https://localhost:6767)
+        if (("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) &&
             host != null &&
             (host.equalsIgnoreCase("localhost") || host.startsWith("localhost:"))) {
-            if (path.startsWith("/callback")) {
+            if (path.startsWith("/auth/callback") || path.startsWith("/callback")) {
                 return "/auth/callback";
             }
         }
@@ -588,6 +591,20 @@ public class MainActivity extends BridgeActivity {
          * @param base64Content base64-encoded file body
          * @return "OK:<path>" on success, "ERR:<message>" on failure
          */
+        @JavascriptInterface
+        @JavascriptInterface
+        public void openExternalUrl(String url) {
+            runOnUiThread(() -> {
+                try {
+                    android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                } catch (Exception e) {
+                    android.util.Log.w("IsotopeAI", "openExternalUrl failed: " + e.getMessage());
+                }
+            });
+        }
+
         @JavascriptInterface
         public String saveToDownloads(String fileName, String base64Content) {
             try {

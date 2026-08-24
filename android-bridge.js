@@ -2244,6 +2244,62 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
           backup_warning: bestBackup.warning_if_empty_latest || bestBackup.error || null,
           fetched_at: new Date().toISOString()
         });
+
+        // ── Fire-and-forget: auto-enroll community + seed points + backfill sessions ──
+        try {
+          // Ensure community_enrollments row exists
+          supaJson('/rest/v1/community_enrollments?on_conflict=user_id', {
+            method: 'POST',
+            headers: { 'Prefer': 'resolution=ignore-duplicates,return=minimal' },
+            body: JSON.stringify({ user_id: userId })
+          }).catch(function () {});
+
+          // Ensure user_points row exists
+          supaJson('/rest/v1/user_points?on_conflict=user_id', {
+            method: 'POST',
+            headers: { 'Prefer': 'resolution=ignore-duplicates,return=minimal' },
+            body: JSON.stringify({ user_id: userId, points: 0, lifetime_points: 0 })
+          }).catch(function () {});
+
+          // Backfill unsynced local sessions to study_sessions_log
+          try {
+            var localSessionsRaw = localStorage.getItem('isotope_sessions_v2');
+            if (localSessionsRaw) {
+              var localSessions = JSON.parse(localSessionsRaw);
+              if (Array.isArray(localSessions)) {
+                var unsynced = localSessions.filter(function (s) {
+                  return s && s.id && (Number(s.duration) || Number(s.durationMinutes) || 0) > 0 && !s.cloudSynced;
+                });
+                if (unsynced.length > 0) {
+                  var pushed = 0;
+                  unsynced.forEach(function (sess) {
+                    var durationMin = Math.max(1, Math.round(Number(sess.duration || sess.durationMinutes || 0)));
+                    var endedAt = sess.endTime || sess.ended_at || sess.startTime || new Date().toISOString();
+                    supaFetch('/rest/v1/rpc/finish_session_sync', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        p_session_id: sess.id,
+                        p_action: 'complete',
+                        p_duration_minutes: durationMin,
+                        p_session_type: sess.sessionType || sess.type || 'focus',
+                        p_ended_at: endedAt
+                      })
+                    }).then(function (r) {
+                      if (r.ok) {
+                        pushed++;
+                        sess.cloudSynced = true;
+                        sess.cloudSource = 'backfill';
+                      }
+                    }).catch(function () {});
+                  });
+                  if (pushed > 0 || unsynced.length > 0) {
+                    try { localStorage.setItem('isotope_sessions_v2', JSON.stringify(localSessions)); } catch (e) {}
+                  }
+                }
+              }
+            }
+          } catch (_bfErr) {}
+        } catch (_autoErr) {}
       })
       .catch(function (e) {
         // Network failure during DB fetch — preserve local state and let boot use cached snapshots/retry.
