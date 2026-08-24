@@ -344,9 +344,10 @@
   };
 
   // ── PiP button → in-app overlay (direct, no external pipapk) ──────────────
-  // On Android, Browser PiP (documentPictureInPicture / requestPictureInPicture)
-  // cannot host interactive app UI. Intercept those calls and show the native
-  // FloatingTimerService overlay instead, wired to the same Focus store.
+  // On Android, Browser PiP (documentPictureInPicture / requestPictureInPicture
+  // / Document PiP) cannot host interactive app UI. Intercept those calls and
+  // show the native FloatingTimerService overlay instead, wired to the same Focus store.
+  // This covers the Focus toolbar's "Picture-in-Picture" button (beside wallpaper/fullscreen).
   try {
     if (typeof HTMLVideoElement !== 'undefined' && HTMLVideoElement.prototype.requestPictureInPicture) {
       var _origPiP = HTMLVideoElement.prototype.requestPictureInPicture;
@@ -357,6 +358,36 @@
         return _origPiP.apply(this, arguments);
       };
     }
+    // Intercept Document PiP (used by Focus-B4gLsWoP.js `at` function: `window.documentPictureInPicture.requestWindow`)
+    if (typeof window !== 'undefined' && window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
+      var _origDocPiP = window.documentPictureInPicture.requestWindow.bind(window.documentPictureInPicture);
+      window.documentPictureInPicture.requestWindow = function (opts) {
+        if (activeController && isActiveTimerState(getControllerState())) {
+          try { window.__isoOpenFloatingTimer(activeController); } catch (e) {}
+          // Return a mock window that satisfies the caller (Focus expects .document, .close, etc.)
+          // so it doesn't throw or show "not supported" alert.
+          return Promise.resolve({
+            document: { body: { appendChild:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} },
+            close: function(){},
+            addEventListener: function(){},
+            removeEventListener: function(){}
+          });
+        }
+        return _origDocPiP(opts);
+      };
+    } else if (typeof window !== 'undefined' && !window.documentPictureInPicture) {
+      // Polyfill so Focus's `if(!("documentPictureInPicture"in window))` check passes on Android WebView
+      // and the pip button doesn't show "not supported" alert, but instead triggers native overlay.
+      window.documentPictureInPicture = {
+        requestWindow: function(opts){
+          if (activeController && isActiveTimerState(getControllerState())) {
+            try { window.__isoOpenFloatingTimer(activeController); } catch(e){}
+            return Promise.resolve({ document:{body:{appendChild:function(){},style:{}},createElement:function(){return{style:{}}},addEventListener:function(){}}, close:function(){}, addEventListener:function(){} });
+          }
+          return Promise.reject(new Error('Document PiP not supported'));
+        }
+      };
+    }
     if (typeof document !== 'undefined' && 'pictureInPictureEnabled' in document) {
       try { Object.defineProperty(document, 'pictureInPictureEnabled', { get: function(){ return false; }, configurable:true }); } catch(e){}
     }
@@ -364,7 +395,7 @@
     document.addEventListener('click', function (ev) {
       var t = ev.target && ev.target.closest ? ev.target.closest('button') : null;
       if (!t) return;
-      var txt = (t.textContent || t.getAttribute('aria-label') || '').toLowerCase();
+      var txt = (t.textContent || t.getAttribute('aria-label') || t.getAttribute('title') || '').toLowerCase();
       if (txt.indexOf('pip') === -1 && txt.indexOf('picture') === -1) return;
       if (!activeController || !isActiveTimerState(getControllerState())) return;
       try { ev.preventDefault(); ev.stopPropagation(); window.__isoOpenFloatingTimer(activeController); } catch(e){}
