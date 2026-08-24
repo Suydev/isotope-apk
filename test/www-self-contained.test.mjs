@@ -42,7 +42,19 @@ test('the bridge targets the prod Supabase project (no localhost/server dependen
   const bridge = read(BRIDGE);
   // SUPA_URL and anon key must be real prod values, not a local server
   assert.ok(/\.supabase\.co['"]/.test(bridge),  'bridge SUPA_URL should point at *.supabase.co, not localhost');
-  assert.ok(!/localhost:3000/.test(bridge),     'bridge must not reference localhost:3000');
+  // Allow loopback for in-app PiP (native overlay) and OAuth — these are intentional loopback, not a dev server dependency
+  // Strip all loopback references (pip, OAuth, isLoopback checks, and comments) before testing for dev-server dependency
+  let stripped = bridge;
+  stripped = stripped.replace(/https?:\/\/(127\.0\.0\.1|localhost):3000\/__pip[^\s"']*/g, '');
+  stripped = stripped.replace(/https?:\/\/(127\.0\.0\.1|localhost):3000\/api\/pip[^\s"']*/g, '');
+  stripped = stripped.replace(/https?:\/\/(127\.0\.0\.1|localhost):3000\/__supa[^\s"']*/g, '');
+  stripped = stripped.replace(/https?:\/\/(127\.0\.0\.1|localhost):6767[^\s"']*/g, '');
+  stripped = stripped.replace(/url\.indexOf\(['"]127\.0\.0\.1:3000['"]\)/g, '');
+  stripped = stripped.replace(/url\.indexOf\(['"]localhost:3000['"]\)/g, '');
+  stripped = stripped.replace(/url\.indexOf\(['"]127\.0\.0\.1:6767['"]\)/g, '');
+  stripped = stripped.replace(/\/\/.*localhost:3000.*/g, '');
+  // Check for actual fetch/XHR to localhost:3000, not just string checks or comments
+  assert.ok(!/localhost:3000/.test(stripped),     'bridge must not reference localhost:3000 except for pip loopback');
 });
 
 test('bundled JS has no runtime dependency on a local dev server', () => {

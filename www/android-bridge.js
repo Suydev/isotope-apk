@@ -875,7 +875,24 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       'Content-Type': 'application/json',
       'Prefer': 'return=representation'
     }, opts && opts.headers ? opts.headers : {});
-    return fetch(SUPA_URL + path, Object.assign({}, opts, { headers: headers, credentials: 'omit' }));
+    var fetchOpts = Object.assign({}, opts, { headers: headers, credentials: 'omit' });
+    if (!fetchOpts.signal && typeof AbortController !== 'undefined') {
+      var controller = new AbortController();
+      fetchOpts.signal = controller.signal;
+      setTimeout(function(){ try{ controller.abort(); }catch(e){} }, 10000);
+    }
+    return fetch(SUPA_URL + path, fetchOpts).then(function(r){
+      if((r.status===503 || r.status===429) && !fetchOpts._retried){
+        fetchOpts._retried=true;
+        return new Promise(function(res){ setTimeout(function(){ fetch(SUPA_URL + path, fetchOpts).then(res).catch(function(e){ res(Promise.reject(e)); }); }, r.status===429?1200:600); });
+      }
+      return r;
+    }).catch(function(e){
+      if(e && (e.name==='AbortError' || /Failed to fetch|NetworkError|offline/i.test(e.message||''))){
+        return new Response(JSON.stringify({ ok:false, error:'Network unavailable — will retry when online', code:'offline' }), { status: 503, headers:{'Content-Type':'application/json'}});
+      }
+      throw e;
+    });
   }
 
   // ── Helper: json response ───────────────────────────────────────────────────
@@ -2821,24 +2838,39 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     var session = getSession();
     var token = session && session.access_token || (allowAnon ? SUPA_ANON_KEY : null);
     if (!token) return Promise.resolve(jsonResponse({ ok: false, error: 'no_session' }, 401));
-    return fetch(SUPA_URL + path, {
-      method: 'POST',
-      headers: {
-        'apikey': SUPA_ANON_KEY,
-        'Authorization': 'Bearer ' + token,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body || {}),
-      credentials: 'omit'
-    }).then(function (r) {
-      return r.text().then(function (text) {
-        var d = safeJsonParse(text, text ? { raw: text } : null);
-        if (!r.ok) return jsonResponse({ ok: false, error: d && (d.message || d.error) || fallbackError, data: null, detail: d }, r.status || 500);
-        return jsonResponse(mapper ? mapper(d) : { ok: true, data: d, android: true });
+    var headers = {
+      'apikey': SUPA_ANON_KEY,
+      'Authorization': 'Bearer ' + token,
+      'Content-Type': 'application/json'
+    };
+    var doFetch = function(tok, retries){
+      var h = Object.assign({}, headers, tok ? {'Authorization':'Bearer '+tok} : {});
+      var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var opts = { method:'POST', headers:h, body: JSON.stringify(body || {}), credentials:'omit' };
+      if(controller){ opts.signal=controller.signal; setTimeout(function(){try{controller.abort()}catch(e){}}, 10000); }
+      return fetch(SUPA_URL + path, opts).then(function(r){
+        return r.text().then(function(text){
+          var d = safeJsonParse(text, text ? { raw: text } : null);
+          if(r.status===401 && retries===0 && session && session.refresh_token){
+            return refreshStoredSessionIfNeeded(session).then(function(refreshed){
+              if(refreshed && refreshed.access_token){
+                session=refreshed; token=refreshed.access_token;
+                return doFetch(token, 1);
+              }
+              return jsonResponse({ ok:false, error:d && (d.message||d.error)||'Session expired — please sign in again', data:null, detail:d }, 401);
+            });
+          }
+          if(!r.ok) return jsonResponse({ ok:false, error:d && (d.message||d.error)||fallbackError, data:null, detail:d }, r.status||500);
+          return jsonResponse(mapper ? mapper(d) : { ok:true, data:d, android:true });
+        });
+      }).catch(function(e){
+        if(retries===0 && e && /Failed to fetch|NetworkError|AbortError|offline/i.test(e.message||'')){
+          return new Promise(function(res){ setTimeout(function(){ doFetch(tok,1).then(res, function(err){ res(jsonResponse({ ok:false, error:err&&err.message||fallbackError, data:null, android:true },503)); }); }, 800); });
+        }
+        return jsonResponse({ ok:false, error:e && e.message || fallbackError, data:null, android:true }, 503);
       });
-    }).catch(function (e) {
-      return jsonResponse({ ok: false, error: e && e.message || fallbackError, data: null, android: true }, 503);
-    });
+    };
+    return doFetch(token, 0);
   }
 
   function leaderboardPayloadFromRows(rows, period) {
@@ -2943,25 +2975,25 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       })(),
       body: JSON.stringify(rpcBody),
       credentials: 'omit'
-    }).then(function (r) { return r.json().catch(function () { return []; }); }).then(function (rows) {
+    }).then(function (r) { if (!r || typeof r.json !== "function") return []; return r.json().catch(function () { return []; }); }).then(function (rows) {
       var series = Array.isArray(rows) ? rows : [];
       var totalSeconds = series.reduce(function (sum, row) { return sum + Number(row.total_seconds || 0); }, 0);
       var totalSessions = series.reduce(function (sum, row) { return sum + Number(row.session_count != null ? row.session_count : row.total_sessions || 0); }, 0);
       return supaFetch('/rest/v1/group_members?group_id=eq.' + encodeURIComponent(groupId) + '&select=user_id&limit=500', { method: 'GET' })
-        .then(function (r) { return r.json().catch(function () { return []; }); })
+        .then(function (r) { if (!r || typeof r.json !== "function") return []; return r.json().catch(function () { return []; }); })
         .then(function (members) {
           members = Array.isArray(members) ? members : [];
           var ids = members.map(function (m) { return m.user_id; }).filter(Boolean);
           var memberCount = Math.max(members.length, series.reduce(function (max, row) { return Math.max(max, Number(row.member_count || 0)); }, 0));
           if (!ids.length) {
-            return baseResult(memberCount);
+            return jsonResponse(baseResult(memberCount));
           }
           var idList = '(' + ids.join(',') + ')';
           var today = new Date().toISOString().slice(0, 10);
           return Promise.all([
-            supaFetch('/rest/v1/user_stats_summary?select=user_id,total_hours,weekly_hours,total_sessions,current_streak,last_session_at&user_id=in.' + idList + '&limit=500', { method: 'GET' }).then(function (r) { return r.json().catch(function () { return []; }); }),
-            supaFetch('/rest/v1/daily_user_stats?select=user_id&date=eq.' + today + '&user_id=in.' + idList + '&limit=500', { method: 'GET' }).then(function (r) { return r.json().catch(function () { return []; }); }),
-            supaFetch('/rest/v1/users?select=id,username,name,avatar_url&id=in.' + idList + '&limit=500', { method: 'GET' }).then(function (r) { return r.json().catch(function () { return []; }); })
+            supaFetch('/rest/v1/user_stats_summary?select=user_id,total_hours,weekly_hours,total_sessions,current_streak,last_session_at&user_id=in.' + idList + '&limit=500', { method: 'GET' }).then(function (r) { if (!r || typeof r.json !== 'function') return []; return r.json().catch(function () { return []; }); }),
+            supaFetch('/rest/v1/daily_user_stats?select=user_id&date=eq.' + today + '&user_id=in.' + idList + '&limit=500', { method: 'GET' }).then(function (r) { if (!r || typeof r.json !== 'function') return []; return r.json().catch(function () { return []; }); }),
+            supaFetch('/rest/v1/users?select=id,username,name,avatar_url&id=in.' + idList + '&limit=500', { method: 'GET' }).then(function (r) { if (!r || typeof r.json !== 'function') return []; return r.json().catch(function () { return []; }); })
           ]).then(function (res) {
             var stats = Array.isArray(res[0]) ? res[0] : [];
             var activeTodayRows = Array.isArray(res[1]) ? res[1] : [];
@@ -3003,9 +3035,9 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
                 current_streak: Number(s.current_streak) || 0
               };
             });
-            return out;
+            return jsonResponse(out);
           });
-        });
+        }).catch(function(e){ return jsonResponse({ ok:false, error:e&&e.message||'Group analytics failed', data:null }, 500); });
 
       function baseResult(memberCount) {
         return {
