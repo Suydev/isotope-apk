@@ -39,6 +39,42 @@
   window.__ISO_VERSION__   = APP_VERSION;
   window.__ISO_INVITE_DOMAIN__ = 'isotopeai:/';
 
+
+// ── Illegal invocation shield: bind detached native methods ─────────────────
+(function(){
+  try{
+    if(!window.__isoStorageShield){
+      window.__isoStorageShield=true;
+      var bindThese=[['Storage','getItem'],['Storage','setItem'],['Storage','removeItem'],['Storage','clear'],['Storage','key']];
+      bindThese.forEach(function(p){
+        try{
+          var proto=window[p[0]]&&window[p[0]].prototype;
+          if(!proto||typeof proto[p[1]]!=='function') return;
+          var orig=proto[p[1]];
+          proto[p[1]]=function(){ try{ return orig.apply(this, arguments); }catch(e){ try{ return orig.apply(window.localStorage, arguments); }catch(e2){ try{ return orig.apply(window.sessionStorage, arguments);}catch(e3){ throw e; }} } };
+        }catch(e){}
+      });
+      try{
+        var origStringify=JSON.stringify;
+        JSON.stringify=function(v,a,b){
+          try{ return origStringify(v,a,b); }catch(e){
+            if(e&&String(e.message).indexOf('circular')!==-1 || String(e.message).indexOf('call stack')!==-1){
+              var seen=new WeakSet();
+              return origStringify(v,function(k,val){ if(typeof val==='object'&&val!==null){ if(seen.has(val)) return '[Circular]'; seen.add(val);} return val; },b);
+            } throw e;
+          }
+        };
+      }catch(e){}
+      try{
+        if(navigator&&navigator.clipboard&&navigator.clipboard.writeText){
+          var origWrite=navigator.clipboard.writeText.bind(navigator.clipboard);
+          navigator.clipboard.writeText=function(t){ try{ return origWrite(t); }catch(e){ return Promise.reject(e); } };
+        }
+      }catch(e){}
+    }
+  }catch(e){}
+})();
+
   // Canonical invite URL generator — never uses window.location.origin
   window.__isoGetInviteUrl = function (code, type) {
     var clean = String(code || '').trim();
