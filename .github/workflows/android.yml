@@ -64,6 +64,18 @@ jobs:
         working-directory: isotope-apk
         run: npm ci
 
+      - name: Sync bridge for test harness
+        working-directory: isotope-apk
+        run: |
+          if [ -f www/android-bridge.js ]; then
+            cp www/android-bridge.js android-bridge.js
+            echo "Synced android-bridge.js root <- www/android-bridge.js"
+          fi
+          if ! diff -q android-bridge.js www/android-bridge.js >/dev/null 2>&1; then
+            echo "⚠️ android-bridge.js root differs from www/android-bridge.js"
+            diff -u android-bridge.js www/android-bridge.js | head -20 || true
+          fi
+
       - name: Run regression tests
         working-directory: isotope-apk
         run: npm test
