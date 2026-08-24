@@ -1007,15 +1007,19 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     return s && s.access_token ? s.access_token : null;
   }
 
-  // ── Helper: supabase fetch ──────────────────────────────────────────────────
-  function supaFetch(path, opts) {
+  function supaFetchHeaders(init) {
     var token = getAccessToken();
-    var headers = Object.assign({}, {
+    return Object.assign({}, {
       'apikey': SUPA_ANON_KEY,
       'Authorization': 'Bearer ' + (token || SUPA_ANON_KEY),
       'Content-Type': 'application/json',
       'Prefer': 'return=representation'
-    }, opts && opts.headers ? opts.headers : {});
+    }, init && init.headers ? init.headers : {});
+  }
+
+  // ── Helper: supabase fetch ──────────────────────────────────────────────────
+  function supaFetch(path, opts) {
+    var headers = supaFetchHeaders(opts);
     var fetchOpts = Object.assign({}, opts, { headers: headers, credentials: 'omit' });
     if (!fetchOpts.signal && typeof AbortController !== 'undefined') {
       var controller = new AbortController();
