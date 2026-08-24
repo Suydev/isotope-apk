@@ -254,9 +254,18 @@
   }
 
   function dispatchToStore(action) {
-    if (!activeController || typeof activeController.dispatch !== 'function') return false;
+    if (!activeController) return false;
     try {
-      return activeController.dispatch(action) !== false;
+      if (typeof activeController.dispatch === 'function') return activeController.dispatch(action) !== false;
+      var st = typeof activeController.getState === 'function' ? activeController.getState() : null;
+      if (!st) return false;
+      if (action.type === 'correct' && typeof st.recordQuestionResult === 'function') { st.recordQuestionResult('correct'); return true; }
+      if (action.type === 'incorrect' && typeof st.recordQuestionResult === 'function') { st.recordQuestionResult('incorrect'); return true; }
+      if (action.type === 'skipped' && typeof st.recordQuestionResult === 'function') { st.recordQuestionResult('skipped'); return true; }
+      if (action.type === 'undo' && typeof st.undoLastQuestionResult === 'function') { st.undoLastQuestionResult(); return true; }
+      if (action.type === 'setTarget' && typeof st.setTargetQuestions === 'function') { st.setTargetQuestions(action.value); return true; }
+      if (typeof st.dispatch === 'function') return st.dispatch(action) !== false;
+      return false;
     } catch (error) {
       console.error('[IsotopeAI Floating Timer] Action dispatch failed:', error);
       return false;
@@ -266,6 +275,39 @@
   window.__isoNormalizeFocusIcon = normalizeFocusIcon;
   window.__isoRepairFocusTypesInProfile = repairFocusTypesInProfile;
   window.__isoRepairStoredFocusIconsOnce = repairStoredFocusIconsOnce;
+
+  function discoverController() {
+    if (activeController && typeof activeController.getState === 'function') return activeController;
+    try {
+      if (window.__isoFocusController && typeof window.__isoFocusController.getState === 'function') {
+        activeController = window.__isoFocusController; return activeController;
+      }
+      if (window.__FOCUS_STORE__ && typeof window.__FOCUS_STORE__.getState === 'function') {
+        activeController = window.__FOCUS_STORE__; return activeController;
+      }
+      var keys = Object.keys(window);
+      for (var i = 0; i < keys.length; i++) {
+        try {
+          var v = window[keys[i]];
+          if (v && typeof v.getState === 'function' && typeof v.dispatch === 'function') {
+            var st = v.getState();
+            if (st && ('timerState' in st || 'mode' in st || 'timeLeft' in st || 'stopwatchTime' in st)) {
+              activeController = v; window.__isoFocusController = v; return v;
+            }
+          }
+          if (v && v.useFocusStore && typeof v.useFocusStore.getState === 'function') {
+            activeController = v.useFocusStore; window.__isoFocusController = activeController; return activeController;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return null;
+  }
+  window.__isoRegisterFocusController = function (c) {
+    if (c && typeof c.getState === 'function') { activeController = c; window.__isoFocusController = c; }
+    return c;
+  };
+  window.__isoGetFocusController = discoverController;
 
   window.__ISO_FLOATING_TIMER__ = {
     normalizeTimerState: normalizeTimerState,
@@ -348,24 +390,25 @@
   // / Document PiP) cannot host interactive app UI. Intercept those calls and
   // show the native FloatingTimerService overlay instead, wired to the same Focus store.
   // This covers the Focus toolbar's "Picture-in-Picture" button (beside wallpaper/fullscreen).
+  // FIX: auto-discover controller on every trigger so PIP works even if Focus never called __isoOpenFloatingTimer.
   try {
+    function ensureController() { if (!activeController) discoverController(); return activeController; }
     if (typeof HTMLVideoElement !== 'undefined' && HTMLVideoElement.prototype.requestPictureInPicture) {
       var _origPiP = HTMLVideoElement.prototype.requestPictureInPicture;
       HTMLVideoElement.prototype.requestPictureInPicture = function () {
+        ensureController();
         if (activeController && isActiveTimerState(getControllerState())) {
           try { window.__isoOpenFloatingTimer(activeController); return Promise.resolve(this); } catch (e) {}
         }
         return _origPiP.apply(this, arguments);
       };
     }
-    // Intercept Document PiP (used by Focus-B4gLsWoP.js `at` function: `window.documentPictureInPicture.requestWindow`)
     if (typeof window !== 'undefined' && window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
       var _origDocPiP = window.documentPictureInPicture.requestWindow.bind(window.documentPictureInPicture);
       window.documentPictureInPicture.requestWindow = function (opts) {
+        ensureController();
         if (activeController && isActiveTimerState(getControllerState())) {
           try { window.__isoOpenFloatingTimer(activeController); } catch (e) {}
-          // Return a mock window that satisfies the caller (Focus expects .document, .close, etc.)
-          // so it doesn't throw or show "not supported" alert.
           return Promise.resolve({
             document: { body: { appendChild:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} },
             close: function(){},
@@ -376,10 +419,9 @@
         return _origDocPiP(opts);
       };
     } else if (typeof window !== 'undefined' && !window.documentPictureInPicture) {
-      // Polyfill so Focus's `if(!("documentPictureInPicture"in window))` check passes on Android WebView
-      // and the pip button doesn't show "not supported" alert, but instead triggers native overlay.
       window.documentPictureInPicture = {
         requestWindow: function(opts){
+          ensureController();
           if (activeController && isActiveTimerState(getControllerState())) {
             try { window.__isoOpenFloatingTimer(activeController); } catch(e){}
             return Promise.resolve({ document:{body:{appendChild:function(){},style:{}},createElement:function(){return{style:{}}},addEventListener:function(){}}, close:function(){}, addEventListener:function(){} });
@@ -389,17 +431,33 @@
       };
     }
     if (typeof document !== 'undefined' && 'pictureInPictureEnabled' in document) {
-      try { Object.defineProperty(document, 'pictureInPictureEnabled', { get: function(){ return false; }, configurable:true }); } catch(e){}
+      try { Object.defineProperty(document, 'pictureInPictureEnabled', { get: function(){ return true; }, configurable:true }); } catch(e){}
     }
-    // Also intercept any click on a PiP-labelled button as fallback
+    function handlePipButtonClick(ev) {
+      ensureController();
+      if (!activeController || !isActiveTimerState(getControllerState())) return false;
+      try { ev.preventDefault(); ev.stopPropagation(); window.__isoOpenFloatingTimer(activeController); return true; } catch(e){ return false; }
+    }
     document.addEventListener('click', function (ev) {
-      var t = ev.target && ev.target.closest ? ev.target.closest('button') : null;
+      var t = ev.target && ev.target.closest ? ev.target.closest('button, [role="button"], a') : null;
       if (!t) return;
-      var txt = (t.textContent || t.getAttribute('aria-label') || t.getAttribute('title') || '').toLowerCase();
-      if (txt.indexOf('pip') === -1 && txt.indexOf('picture') === -1) return;
-      if (!activeController || !isActiveTimerState(getControllerState())) return;
-      try { ev.preventDefault(); ev.stopPropagation(); window.__isoOpenFloatingTimer(activeController); } catch(e){}
+      var txt = ((t.textContent || '') + ' ' + (t.getAttribute('aria-label') || '') + ' ' + (t.getAttribute('title') || '')).toLowerCase();
+      var isPip = txt.indexOf('pip') !== -1 || txt.indexOf('picture') !== -1 || txt.indexOf('overlay') !== -1 || txt.indexOf('floating') !== -1;
+      if (!isPip) {
+        var icon = t.querySelector('svg, i');
+        if (icon) {
+          var ic = (icon.getAttribute('aria-label')||icon.getAttribute('title')||'').toLowerCase();
+          if (ic.indexOf('pip')!==-1 || ic.indexOf('picture')!==-1) isPip=true;
+        }
+      }
+      if (!isPip) return;
+      handlePipButtonClick(ev);
     }, true);
+    setInterval(function(){ try{ if(!activeController) discoverController(); }catch(e){} }, 1500);
+    try {
+      var __origCreate = null;
+      Object.defineProperty(window, '__isoPipHookInstalled', { value: true, writable:false });
+    } catch(e){}
   } catch (e) {}
 
   repairStoredFocusIconsOnce();
