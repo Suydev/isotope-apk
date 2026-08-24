@@ -6,7 +6,7 @@
     "androidScheme": "https",
     "hostname": "localhost",
     "port": 6767,
-    "allowNavigation": ["localhost", "accounts.google.com", "ollsqiutzartjhiuzkbf.supabase.co", "isotopeai.in", "*.isotopeai.in"]
+    "allowNavigation": ["localhost", "ollsqiutzartjhiuzkbf.supabase.co", "isotopeai.in", "*.isotopeai.in"]
   },
   "plugins": {
     "SplashScreen": {

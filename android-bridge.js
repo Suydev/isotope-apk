@@ -400,6 +400,61 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     }catch(e){}
   })();
 
+  // ── Google OAuth: force external browser ───────────────────────────────────
+  // Google blocks OAuth in embedded WebViews. `accounts.google.com` is removed
+  // from Capacitor allowNavigation so the system browser handles it natively.
+  // This interceptor catches any remaining in-WebView navigation attempts.
+  (function installExternalOAuth() {
+    if (!isAndroid) return;
+    var bridge = function() { try { return window.IsotopeAndroid || null; } catch(e) { return null; } };
+    function isGoogleAuthUrl(url) {
+      return typeof url === 'string' && (
+        url.indexOf('accounts.google.com') !== -1 ||
+        url.indexOf('accounts.youtube.com') !== -1
+      );
+    }
+    function openExternally(url) {
+      var b = bridge();
+      if (b && typeof b.openExternalUrl === 'function') {
+        b.openExternalUrl(url);
+        return true;
+      }
+      return false;
+    }
+    // Patch location.assign and location.replace
+    try {
+      var _assign = window.location.assign.bind(window.location);
+      window.location.assign = function(url) {
+        if (isGoogleAuthUrl(url) && openExternally(url)) return;
+        _assign(url);
+      };
+      var _replace = window.location.replace.bind(window.location);
+      window.location.replace = function(url) {
+        if (isGoogleAuthUrl(url) && openExternally(url)) return;
+        _replace(url);
+      };
+    } catch(e) {}
+    // Intercept window.open
+    try {
+      var _open = window.open.bind(window);
+      window.open = function(url, target, features) {
+        if (isGoogleAuthUrl(url) && openExternally(url)) return null;
+        return _open(url, target, features);
+      };
+    } catch(e) {}
+    // Click interceptor for anchor tags pointing to Google OAuth
+    document.addEventListener('click', function(ev) {
+      var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      if (isGoogleAuthUrl(href)) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openExternally(href);
+      }
+    }, true);
+  })();
+
   // ── Scroll enabler for long-content pages (Privacy, About, Settings, etc.) ──
   // Android WebView inherits the app's `overflow: hidden` on html/body, which
   // blocks scrolling on the landing-page static routes. This IIFE listens for
