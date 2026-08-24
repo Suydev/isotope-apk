@@ -88,7 +88,7 @@
     (function(){
       if(typeof document==='undefined'||!document.addEventListener)return;
       var st=document.createElement('style');st.id='__iso_kb_fix__';
-      st.textContent='html input:focus,html textarea:focus{-webkit-user-select:text!important;user-select:text!important}html [role=dialog]{max-height:calc(100dvh - 1rem)!important;overflow-y:auto!important}';
+      st.textContent='html input:focus,html textarea:focus{-webkit-user-select:text!important;user-select:text!important}html [role=dialog]{max-height:calc(100dvh - 1rem)!important;overflow-y:auto!important}html body{overscroll-behavior-y:contain}div[class*="overflow-hidden"][class*="min-h-screen"]{overflow-y:auto!important}section[class*="items-center"][class*="justify-center"]{align-items:flex-start!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch}div[class*="min-h-\\[560px\\]"]{min-height:0!important;margin-bottom:6rem!important}';
       function inj(){if(!document.head||document.getElementById('__iso_kb_fix__'))return;document.head.appendChild(st)}
       document.head?inj():document.addEventListener('DOMContentLoaded',inj,{once:true});
       var obs=new MutationObserver(function(){
