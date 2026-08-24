@@ -126,10 +126,10 @@ jobs:
         run: chmod +x android/gradlew
 
        # ── Release signing ────────────────────────────────────────────────────
-      # Decode the release keystore from GitHub secrets and expose signing env
-      # vars. build.gradle signs the release APK with this keystore; if the
-      # secrets are absent the release build fails clearly (no debug fallback).
-      - name: 🔑 Configure release signing (from GitHub secrets)
+      # Release signs with the committed debug.keystore (sideload build, not Play
+      # Store). If ANDROID_KEYSTORE_BASE64 + password secrets are set, those are
+      # used instead. No failure if secrets are absent — debug fallback works.
+      - name: 🔑 Configure release signing (optional custom keystore)
         if: "github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'"
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -139,16 +139,19 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${KEYSTORE_B64:-}" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > android/app/release.keystore
-            {
-              echo "KEYSTORE_FILE=${PWD}/android/app/release.keystore"
-              echo "KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}"
-              echo "KEY_ALIAS=${KEY_ALIAS}"
-              echo "KEY_PASSWORD=${KEY_PASSWORD}"
-            } >> "$GITHUB_ENV"
-            echo "✅ Release keystore configured"
+            if printf '%s' "$KEYSTORE_B64" | base64 -d > android/app/release.keystore 2>/dev/null && [ -s android/app/release.keystore ]; then
+              {
+                echo "KEYSTORE_FILE=${PWD}/android/app/release.keystore"
+                echo "KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}"
+                echo "KEY_ALIAS=${KEY_ALIAS}"
+                echo "KEY_PASSWORD=${KEY_PASSWORD}"
+              } >> "$GITHUB_ENV"
+              echo "✅ Custom release keystore configured"
+            else
+              echo "⚠️ Keystore base64 decode failed — using debug.keystore fallback"
+            fi
           else
-            echo "⚠️ ANDROID_KEYSTORE_BASE64 secret not set — release build will fail to sign"
+            echo "ℹ️ No custom keystore secret — signing with debug.keystore (sideload build)"
           fi
 
       - name: 🏗️ Build Android APK
