@@ -588,6 +588,7 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
   };
 
   function startNotifPolling() {
+    if (typeof setInterval !== 'function' || typeof document === 'undefined' || !document.addEventListener) return;
     if (_notifPollTimer) clearInterval(_notifPollTimer);
     _notifPollTimer = setInterval(function() {
       window.__isoPollNotifications().catch(function() {});
@@ -600,11 +601,13 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     setTimeout(function() { window.__isoPollNotifications().catch(function() {}); }, 15000);
   }
 
-  // Start polling after a short delay to let the app boot
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startNotifPolling);
-  } else {
-    startNotifPolling();
+  // Start polling after a short delay to let the app boot (browser only)
+  if (typeof setInterval === 'function' && typeof document !== 'undefined' && document.addEventListener) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', startNotifPolling);
+    } else {
+      startNotifPolling();
+    }
   }
 
   // ── Community namespace — Join-with-Code modal (replaces window.prompt) ────
