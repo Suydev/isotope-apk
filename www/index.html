@@ -83,6 +83,34 @@
   })();
 </script>
     <script src="/android-floating-timer-bridge.js"></script>
+    <!-- Keyboard fix + Join with Code button for Community -->
+    <script>
+    (function(){
+      if(typeof document==='undefined'||!document.addEventListener)return;
+      var st=document.createElement('style');st.id='__iso_kb_fix__';
+      st.textContent='html input:focus,html textarea:focus{-webkit-user-select:text!important;user-select:text!important}html [role=dialog]{max-height:calc(100dvh - 1rem)!important;overflow-y:auto!important}';
+      function inj(){if(!document.head||document.getElementById('__iso_kb_fix__'))return;document.head.appendChild(st)}
+      document.head?inj():document.addEventListener('DOMContentLoaded',inj,{once:true});
+      var obs=new MutationObserver(function(){
+        try{
+          var hs=document.querySelectorAll('.community-view-heading');
+          for(var i=0;i<hs.length;i++){
+            var h2=hs[i].querySelector('h2');
+            if(!h2||h2.textContent!=='Your groups')continue;
+            var ad=hs[i].querySelector('.community-section-header__actions');
+            if(!ad||ad.querySelector('.__iso_jcb'))continue;
+            var b=document.createElement('button');b.type='button';
+            b.className='__iso_jcb community-control-button inline-flex min-h-11 items-center gap-2 px-4 mr-2 text-sm font-bold';
+            b.textContent='\uD83D\uDD11 Join with Code';
+            b.onclick=function(){try{window.IsotopeAndroidCommunity.openJoinModal()}catch(e){}};
+            ad.insertBefore(b,ad.firstChild);
+          }
+        }catch(e){}
+      });
+      function start(){obs.observe(document.body||document.documentElement,{childList:true,subtree:true})}
+      document.body?start():document.addEventListener('DOMContentLoaded',start,{once:true});
+    })();
+    </script>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
       <title>IsotopeAI | AI Study Planner, Focus Timer &amp; Analytics for Students</title>
