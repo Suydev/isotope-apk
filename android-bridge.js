@@ -524,6 +524,89 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     return window.__ISO_ANDROID_ONLINE__ !== false;
   };
 
+  // ── Notification poller ───────────────────────────────────────────────────
+  // Reads unread notifications from the Supabase notifications table and
+  // delivers them via Capacitor LocalNotifications (native Android) or
+  // browser Notification API. Polls every 60s when online + authed.
+  var _lastNotifCheck = 0;
+  var _notifPollTimer = null;
+
+  window.__isoPollNotifications = async function() {
+    if (!window.__isoIsOnline()) return;
+    var now = Date.now();
+    if (now - _lastNotifCheck < 30000) return;
+    _lastNotifCheck = now;
+
+    var session = getSession();
+    if (!session || !session.access_token) return;
+    var userId = session.user && session.user.id;
+    if (!userId) return;
+
+    try {
+      var r = await fetch(SUPA_URL + '/rest/v1/notifications?select=id,type,title,body,data,created_at&user_id=eq.' + encodeURIComponent(userId) + '&read_at=is.null&order=created_at.desc&limit=20', {
+        headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + session.access_token },
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!r.ok) return;
+      var rows = await r.json();
+      if (!Array.isArray(rows) || rows.length === 0) return;
+
+      var seenIds = [];
+      try { seenIds = JSON.parse(sessionStorage.getItem('iso_seen_notifs') || '[]'); } catch(e) {}
+
+      var newRows = rows.filter(function(row) { return seenIds.indexOf(row.id) === -1; });
+      if (newRows.length === 0) return;
+
+      newRows.forEach(function(row) {
+        try {
+          // Try Capacitor LocalNotifications first (native Android notification)
+          var LocalNotifications = getCapacitorPlugin('LocalNotifications');
+          if (LocalNotifications && typeof LocalNotifications.schedule === 'function') {
+            LocalNotifications.schedule({
+              notifications: [{
+                id: Math.abs(row.id.hashCode ? row.id.hashCode : row.id.length),
+                title: row.title || 'IsotopeAI',
+                body: row.body || '',
+                smallIcon: 'ic_notification',
+                iconColor: '#f97316'
+              }]
+            });
+          } else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification(row.title || 'IsotopeAI', {
+              body: row.body || '',
+              icon: '/icons/icon-192x192.png',
+              tag: row.id,
+              data: row.data || {}
+            });
+          }
+        } catch(_showErr) {}
+      });
+
+      seenIds = newRows.map(function(r2) { return r2.id; }).concat(seenIds).slice(0, 50);
+      try { sessionStorage.setItem('iso_seen_notifs', JSON.stringify(seenIds)); } catch(e) {}
+    } catch(e) {}
+  };
+
+  function startNotifPolling() {
+    if (_notifPollTimer) clearInterval(_notifPollTimer);
+    _notifPollTimer = setInterval(function() {
+      window.__isoPollNotifications().catch(function() {});
+    }, 60000);
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden) {
+        setTimeout(function() { window.__isoPollNotifications().catch(function() {}); }, 2000);
+      }
+    });
+    setTimeout(function() { window.__isoPollNotifications().catch(function() {}); }, 15000);
+  }
+
+  // Start polling after a short delay to let the app boot
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startNotifPolling);
+  } else {
+    startNotifPolling();
+  }
+
   // ── Community namespace — Join-with-Code modal (replaces window.prompt) ────
   window.IsotopeAndroidCommunity = (function () {
     function openJoinModal() {
@@ -3951,6 +4034,23 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     // ── Local static responses ────────────────────────────────────────────────
     var localResp = handleLocalStatus(url);
     if (localResp) return localResp;
+
+    // ── Notification polling ─────────────────────────────────────────────────
+    // GET /api/notifications → reads unread from Supabase notifications table.
+    // Called by the notification poller every 60s + on visibility change.
+    if (method === 'GET' && pathname === '/api/notifications') {
+      var notifSession = getSession();
+      if (!notifSession || !notifSession.access_token) {
+        return Promise.resolve(jsonResponse([], 200));
+      }
+      var notifUserId = notifSession.user && notifSession.user.id;
+      if (!notifUserId) return Promise.resolve(jsonResponse([], 200));
+      return supaJson('/rest/v1/notifications?select=id,type,title,body,data,created_at&user_id=eq.' + encodeURIComponent(notifUserId) + '&read_at=is.null&order=created_at.desc&limit=20', { method: 'GET' })
+        .then(function (r) {
+          if (!r.ok) return jsonResponse([], 200);
+          return jsonResponse(Array.isArray(r.body) ? r.body : [], 200);
+        }).catch(function () { return jsonResponse([], 200); });
+    }
 
     // ── POST endpoints with web parity ────────────────────────────────────────
     if (method === 'POST' && pathname === '/__isotope/state') {
