@@ -198,11 +198,11 @@
 -dontwarn org.jetbrains.annotations.**
 
 # ================================================================
-# Optimize
+# Optimize (R8 handles optimization automatically; ProGuard legacy options removed)
 # ================================================================
--optimizationpasses 5
--allowaccessmodification
--mergeinterfacesaggressively
--overloadaggressively
--mergeclasses
--mergesequence
+# -optimizationpasses 5 (ProGuard only, R8 uses different optimization)
+# -allowaccessmodification (R8 handles via keep rules)
+# -mergeinterfacesaggressively (Not supported in R8)
+# -overloadaggressively (Not supported in R8)
+# -mergeclasses (Not supported in R8)
+# -mergesequence (Not supported in R8)
