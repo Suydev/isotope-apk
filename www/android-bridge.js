@@ -105,6 +105,29 @@
   };
   try{ window.__isoLogs.push({t:'00:00:00',l:'INIT',m:'log viewer ready - call __isoShowLogViewer()'}); }catch(e){}
   (function(){ try{ var taps=0,last=0; document.addEventListener('click',function(){ var now=Date.now(); if(now-last>800) taps=0; taps++; last=now; if(taps>=5){ taps=0; try{ window.__isoShowLogViewer(); }catch(e){} } }); }catch(e){} })();
+  (function(){
+    try{
+      var shouldAuto=function(){
+        try{
+          var r=document.getElementById('root');
+          if(!r || r.children.length<3) return true;
+          if(document.body && /REACT DID NOT MOUNT/.test(document.body.innerText||'')) return true;
+          if(window.__isoLogs.some(function(x){ return x.l==='JSERR' || x.l==='error' || x.l==='FETCH_ERR' || x.l==='PROMISE' || /Illegal invocation|ReferenceError|supaFetchHeaders/.test(x.m); })) return true;
+          var s=document.body?s=document.body.innerHTML:'';
+          if(/bridge:ok.*root:2el/.test(s)) return true;
+        }catch(e){}
+        return false;
+      };
+      var autoChecks=0;
+      var poll=function(){
+        try{ if(shouldAuto()){ window.__isoShowLogViewer(); return; } }catch(e){}
+        if(++autoChecks<15) setTimeout(poll,2000);
+      };
+      document.addEventListener('DOMContentLoaded',function(){ setTimeout(poll,1500); });
+      window.addEventListener('load',function(){ setTimeout(poll,1500); });
+      setTimeout(poll,3000);
+    }catch(e){}
+  })();
 
   // Canonical invite URL generator — never uses window.location.origin
   window.__isoGetInviteUrl = function (code, type) {
