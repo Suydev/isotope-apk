@@ -39,6 +39,36 @@
   window.__ISO_VERSION__   = APP_VERSION;
   window.__ISO_INVITE_DOMAIN__ = 'isotopeai:/';
 
+  (function(){
+    try{
+      var methods=['getItem','setItem','removeItem','clear','key','getters'];
+      ['localStorage','sessionStorage'].forEach(function(store){
+        try{
+          var s=window[store];
+          if(!s) return;
+          methods.slice(0,5).forEach(function(m){
+            try{
+              var orig=s[m];
+              if(typeof orig!=='function') return;
+              s[m]=orig.bind(s);
+            }catch(e){}
+          });
+        }catch(e){}
+      });
+      try{
+        var origStringify=JSON.stringify;
+        JSON.stringify=function(v,a,b){
+          try{ return origStringify(v,a,b); }catch(e){
+            if(e&&String(e.message).indexOf('circular')!==-1){
+              var seen=new WeakSet();
+              return origStringify(v,function(k,val){ if(typeof val==='object'&&val!==null){ if(seen.has(val)) return '[Circular]'; seen.add(val);} return val; },b);
+            } throw e;
+          }
+        };
+      }catch(e){}
+    }catch(e){}
+  })();
+
   // Canonical invite URL generator — never uses window.location.origin
   window.__isoGetInviteUrl = function (code, type) {
     var clean = String(code || '').trim();
