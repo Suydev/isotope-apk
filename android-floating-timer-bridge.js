@@ -403,8 +403,8 @@
     if (typeof window !== 'undefined' && window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
       var _origDocPiP = window.documentPictureInPicture.requestWindow.bind(window.documentPictureInPicture);
       window.documentPictureInPicture.requestWindow = function (opts) {
-        try{ var c=ensureController(); if(c) { try{ window.__isoOpenFloatingTimer(c); }catch(e){} return Promise.resolve({ document: { body: { appendChild:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} }, close: function(){}, addEventListener: function(){}, removeEventListener: function(){} }); } }catch(e){}
-        try{ return _origDocPiP(opts); }catch(e){ return Promise.resolve({ document: { body: { appendChild:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} }, close: function(){}, addEventListener: function(){}, removeEventListener: function(){} }); }
+        try{ var c=ensureController(); if(c) { try{ window.__isoOpenFloatingTimer(c); }catch(e){} return Promise.resolve({ document: { body: { appendChild:function(){ return this.appendChild.apply(this,arguments); }, append:function(){ return this.appendChild.apply(this,arguments); }, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}, appendChild:function(){}, append:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} }, close: function(){}, addEventListener: function(){}, removeEventListener: function(){} }); } }catch(e){}
+        try{ return _origDocPiP(opts); }catch(e){ return Promise.resolve({ document: { body: { appendChild:function(){ return this.appendChild.apply(this,arguments); }, append:function(){ return this.appendChild.apply(this,arguments); }, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}, appendChild:function(){}, append:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} }, close: function(){}, addEventListener: function(){}, removeEventListener: function(){} }); }
       };
     } else if (typeof window !== 'undefined' && !window.documentPictureInPicture) {
       window.documentPictureInPicture = {
@@ -418,7 +418,7 @@
               try{ b.startFloatingTimer(JSON.stringify(st)); }catch(e){}
             }
           }catch(e){}
-          return Promise.resolve({ document:{body:{appendChild:function(){},style:{}},createElement:function(){return{style:{}}},addEventListener:function(){}}, close:function(){}, addEventListener:function(){} });
+          return Promise.resolve({ document:{body:{appendChild:function(){ return this.appendChild.apply(this,arguments); }, append:function(){ return this.appendChild.apply(this,arguments); }, style:{}, addEventListener:function(){}},createElement:function(){return {style:{},addEventListener:function(){},appendChild:function(){},append:function(){}}},addEventListener:function(){},removeEventListener:function(){}}, close:function(){}, addEventListener:function(){}, removeEventListener:function(){} });
         }
       };
     }
