@@ -1016,6 +1016,7 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       'Prefer': 'return=representation'
     }, init && init.headers ? init.headers : {});
   }
+  try { window.supaFetchHeaders = supaFetchHeaders; } catch(e) {}
 
   // ── Helper: supabase fetch ──────────────────────────────────────────────────
   function supaFetch(path, opts) {
@@ -1039,6 +1040,7 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       throw e;
     });
   }
+  try { window.supaFetch = supaFetch; } catch(e) {}
 
   // ── Helper: json response ───────────────────────────────────────────────────
   function jsonResponse(data, status) {
@@ -1084,6 +1086,7 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       });
     });
   }
+  try { window.supaJson = supaJson; } catch(e) {}
 
   function firstRow(res) {
     return res && Array.isArray(res.body) && res.body.length ? res.body[0] : null;
