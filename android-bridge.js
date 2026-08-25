@@ -69,6 +69,43 @@
     }catch(e){}
   })();
 
+  window.__isoLogs=[];
+  (function(){
+    try{
+      var push=function(l,a){ try{ window.__isoLogs.push({t:new Date().toISOString().slice(11,19),l:l,m:Array.from(a).map(function(x){ try{ return typeof x==='string'?x:JSON.stringify(x).slice(0,500);}catch(e){ return String(x);}}).join(' ')}); if(window.__isoLogs.length>500) window.__isoLogs.shift(); }catch(e){} };
+      ['log','warn','error','info'].forEach(function(k){ try{ var o=console[k]; console[k]=function(){ push(k,arguments); return o.apply(console,arguments); }; }catch(e){} });
+      window.addEventListener('error',function(e){ push('JSERR', [e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno]); });
+      window.addEventListener('unhandledrejection',function(e){ push('PROMISE', [String(e.reason)]); });
+      var origFetch=window.fetch;
+      if(origFetch) window.fetch=function(u,o){ var s=String(u).slice(0,80); push('FETCH',[s]); return origFetch.apply(this,arguments).then(function(r){ push('FETCH_OK',[s+' -> '+r.status]); return r; }).catch(function(e){ push('FETCH_ERR',[s+' '+String(e)]); throw e; }); };
+    }catch(e){}
+  })();
+  window.__isoShowLogViewer=function(){
+    try{
+      var old=document.getElementById('__isoLogViewer'); if(old) old.remove();
+      var d=document.createElement('div'); d.id='__isoLogViewer';
+      d.style.cssText='position:fixed;inset:0;z-index:999999;background:#0b0e14;color:#cbd5e1;font-family:ui-monospace,Menlo,monospace;font-size:12px;display:flex;flex-direction:column;';
+      var h=document.createElement('div'); h.style.cssText='background:#111827;border-bottom:1px solid #1f2937;padding:10px 14px;display:flex;align-items:center;gap:10px;';
+      h.innerHTML='<div style="width:10px;height:10px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e"></div><b style="color:#e2e8f0;font-size:13px;">Isotope • System Logs</b><span style="margin-left:8px;padding:2px 8px;background:#1f2937;color:#94a3b8;border-radius:999px;font-size:10px;">'+window.__isoLogs.length+' events</span><span style="margin-left:auto;display:flex;gap:8px;"><button id="__isoLogCopy" style="padding:6px 12px;background:#0ea5e9;color:#fff;border:0;border-radius:8px;font-weight:600;cursor:pointer;">Copy</button><button id="__isoLogClear" style="padding:6px 12px;background:#1f2937;color:#e2e8f0;border:1px solid #334155;border-radius:8px;cursor:pointer;">Clear</button><button id="__isoLogClose" style="padding:6px 12px;background:#ef4444;color:#fff;border:0;border-radius:8px;cursor:pointer;">Close</button></span>';
+      var tabs=document.createElement('div'); tabs.style.cssText='display:flex;gap:8px;padding:8px 14px;background:#0f172a;border-bottom:1px solid #1f2937;';
+      var filters=['ALL','JSERR','FETCH','PROMISE','log','warn','error']; var active='ALL';
+      filters.forEach(function(f){ var b=document.createElement('button'); b.textContent=f; b.dataset.f=f; b.style.cssText='padding:4px 10px;border-radius:999px;border:1px solid #334155;background:'+(f==='ALL'?'#1e40af':'#0f172a')+';color:'+(f==='ALL'?'#fff':'#94a3b8')+';font-size:10px;cursor:pointer;'; b.onclick=function(){ active=f; render(); Array.from(tabs.children).forEach(function(x){ x.style.background=x.dataset.f===active?'#1e40af':'#0f172a'; x.style.color=x.dataset.f===active?'#fff':'#94a3b8'; }); }; tabs.appendChild(b); });
+      var body=document.createElement('div'); body.style.cssText='flex:1;overflow:auto;padding:12px 14px;background:#0b0e14;';
+      var pre=document.createElement('pre'); pre.style.cssText='white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;line-height:1.6;';
+      var cap=document.createElement('div'); cap.style.cssText='padding:8px 14px;background:#020617;border-top:1px solid #1f2937;color:#64748b;font-size:10px;';
+      try{ cap.textContent='UA: '+navigator.userAgent.slice(0,120)+' | '+location.href+' | bridge:ok • 5 taps to open • __isoShowLogViewer() in console'; }catch(e){ cap.textContent='bridge:ok • 5 taps • __isoShowLogViewer()'; }
+      function render(){ var list=active==='ALL'?window.__isoLogs:window.__isoLogs.filter(function(x){ return x.l===active; }); pre.textContent=list.map(function(x){ var c=x.l==='JSERR'?'#f87171':x.l==='error'?'#fb7185':x.l==='FETCH_ERR'?'#fbbf24':x.l==='warn'?'#facc15':'#cbd5e1'; return '['+x.t+'] '+x.l.padEnd(10)+' '+x.m; }).join('\n') || '(no logs for '+active+')'; body.scrollTop=body.scrollHeight; }
+      body.appendChild(pre); d.appendChild(h); d.appendChild(tabs); d.appendChild(body); d.appendChild(cap);
+      document.body.appendChild(d);
+      document.getElementById('__isoLogClose').onclick=function(){ d.remove(); };
+      document.getElementById('__isoLogClear').onclick=function(){ window.__isoLogs=[]; render(); h.querySelector('span').textContent=window.__isoLogs.length+' events'; };
+      document.getElementById('__isoLogCopy').onclick=function(){ try{ navigator.clipboard.writeText(pre.textContent); }catch(e){} };
+      render();
+    }catch(e){}
+  };
+  try{ window.__isoLogs.push({t:'00:00:00',l:'INIT',m:'log viewer ready - call __isoShowLogViewer()'}); }catch(e){}
+  (function(){ try{ var taps=0,last=0; document.addEventListener('click',function(){ var now=Date.now(); if(now-last>800) taps=0; taps++; last=now; if(taps>=5){ taps=0; try{ window.__isoShowLogViewer(); }catch(e){} } }); }catch(e){} })();
+
   // Canonical invite URL generator — never uses window.location.origin
   window.__isoGetInviteUrl = function (code, type) {
     var clean = String(code || '').trim();
