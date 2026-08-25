@@ -361,18 +361,9 @@ async function fetchProfileFromDB(session) {
     const pd = profileRow?.profile_data || {};
     let onboarding = normalizeOnboarding(onboardingRow, pd);
     if (typeof onboarding.completed !== 'boolean') {
-      if (typeof pd.isOnboarded === 'boolean') {
-        onboarding = { state: pd.isOnboarded ? 'completed' : 'incomplete', completed: pd.isOnboarded, completed_at: pd.onboardingCompletedAt || pd.onboarding_completed_at || null, data: isObject(pd.onboarding) ? pd.onboarding : {} };
-      } else if (typeof pd.onboarding_completed === 'boolean') {
-        onboarding = { state: pd.onboarding_completed ? 'completed' : 'incomplete', completed: pd.onboarding_completed, completed_at: pd.onboarding_completed_at || null, data: isObject(pd.onboarding) ? pd.onboarding : {} };
-      } else {
-        const hasAnyProfileData = isObject(pd) && Object.keys(pd).length > 0;
-        if (hasAnyProfileData) {
-          try { localStorage.setItem('isotope:trusted-cloud-snapshot:'+session.user.id, JSON.stringify({user_id:session.user.id, profile_data:pd, onboarding:{completed:false,state:'incomplete'}, downloaded_at:new Date().toISOString()})); } catch(_){}
-          return { isOnboarded: false, source: 'supabase', snapshot: null };
-        }
-        onboarding = { state: 'incomplete', completed: false, completed_at: null, data: {} };
-      }
+      const hasAnyProfileData = isObject(pd) && Object.keys(pd).length > 0;
+      if (hasAnyProfileData) return null;
+      onboarding = { state: 'incomplete', completed: false, completed_at: null, data: {} };
     }
 
     const cloudSnapshot = writeCloudSnapshotFromParts({

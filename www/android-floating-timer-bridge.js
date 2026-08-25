@@ -279,23 +279,24 @@
   function discoverController() {
     if (activeController && typeof activeController.getState === 'function') return activeController;
     try {
-      var cand = null;
-      try { cand = window.__isoFocusController; if (cand && typeof cand.getState === 'function') { activeController = cand; return cand; } } catch(e){}
-      try { cand = window.__FOCUS_STORE__; if (cand && typeof cand.getState === 'function') { activeController = cand; return cand; } } catch(e){}
+      if (window.__isoFocusController && typeof window.__isoFocusController.getState === 'function') {
+        activeController = window.__isoFocusController; return activeController;
+      }
+      if (window.__FOCUS_STORE__ && typeof window.__FOCUS_STORE__.getState === 'function') {
+        activeController = window.__FOCUS_STORE__; return activeController;
+      }
       var keys = Object.keys(window);
       for (var i = 0; i < keys.length; i++) {
         try {
           var v = window[keys[i]];
-          if (v && typeof v.getState === 'function') {
-            var st = null; try { st = v.getState(); } catch(e2){}
+          if (v && typeof v.getState === 'function' && typeof v.dispatch === 'function') {
+            var st = v.getState();
             if (st && ('timerState' in st || 'mode' in st || 'timeLeft' in st || 'stopwatchTime' in st)) {
-              try{ Object.defineProperty(window,'__isoFocusController',{value:v,writable:true,configurable:true,enumerable:false}); }catch(e3){ window.__isoFocusController=v; }
-              activeController = v; return v;
+              activeController = v; window.__isoFocusController = v; return v;
             }
           }
           if (v && v.useFocusStore && typeof v.useFocusStore.getState === 'function') {
-            try{ Object.defineProperty(window,'__isoFocusController',{value:v.useFocusStore,writable:true,configurable:true,enumerable:false}); }catch(e3){ window.__isoFocusController=v.useFocusStore; }
-            activeController = v.useFocusStore; return activeController;
+            activeController = v.useFocusStore; window.__isoFocusController = activeController; return activeController;
           }
         } catch (e) {}
       }
@@ -303,10 +304,7 @@
     return null;
   }
   window.__isoRegisterFocusController = function (c) {
-    if (c && typeof c.getState === 'function') {
-      try{ Object.defineProperty(window,'__isoFocusController',{value:c,writable:true,configurable:true,enumerable:false}); }catch(e){ window.__isoFocusController=c; }
-      activeController = c;
-    }
+    if (c && typeof c.getState === 'function') { activeController = c; window.__isoFocusController = c; }
     return c;
   };
   window.__isoGetFocusController = discoverController;
@@ -361,9 +359,10 @@
 
     activeController = controller;
     var state = getControllerState();
-    if (!state) return Promise.resolve({ ok: false, reason: 'Focus timer state not ready.' });
-    // Allow idle launch: show overlay even before session starts (better UX than blocking)
-    // isActive check only gates auto-pump; idle still shows controls.
+    if (!isActiveTimerState(state)) {
+      activeController = null;
+      return Promise.resolve({ ok: false, reason: 'Start a focus session before opening Floating Timer.' });
+    }
 
     try {
       if (typeof bridge.hasOverlayPermission === 'function' && !bridge.hasOverlayPermission()) {
@@ -398,15 +397,18 @@
       var _origPiP = HTMLVideoElement.prototype.requestPictureInPicture;
       HTMLVideoElement.prototype.requestPictureInPicture = function () {
         ensureController();
-        if (true) { try { var c=ensureController(); if(c) { window.__isoOpenFloatingTimer(c).catch(function(e){ try{var b=nativeBridge(); if(b&&b.startFloatingTimer) b.startFloatingTimer(JSON.stringify(getControllerState()||{timerState:"idle",mode:"pomodoro",displayedSeconds:1500}));}catch(e2){}}); return Promise.resolve(this); } } catch (e) {} } return _origPiP.apply(this, arguments);
+        if (activeController && isActiveTimerState(getControllerState())) {
+          try { window.__isoOpenFloatingTimer(activeController); return Promise.resolve(this); } catch (e) {}
+        }
+        return _origPiP.apply(this, arguments);
       };
     }
     if (typeof window !== 'undefined' && window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
       var _origDocPiP = window.documentPictureInPicture.requestWindow.bind(window.documentPictureInPicture);
       window.documentPictureInPicture.requestWindow = function (opts) {
-        var c = ensureController();
-        if (c) {
-          try { window.__isoOpenFloatingTimer(c); } catch (e) {}
+        ensureController();
+        if (activeController && isActiveTimerState(getControllerState())) {
+          try { window.__isoOpenFloatingTimer(activeController); } catch (e) {}
           return Promise.resolve({
             document: { body: { appendChild:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} },
             close: function(){},
@@ -419,9 +421,9 @@
     } else if (typeof window !== 'undefined' && !window.documentPictureInPicture) {
       window.documentPictureInPicture = {
         requestWindow: function(opts){
-          var c = ensureController();
-          if (c) {
-            try { window.__isoOpenFloatingTimer(c); } catch(e){}
+          ensureController();
+          if (activeController && isActiveTimerState(getControllerState())) {
+            try { window.__isoOpenFloatingTimer(activeController); } catch(e){}
             return Promise.resolve({ document:{body:{appendChild:function(){},style:{}},createElement:function(){return{style:{}}},addEventListener:function(){}}, close:function(){}, addEventListener:function(){} });
           }
           return Promise.reject(new Error('Document PiP not supported'));
@@ -432,20 +434,15 @@
       try { Object.defineProperty(document, 'pictureInPictureEnabled', { get: function(){ return true; }, configurable:true }); } catch(e){}
     }
     function handlePipButtonClick(ev) {
-      var c = ensureController();
-      if (!c) return false;
-      try { ev.preventDefault(); ev.stopPropagation(); window.__isoOpenFloatingTimer(c); return true; } catch(e){ return false; }
+      ensureController();
+      if (!activeController || !isActiveTimerState(getControllerState())) return false;
+      try { ev.preventDefault(); ev.stopPropagation(); window.__isoOpenFloatingTimer(activeController); return true; } catch(e){ return false; }
     }
     document.addEventListener('click', function (ev) {
       var t = ev.target && ev.target.closest ? ev.target.closest('button, [role="button"], a') : null;
       if (!t) return;
       var txt = ((t.textContent || '') + ' ' + (t.getAttribute('aria-label') || '') + ' ' + (t.getAttribute('title') || '')).toLowerCase();
       var isPip = txt.indexOf('pip') !== -1 || txt.indexOf('picture') !== -1 || txt.indexOf('overlay') !== -1 || txt.indexOf('floating') !== -1;
-      if (!isPip && window.location.pathname === '/focus' && t.querySelector('svg')) {
-        var rect = t.getBoundingClientRect();
-        var isToolbar = (rect.top < 120 && rect.right > window.innerWidth - 250) || (rect.bottom > window.innerHeight - 120 && rect.right > window.innerWidth - 300);
-        if (isToolbar) isPip = true;
-      }
       if (!isPip) {
         var icon = t.querySelector('svg, i');
         if (icon) {
@@ -454,9 +451,7 @@
         }
       }
       if (!isPip) return;
-      if (handlePipButtonClick(ev)) return;
-      var c2 = ensureController();
-      if (c2 && window.location.pathname === '/focus') { try{ ev.preventDefault(); ev.stopPropagation(); window.__isoOpenFloatingTimer(c2);}catch(e){}}
+      handlePipButtonClick(ev);
     }, true);
     setInterval(function(){ try{ if(!activeController) discoverController(); }catch(e){} }, 1500);
     try {
