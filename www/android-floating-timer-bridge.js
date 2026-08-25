@@ -396,27 +396,15 @@
     if (typeof HTMLVideoElement !== 'undefined' && HTMLVideoElement.prototype.requestPictureInPicture) {
       var _origPiP = HTMLVideoElement.prototype.requestPictureInPicture;
       HTMLVideoElement.prototype.requestPictureInPicture = function () {
-        ensureController();
-        if (activeController && isActiveTimerState(getControllerState())) {
-          try { window.__isoOpenFloatingTimer(activeController); return Promise.resolve(this); } catch (e) {}
-        }
-        return _origPiP.apply(this, arguments);
+        try{ var c=ensureController(); if(c) { try{ window.__isoOpenFloatingTimer(c); }catch(e){} return Promise.resolve(this); } }catch(e){}
+        try{ return _origPiP.apply(this, arguments); }catch(e){ return Promise.resolve(this); }
       };
     }
     if (typeof window !== 'undefined' && window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
       var _origDocPiP = window.documentPictureInPicture.requestWindow.bind(window.documentPictureInPicture);
       window.documentPictureInPicture.requestWindow = function (opts) {
-        ensureController();
-        if (activeController && isActiveTimerState(getControllerState())) {
-          try { window.__isoOpenFloatingTimer(activeController); } catch (e) {}
-          return Promise.resolve({
-            document: { body: { appendChild:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} },
-            close: function(){},
-            addEventListener: function(){},
-            removeEventListener: function(){}
-          });
-        }
-        return _origDocPiP(opts);
+        try{ var c=ensureController(); if(c) { try{ window.__isoOpenFloatingTimer(c); }catch(e){} return Promise.resolve({ document: { body: { appendChild:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} }, close: function(){}, addEventListener: function(){}, removeEventListener: function(){} }); } }catch(e){}
+        try{ return _origDocPiP(opts); }catch(e){ return Promise.resolve({ document: { body: { appendChild:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} }, close: function(){}, addEventListener: function(){}, removeEventListener: function(){} }); }
       };
     } else if (typeof window !== 'undefined' && !window.documentPictureInPicture) {
       window.documentPictureInPicture = {

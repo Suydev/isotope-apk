@@ -193,6 +193,8 @@
       questionsSkipped: clampNumber(raw.questionsSkipped, 0, 999999, 0),
       targetQuestions: targetQuestions,
       undoAvailable: !!raw.undoAvailable,
+      pomodoroCycle: clampNumber(raw.pomodoroCycle, 1, 999, 1),
+      pomodoroSessionsUntilLongBreak: clampNumber(raw.pomodoroSessionsUntilLongBreak, 1, 99, 4),
       theme: raw.theme === 'light' ? 'light' : 'dark',
       route: raw.route || '/focus',
       active: timerState === 'running' || timerState === 'paused' || timerState === 'break'
@@ -209,22 +211,26 @@
   }
 
   function sendStateToNative() {
-    var bridge = nativeBridge();
     var state = getControllerState();
-    if (!bridge || !state) return false;
+    if (!state) return false;
     if (!isActiveTimerState(state)) {
-      try { if (typeof bridge.stopFloatingTimer === 'function') bridge.stopFloatingTimer(); } catch (error) {}
+      var __b0 = nativeBridge();
+      try { if (__b0 && typeof __b0.stopFloatingTimer === 'function') __b0.stopFloatingTimer(); } catch (error) {}
       stopStatePump();
       activeController = null;
       return false;
     }
     var payload = JSON.stringify(state);
+    try { if (window.__isoPipCache && window.__isoPipCache.set) window.__isoPipCache.set(state); } catch (e) {}
+    try { fetch('http://127.0.0.1:3000/__pip/state', { method:'POST', headers:{'Content-Type':'application/json'}, body:payload, keepalive:true }).catch(function(){}); } catch (e) {}
+    var bridge = nativeBridge();
+    if (!bridge) return true;
     try {
       if (typeof bridge.updateFloatingTimerState === 'function') bridge.updateFloatingTimerState(payload);
       return true;
     } catch (error) {
       console.error('[IsotopeAI Floating Timer] Native state update failed:', error);
-      return false;
+      return true;
     }
   }
 
@@ -238,7 +244,7 @@
 
   function validateAction(input) {
     var type = typeof input === 'string' ? input : input && input.type;
-    if (['correct', 'incorrect', 'skipped', 'undo', 'expand', 'close'].indexOf(type) >= 0) {
+    if (['correct', 'incorrect', 'skipped', 'undo', 'expand', 'close', 'pause', 'resume', 'togglePause'].indexOf(type) >= 0) {
       return { type: type };
     }
     if (type === 'setTarget') {
@@ -248,9 +254,18 @@
   }
 
   function dispatchToStore(action) {
-    if (!activeController || typeof activeController.dispatch !== 'function') return false;
+    if (!activeController) return false;
     try {
-      return activeController.dispatch(action) !== false;
+      if (typeof activeController.dispatch === 'function') return activeController.dispatch(action) !== false;
+      var st = typeof activeController.getState === 'function' ? activeController.getState() : null;
+      if (!st) return false;
+      if (action.type === 'correct' && typeof st.recordQuestionResult === 'function') { st.recordQuestionResult('correct'); return true; }
+      if (action.type === 'incorrect' && typeof st.recordQuestionResult === 'function') { st.recordQuestionResult('incorrect'); return true; }
+      if (action.type === 'skipped' && typeof st.recordQuestionResult === 'function') { st.recordQuestionResult('skipped'); return true; }
+      if (action.type === 'undo' && typeof st.undoLastQuestionResult === 'function') { st.undoLastQuestionResult(); return true; }
+      if (action.type === 'setTarget' && typeof st.setTargetQuestions === 'function') { st.setTargetQuestions(action.value); return true; }
+      if (typeof st.dispatch === 'function') return st.dispatch(action) !== false;
+      return false;
     } catch (error) {
       console.error('[IsotopeAI Floating Timer] Action dispatch failed:', error);
       return false;
@@ -260,6 +275,39 @@
   window.__isoNormalizeFocusIcon = normalizeFocusIcon;
   window.__isoRepairFocusTypesInProfile = repairFocusTypesInProfile;
   window.__isoRepairStoredFocusIconsOnce = repairStoredFocusIconsOnce;
+
+  function discoverController() {
+    if (activeController && typeof activeController.getState === 'function') return activeController;
+    try {
+      if (window.__isoFocusController && typeof window.__isoFocusController.getState === 'function') {
+        activeController = window.__isoFocusController; return activeController;
+      }
+      if (window.__FOCUS_STORE__ && typeof window.__FOCUS_STORE__.getState === 'function') {
+        activeController = window.__FOCUS_STORE__; return activeController;
+      }
+      var keys = Object.keys(window);
+      for (var i = 0; i < keys.length; i++) {
+        try {
+          var v = window[keys[i]];
+          if (v && typeof v.getState === 'function' && typeof v.dispatch === 'function') {
+            var st = v.getState();
+            if (st && ('timerState' in st || 'mode' in st || 'timeLeft' in st || 'stopwatchTime' in st)) {
+              activeController = v; window.__isoFocusController = v; return v;
+            }
+          }
+          if (v && v.useFocusStore && typeof v.useFocusStore.getState === 'function') {
+            activeController = v.useFocusStore; window.__isoFocusController = activeController; return activeController;
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return null;
+  }
+  window.__isoRegisterFocusController = function (c) {
+    if (c && typeof c.getState === 'function') { activeController = c; window.__isoFocusController = c; }
+    return c;
+  };
+  window.__isoGetFocusController = discoverController;
 
   window.__ISO_FLOATING_TIMER__ = {
     normalizeTimerState: normalizeTimerState,
@@ -278,6 +326,13 @@
         try { if (bridge && typeof bridge.stopFloatingTimer === 'function') bridge.stopFloatingTimer(); } catch (error) {}
         stopStatePump();
         activeController = null;
+        return true;
+      }
+      if (action.type === 'pause' || action.type === 'resume' || action.type === 'togglePause') {
+        if (!dispatchToStore(action)) {
+          try { if (activeController && typeof activeController.toggleTimer === 'function') activeController.toggleTimer(); } catch (e) { return false; }
+        }
+        setTimeout(sendStateToNative, 0);
         return true;
       }
       if (!dispatchToStore(action)) return false;
@@ -330,10 +385,77 @@
     }
   };
 
+  // ── PiP button → in-app overlay (direct, no external pipapk) ──────────────
+  // On Android, Browser PiP (documentPictureInPicture / requestPictureInPicture
+  // / Document PiP) cannot host interactive app UI. Intercept those calls and
+  // show the native FloatingTimerService overlay instead, wired to the same Focus store.
+  // This covers the Focus toolbar's "Picture-in-Picture" button (beside wallpaper/fullscreen).
+  // FIX: auto-discover controller on every trigger so PIP works even if Focus never called __isoOpenFloatingTimer.
+  try {
+    function ensureController() { if (!activeController) discoverController(); return activeController; }
+    if (typeof HTMLVideoElement !== 'undefined' && HTMLVideoElement.prototype.requestPictureInPicture) {
+      var _origPiP = HTMLVideoElement.prototype.requestPictureInPicture;
+      HTMLVideoElement.prototype.requestPictureInPicture = function () {
+        try{ var c=ensureController(); if(c) { try{ window.__isoOpenFloatingTimer(c); }catch(e){} return Promise.resolve(this); } }catch(e){}
+        try{ return _origPiP.apply(this, arguments); }catch(e){ return Promise.resolve(this); }
+      };
+    }
+    if (typeof window !== 'undefined' && window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
+      var _origDocPiP = window.documentPictureInPicture.requestWindow.bind(window.documentPictureInPicture);
+      window.documentPictureInPicture.requestWindow = function (opts) {
+        try{ var c=ensureController(); if(c) { try{ window.__isoOpenFloatingTimer(c); }catch(e){} return Promise.resolve({ document: { body: { appendChild:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} }, close: function(){}, addEventListener: function(){}, removeEventListener: function(){} }); } }catch(e){}
+        try{ return _origDocPiP(opts); }catch(e){ return Promise.resolve({ document: { body: { appendChild:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} }, close: function(){}, addEventListener: function(){}, removeEventListener: function(){} }); }
+      };
+    } else if (typeof window !== 'undefined' && !window.documentPictureInPicture) {
+      window.documentPictureInPicture = {
+        requestWindow: function(opts){
+          var c=ensureController();
+          try{ if(c) window.__isoOpenFloatingTimer(c); }catch(e){}
+          try{
+            var b=nativeBridge();
+            if(b&&b.startFloatingTimer){
+              var st=getControllerState()||{timerState:"idle",mode:"pomodoro",displayedSeconds:1500};
+              try{ b.startFloatingTimer(JSON.stringify(st)); }catch(e){}
+            }
+          }catch(e){}
+          return Promise.resolve({ document:{body:{appendChild:function(){},style:{}},createElement:function(){return{style:{}}},addEventListener:function(){}}, close:function(){}, addEventListener:function(){} });
+        }
+      };
+    }
+    if (typeof document !== 'undefined' && 'pictureInPictureEnabled' in document) {
+      try { Object.defineProperty(document, 'pictureInPictureEnabled', { get: function(){ return true; }, configurable:true }); } catch(e){}
+    }
+    function handlePipButtonClick(ev) {
+      ensureController();
+      if (!activeController || !isActiveTimerState(getControllerState())) return false;
+      try { ev.preventDefault(); ev.stopPropagation(); window.__isoOpenFloatingTimer(activeController); return true; } catch(e){ return false; }
+    }
+    document.addEventListener('click', function (ev) {
+      var t = ev.target && ev.target.closest ? ev.target.closest('button, [role="button"], a') : null;
+      if (!t) return;
+      var txt = ((t.textContent || '') + ' ' + (t.getAttribute('aria-label') || '') + ' ' + (t.getAttribute('title') || '')).toLowerCase();
+      var isPip = txt.indexOf('pip') !== -1 || txt.indexOf('picture') !== -1 || txt.indexOf('overlay') !== -1 || txt.indexOf('floating') !== -1;
+      if (!isPip) {
+        var icon = t.querySelector('svg, i');
+        if (icon) {
+          var ic = (icon.getAttribute('aria-label')||icon.getAttribute('title')||'').toLowerCase();
+          if (ic.indexOf('pip')!==-1 || ic.indexOf('picture')!==-1) isPip=true;
+        }
+      }
+      if (!isPip) return;
+      handlePipButtonClick(ev);
+    }, true);
+    setInterval(function(){ try{ if(!activeController) discoverController(); }catch(e){} }, 1500);
+    try {
+      var __origCreate = null;
+      Object.defineProperty(window, '__isoPipHookInstalled', { value: true, writable:false });
+    } catch(e){}
+  } catch (e) {}
+
   repairStoredFocusIconsOnce();
   window.addEventListener('beforeunload', function () {
     try { window.__ISO_FLOATING_TIMER__.close(); } catch (error) {}
   });
 
-  console.log('[IsotopeAI] Android Floating Timer bridge installed');
+  console.log('[IsotopeAI] Android Floating Timer bridge installed — in-app PiP wired directly');
 })();
