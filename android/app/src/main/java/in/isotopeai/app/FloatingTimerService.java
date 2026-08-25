@@ -153,6 +153,7 @@ public class FloatingTimerService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        try { ensureForeground(); } catch (Exception ignored) {}
         String action = intent != null ? intent.getAction() : ACTION_UPDATE;
         if (ACTION_STOP.equals(action)) { stopSelf(); return START_NOT_STICKY; }
 
@@ -166,7 +167,6 @@ public class FloatingTimerService extends Service {
 
         lastNotifiedSeconds = -1;
         lastNotifiedText = "";
-        ensureForeground();
         updateNotificationIfChanged(true);
         ensureOverlay();
         renderAll();
