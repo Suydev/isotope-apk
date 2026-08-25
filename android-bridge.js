@@ -4174,9 +4174,14 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
            || 'question' in o || 'content' in o || 'message' in o);
   }
 
-  function isoDeepPatchPlan(o) {
+  function isoDeepPatchPlan(o, seen) {
     if (!o || typeof o !== 'object') return o;
-    if (Array.isArray(o)) return o.map(isoDeepPatchPlan);
+    try {
+      if (!seen) seen = new WeakSet();
+      if (seen.has(o)) return o;
+      seen.add(o);
+    } catch(e) {}
+    if (Array.isArray(o)) return o.map(function(x){ return isoDeepPatchPlan(x, seen); });
     var r = Object.assign({}, o);
     if (isoIsPlanObject(r)) {
       if ('plan_type' in r) r.plan_type = 'ranker';
@@ -4188,7 +4193,7 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       if ('cancel_at_period_end' in r) r.cancel_at_period_end = false;
     }
     for (var k in r) {
-      if (r[k] && typeof r[k] === 'object') r[k] = isoDeepPatchPlan(r[k]);
+      if (r[k] && typeof r[k] === 'object') r[k] = isoDeepPatchPlan(r[k], seen);
     }
     return r;
   }
