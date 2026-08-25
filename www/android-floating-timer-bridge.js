@@ -421,12 +421,16 @@
     } else if (typeof window !== 'undefined' && !window.documentPictureInPicture) {
       window.documentPictureInPicture = {
         requestWindow: function(opts){
-          ensureController();
-          if (activeController && isActiveTimerState(getControllerState())) {
-            try { window.__isoOpenFloatingTimer(activeController); } catch(e){}
-            return Promise.resolve({ document:{body:{appendChild:function(){},style:{}},createElement:function(){return{style:{}}},addEventListener:function(){}}, close:function(){}, addEventListener:function(){} });
-          }
-          return Promise.reject(new Error('Document PiP not supported'));
+          var c=ensureController();
+          try{ if(c) window.__isoOpenFloatingTimer(c); }catch(e){}
+          try{
+            var b=nativeBridge();
+            if(b&&b.startFloatingTimer){
+              var st=getControllerState()||{timerState:"idle",mode:"pomodoro",displayedSeconds:1500};
+              try{ b.startFloatingTimer(JSON.stringify(st)); }catch(e){}
+            }
+          }catch(e){}
+          return Promise.resolve({ document:{body:{appendChild:function(){},style:{}},createElement:function(){return{style:{}}},addEventListener:function(){}}, close:function(){}, addEventListener:function(){} });
         }
       };
     }

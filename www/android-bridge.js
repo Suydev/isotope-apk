@@ -59,12 +59,25 @@
         var origStringify=JSON.stringify;
         JSON.stringify=function(v,a,b){
           try{ return origStringify(v,a,b); }catch(e){
-            if(e&&String(e.message).indexOf('circular')!==-1){
+            var msg=String(e&&e.message||'');
+            if(msg.indexOf('circular')!==-1 || msg.indexOf('call stack')!==-1 || msg.indexOf('Maximum call')!==-1){
               var seen=new WeakSet();
               return origStringify(v,function(k,val){ if(typeof val==='object'&&val!==null){ if(seen.has(val)) return '[Circular]'; seen.add(val);} return val; },b);
             } throw e;
           }
         };
+      }catch(e){}
+      try{
+        var STProto=window.Storage&&window.Storage.prototype;
+        if(STProto){
+          ['getItem','setItem','removeItem','clear','key'].forEach(function(m){
+            try{
+              var orig=STProto[m];
+              if(typeof orig!=='function') return;
+              STProto[m]=function(){ try{ return orig.apply(this,arguments); }catch(e){ try{ return orig.apply(window.localStorage,arguments); }catch(e2){ try{ return orig.apply(window.sessionStorage,arguments); }catch(e3){ throw e; } } } };
+            }catch(e){}
+          });
+        }
       }catch(e){}
     }catch(e){}
   })();
@@ -88,8 +101,8 @@
       };
       var push=function(l,a){ try{ window.__isoLogs.push({t:new Date().toISOString().slice(11,19),l:l,m:Array.from(a).map(fmt).join(' ')}); if(window.__isoLogs.length>500) window.__isoLogs.shift(); }catch(e){} };
       ['log','warn','error','info'].forEach(function(k){ try{ var o=console[k]; console[k]=function(){ push(k,arguments); return o.apply(console,arguments); }; }catch(e){} });
-      window.addEventListener('error',function(e){ push('JSERR', [e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno + ' ' + (e.error?fmt(e.error):'')]); });
-      window.addEventListener('unhandledrejection',function(e){ push('PROMISE', [fmt(e.reason)]); });
+      window.addEventListener('error',function(e){ var msg=e.message||''; if(msg.indexOf('Document PiP not supported')!==-1) return; push('JSERR', [e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno + ' ' + (e.error?fmt(e.error):'')]); });
+      window.addEventListener('unhandledrejection',function(e){ var r=e.reason; var m=fmt(r); if(m.indexOf('Cloud sync is already running')!==-1 || (r&&r.code==='SYNC_ALREADY_RUNNING')) return; push('PROMISE', [m]); });
       var origFetch=window.fetch;
       if(origFetch) window.fetch=function(u,o){ var s=String(u).slice(0,80); push('FETCH',[s]); return origFetch.apply(this,arguments).then(function(r){ push('FETCH_OK',[s+' -> '+r.status]); return r; }).catch(function(e){ push('FETCH_ERR',[s+' '+String(e)]); throw e; }); };
     }catch(e){}
