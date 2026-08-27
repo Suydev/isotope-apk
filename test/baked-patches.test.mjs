@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveGraph, findReachableContaining } from '../scripts/www-graph.mjs';
 
 // Guards the invariants that AGENTS.md previously asked agents to verify BY HAND
 // after every upstream asset capture:
@@ -9,8 +10,10 @@ import path from 'node:path';
 //   1. The baked patch anchors in www/assets/ (the APK cannot run server.mjs's
 //      ~21 getPatched*Bundle() functions, so those patches are baked in — a
 //      re-capture that overwrites a bundle silently drops them).
-//   2. The two android-bridge copies stay identical.
-//   3. The app version is not hardcoded in more than one place.
+//   2. Those anchors live in bundles the app can actually LOAD (see the note on
+//      REQUIRED_ANCHORS — two were being checked in orphaned files).
+//   3. The two android-bridge copies stay identical.
+//   4. The app version is not hardcoded in more than one place.
 //
 // A manual checklist is skipped exactly when it matters most, and a lost anchor
 // is invisible until a device runtime bug. These are cheap file reads, so they
@@ -18,12 +21,23 @@ import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const ASSETS = path.join(ROOT, 'www', 'assets');
+const GRAPH = resolveGraph();
 
 function readAsset(name) {
   return fs.readFileSync(path.join(ASSETS, name), 'utf8');
 }
 
 // ── 1. Baked patch anchors (mirrors the AGENTS.md table) ────────────────────
+//
+// Every entry is additionally asserted to live in a bundle the app can actually
+// LOAD. www/assets holds 40 orphaned bundles (3.3 MB) left over from older
+// builds — same module names, different content hashes — and two anchors from
+// the AGENTS.md checklist were being "verified" in orphaned files:
+//   sessionSync-mloIEnTd.js  ('remains pending')
+//   useInvites-D9RLFwf8.js   ('p_code')
+// Those checks passed while proving nothing about the running app. Reachability
+// is resolved from index.html's entry script through the real import graph
+// (scripts/www-graph.mjs).
 
 const REQUIRED_ANCHORS = [
   ['useAuthStore-Aw1au7RF.js', 'if(a==="isotope-auth-token"){try{const l=localStorage.getItem',
@@ -34,6 +48,8 @@ const REQUIRED_ANCHORS = [
     'premium unlocked'],
   ['useAuthStore-Aw1au7RF.js', 'planType:"ranker"',
     'premium plan type'],
+  ['useAuthStore-Aw1au7RF.js', '__isoOAuthPatched',
+    'signInWithOAuth honours the caller redirectTo + hands off to the native browser'],
   ['communityApi-Ccw5N_9O.js', 'const s=()=>!1;',
     'demo gate off — without it Community shows fixtures instead of real RPCs'],
   ['communityApi-Ccw5N_9O.js', 'getGroupMessages',
@@ -42,16 +58,22 @@ const REQUIRED_ANCHORS = [
     'leaderboard method present'],
   ['communityApi-Ccw5N_9O.js', '/__leaderboard',
     'leaderboard routed at the bridge endpoint'],
+  // The live invite path is communityApi -> community_{preview,redeem}_invite
+  // with p_token. The p_code/accept_invite pair the bridge also handles is only
+  // reached from the ORPHANED useInvites bundle, so pin the param name that the
+  // shipped code actually sends — both RPCs exist on the project.
+  ['communityApi-Ccw5N_9O.js', 'community_preview_invite',
+    'invite preview RPC — the live invite path'],
+  ['communityApi-Ccw5N_9O.js', 'community_redeem_invite',
+    'invite redeem RPC — the live invite path'],
+  ['communityApi-Ccw5N_9O.js', 'p_token',
+    'invite RPCs send p_token (NOT p_code — that is the orphaned useInvites path)'],
   ['Community-CEnEgsrd.js', '(h.group.subjects||[])',
     'null-safety crash guard — without it Community black-screens'],
   ['Auth-D0Y8CB1f.js', '__isoLogin',
     'login routed through the bridge'],
   ['Auth-D0Y8CB1f.js', '__isoUp',
     'signup routed through the bridge'],
-  ['sessionSync-mloIEnTd.js', 'remains pending',
-    'sync failures queue instead of reporting fake success'],
-  ['useInvites-D9RLFwf8.js', 'p_code',
-    'invite RPC param name matches the deployed function'],
 ];
 
 // Anchors that must NOT be present.
@@ -64,6 +86,15 @@ const FORBIDDEN_ANCHORS = [
 
 for (const [file, anchor, meaning] of REQUIRED_ANCHORS) {
   test(`baked patch survives: ${file} — ${meaning}`, () => {
+    // Reachability first: an anchor in an orphaned bundle is a false assurance,
+    // so failing loudly here is the point.
+    assert.ok(
+      GRAPH.reachable.has(file),
+      `www/assets/${file} is NOT reachable from index.html's entry script, so ` +
+      'asserting an anchor in it proves nothing about the shipped app.\n' +
+      '  Find where the live code is:  node scripts/www-graph.mjs\n' +
+      `  Or search the live graph for the anchor and re-point this entry.`,
+    );
     assert.ok(
       readAsset(file).includes(anchor),
       `Lost baked patch in www/assets/${file}.\n` +
@@ -78,12 +109,50 @@ for (const [file, anchor, meaning] of REQUIRED_ANCHORS) {
 for (const [file, anchor, meaning] of FORBIDDEN_ANCHORS) {
   test(`stripped code stays stripped: ${file} — ${meaning}`, () => {
     assert.ok(
+      GRAPH.reachable.has(file),
+      `www/assets/${file} is not reachable — this assertion is vacuous.`,
+    );
+    assert.ok(
       !readAsset(file).includes(anchor),
       `www/assets/${file} contains code that must be stripped: ${anchor}\n` +
       `  Reason: ${meaning}`,
     );
   });
 }
+
+// ── 1b. Live-path contracts ─────────────────────────────────────────────────
+// These pin behaviour by SEARCHING the reachable graph rather than naming a
+// bundle, so they survive a content-hash change without silently going vacuous.
+
+test('the live invite path exists and uses p_token', () => {
+  const owner = findReachableContaining('community_redeem_invite');
+  assert.ok(owner, 'no reachable bundle calls community_redeem_invite — invites cannot work');
+  assert.ok(
+    readAsset(owner).includes('p_token'),
+    `${owner} calls community_redeem_invite but not with p_token. Both p_token ` +
+    '(community_*_invite) and p_code (accept_invite) RPCs exist on the project, ' +
+    'so sending the wrong one fails at runtime, not at build time.',
+  );
+});
+
+test('a reachable bundle drives the community RPC layer', () => {
+  const owner = findReachableContaining('community_get_overview');
+  assert.ok(owner, 'no reachable bundle calls community_get_overview — Community is dead');
+});
+
+test('the demo/fixture gate is off in the reachable community API', () => {
+  const owner = findReachableContaining('community_get_overview');
+  assert.ok(
+    readAsset(owner).includes('const s=()=>!1;'),
+    `${owner} still has the demo gate enabled — Community would render fixtures ` +
+    'instead of real data.',
+  );
+});
+
+test('every www/assets bundle referenced by the app exists', () => {
+  assert.deepEqual(GRAPH.missing, [],
+    `Broken imports — referenced but absent: ${GRAPH.missing.join(', ')}`);
+});
 
 test('no www/assets bundle contains the upstream FILE IDENTITY placeholder', () => {
   // Upstream ships one garbage placeholder (analyticsWorker) that has broken the

@@ -37,27 +37,66 @@ all patches are **baked into the committed `www/assets/` files**.
 
 ---
 
-## Patch anchor checklist (verify after any capture)
+## Patch anchor checklist (now automated — `test/baked-patches.test.mjs`)
+
+Do **not** verify these by hand; `npm test` asserts every row, and additionally
+asserts each bundle is reachable from `index.html`'s entry script.
 
 | Bundle | Anchor | Meaning |
 |---|---|---|
 | useAuthStore-Aw1au7RF | `if(a==="isotope-auth-token"){try{const l=localStorage.getItem` | session mirrored to plain localStorage (**login persistence**) |
 | useAuthStore-Aw1au7RF | `autoRefreshToken:!0` | sessions auto-refresh (**no hourly logout**) |
 | useAuthStore-Aw1au7RF | `isPremium:()=>!0` + `planType:"ranker"` | premium unlocked |
+| useAuthStore-Aw1au7RF | `__isoOAuthPatched` | `signInWithOAuth` honours caller `redirectTo` + native browser handoff |
 | communityApi-Ccw5N_9O | `const s=()=>!1;` | demo gate off → real RPCs |
 | communityApi-Ccw5N_9O | `getGroupMessages` + `getLeaderboard` + `/__leaderboard` | chat + leaderboard methods |
+| communityApi-Ccw5N_9O | `community_preview_invite` + `community_redeem_invite` + `p_token` | **the live invite path** |
 | Community-CEnEgsrd | `(h.group.subjects||[])` etc. | null-safety crash guards |
 | index-D1Y5F8Lk | no `ingest.us.sentry.io` | Sentry disabled |
 | Focus-B4gLsWoP | NO `window.__pipBridge=` | dead HTTP PiP bridge stripped (native PiP instead) |
 | Auth-D0Y8CB1f | `__isoLogin` / `__isoUp` | auth routed through bridge |
-| sessionSync-mloIEnTd | `remains pending` | sync failures queue, never fake-success |
-| useInvites-D9RLFwf8 | `p_code` | invite RPC param rename |
+
+### ⚠️ `www/assets` contains 40 ORPHANED bundles (3.3 MB)
+
+Only **122 of 162** JS bundles are reachable from the entry script. The rest are
+leftovers from earlier builds — same module names, different content hashes.
+Run `node scripts/www-graph.mjs --list-orphans` to see them.
+
+This matters because an anchor checked in an orphaned bundle is a false
+assurance. Two rows of this table used to be exactly that:
+
+- `sessionSync-mloIEnTd` (`remains pending`) — orphaned; `finish_session_sync`
+  and `sessionSync` appear **nowhere** in the live graph.
+- `useInvites-D9RLFwf8` (`p_code`) — orphaned. The live invite path is
+  `communityApi` → `community_preview_invite` / `community_redeem_invite` with
+  **`p_token`**. Both param spellings exist as real RPCs on the project
+  (`accept_invite(p_code)` too), so sending the wrong one fails at runtime, not
+  at build time. The bridge still handles `accept_invite`/`get_invite_details`
+  for the `p_code` path — harmless, but nothing currently calls it.
+
+Before trusting any bundle-name assertion, check reachability first.
 
 ---
 
 ## Bridge endpoint map (`www/android-bridge.js`)
 
-Full parity with `server.mjs`. Intercepts `window.fetch`:
+Intercepts `window.fetch`. Verified 2026-08-27 against all 64 `server.mjs`
+endpoints: **38 are implemented, 26 are absent, and none of the 26 are called by
+any reachable bundle** — so parity is functionally complete and implementing them
+would be dead code. The absent set, with why:
+
+| Absent | Why it does not matter |
+|---|---|
+| `/__admin/*` (19 routes) | owner-only tooling behind `ENABLE_ADMIN_MODE`, never shipped to users |
+| `/__ai` | the app calls `generativelanguage.googleapis.com` / `api.groq.com` directly |
+| `/__supa/functions/v1/create_checkout`, `create_customer_portal_session`, `redeem_membership_code` | Stripe billing; irrelevant because the bridge force-unlocks `plan_type: ranker` |
+| `/api/update-now`, `/api/update-status` | web self-updater; `prepare-www.js` strips `update-checker.js` from the APK |
+| `/__supa/storage/v1/object/public/avatars/` | the avatar proxy is served under a different bridge path |
+
+Re-run the check after any capture:
+`node -e` over `scripts/www-graph.mjs` + a grep of `server.mjs` route literals.
+
+### Implemented
 
 - **Auth:** `/__auth/login|signup|check|logout|bootstrap|profile(GET/POST)|snapshot|
   backup(POST)|backup/latest|backup/best|restore-best-backup|import|

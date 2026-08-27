@@ -2,10 +2,16 @@ name: 🚀 Release
 
 permissions:
   contents: write
+
+# Tags and manual dispatch ONLY.
+#
+# This previously also listed `branches: [main]`. Under `on.push`, branches and
+# tags are OR'd — so every push to main ran the whole 2.5-minute pipeline
+# (checkout, SDK, tests, Gradle) and then did nothing, because the publish step
+# is gated on `github.ref_type == 'tag'`. 28 builds had run that way, on top of
+# android.yml already building the same debug APK on every push.
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*.*.*'
   workflow_dispatch:
@@ -13,9 +19,9 @@ on:
       build_type:
         description: 'Build type (debug or release)'
         required: false
-        default: 'debug'
+        default: 'release'
         type: choice
-        options: [debug, release]
+        options: [release, debug]
 
 env:
   JAVA_VERSION: '17'
@@ -41,23 +47,30 @@ jobs:
         id: version
         run: |
           set -euo pipefail
+          PKG="$(node -p "require('./package.json').version")"
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             TAG="${GITHUB_REF_NAME}"
             VERSION="${TAG#v}"
-          else
-            VERSION="$(node -p "require('./package.json').version" 2>/dev/null || echo "")"
-            if [ -z "$VERSION" ]; then
-              echo "❌ Could not read version from package.json"
+            # A tag that disagrees with package.json means the APK inside the
+            # release is built with a different versionName/versionCode than the
+            # release claims — build.gradle derives both from package.json.
+            # v3.5.4 and v3.5.2 were both tagged at commits whose package.json
+            # said something else, which is why neither ever published.
+            if [ "$VERSION" != "$PKG" ]; then
+              echo "::error::tag $TAG does not match package.json ($PKG). The APK would be built as $PKG while the release claims $VERSION. Bump package.json and re-tag."
               exit 1
             fi
+          else
+            VERSION="$PKG"
             TAG="v${VERSION}"
           fi
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$'; then
-            echo "❌ Invalid version: $VERSION"
+            echo "::error::invalid version: $VERSION"
             exit 1
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${TAG} (package.json ${PKG})"
 
       - name: 🟢 Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
@@ -105,7 +118,7 @@ jobs:
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             BT=release
           else
-            BT="${{ github.event.inputs.build_type || 'debug' }}"
+            BT="${{ github.event.inputs.build_type || 'release' }}"
           fi
           echo "type=${BT}" >> "$GITHUB_OUTPUT"
 
@@ -179,62 +192,138 @@ jobs:
           else
             APK_PATH=$(find android -name "*.apk" -path "*debug*" -type f | head -1)
           fi
+          # No cross-type fallback: silently shipping a debug APK inside a
+          # release (or vice versa) is worse than failing, because the artifact
+          # name would still claim the type the user asked for.
           if [ -z "$APK_PATH" ]; then
-            APK_PATH=$(find android -name "*.apk" -type f | head -1)
-          fi
-          if [ -z "$APK_PATH" ]; then
-            echo "❌ No APK found after build"
+            echo "::error::no $BUILD_TYPE APK found after build"
+            find android -name '*.apk' -type f || true
             exit 1
           fi
           VERSION="${{ steps.version.outputs.version }}"
           RENAMED="IsotopeAI-v${VERSION}-${BUILD_TYPE}.apk"
           cp "$APK_PATH" "$RENAMED"
-          echo "path=${RENAMED}" >> "$GITHUB_OUTPUT"
-          echo "Found APK: $APK_PATH ($(du -h "$APK_PATH" | cut -f1)) → $RENAMED"
+
+          # Published so users can verify the download, and so the checksum is
+          # recorded in the release notes rather than only in CI logs.
+          SHA=$(sha256sum "$RENAMED" | cut -d' ' -f1)
+          SIZE=$(stat -c%s "$RENAMED")
+          echo "$SHA  $RENAMED" > "${RENAMED}.sha256"
+
+          {
+            echo "path=${RENAMED}"
+            echo "sha_path=${RENAMED}.sha256"
+            echo "sha256=${SHA}"
+            echo "size=${SIZE}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Found APK: $APK_PATH ($(numfmt --to=iec "$SIZE")) → $RENAMED"
+          echo "sha256: $SHA"
+
+      # Verifies the APK actually carries the version this release claims —
+      # build.gradle derives versionName from package.json, so a mismatch means
+      # the tag, the notes, and the binary disagree.
+      - name: 🔬 Verify APK versionName matches the tag
+        run: |
+          set -euo pipefail
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f 2>/dev/null | sort -r | head -1 || true)
+          if [ -z "$AAPT" ]; then
+            echo "aapt2 not found — skipping APK version assertion"
+            exit 0
+          fi
+          BADGING=$("$AAPT" dump badging "${{ steps.apk.outputs.path }}" 2>/dev/null || true)
+          NAME=$(printf '%s' "$BADGING" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+          CODE=$(printf '%s' "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -1)
+          echo "APK versionName=$NAME versionCode=$CODE"
+          if [ -n "$NAME" ] && [ "$NAME" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::APK versionName ($NAME) != release version (${{ steps.version.outputs.version }})"
+            exit 1
+          fi
 
       # ── Release notes ──────────────────────────────────────────────────────
-      - name: 📋 Extract changelog section (if CHANGELOG.md exists)
+      # ── Release notes ──────────────────────────────────────────────────────
+      # CHANGELOG.md does not exist in this repo, so the old step always fell
+      # through to "See the commit history", which is exactly the thing a release
+      # note is supposed to save you from. Generate real notes from the commit
+      # range since the previous tag instead.
+      - name: 📋 Generate changelog from commits
         id: changelog
         run: |
+          set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+
           if [ -f "CHANGELOG.md" ]; then
             NOTES=$(awk "/^## \[$VERSION\]/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md)
           else
             NOTES=""
           fi
+
           if [ -z "$NOTES" ]; then
-            NOTES="See the commit history for what's changed in this build."
+            # Previous release tag, excluding the one being built.
+            PREV=$(git tag --list 'v*.*.*' --sort=-v:refname | grep -v "^${TAG}$" | head -1 || true)
+            if [ -n "$PREV" ]; then
+              RANGE="${PREV}..HEAD"
+              echo "Generating notes for $RANGE"
+            else
+              RANGE="HEAD"
+              echo "No previous tag; using full history"
+            fi
+            FIXES=$(git log --no-merges --pretty='- %s' $RANGE | grep -E '^- (fix|revert)' || true)
+            FEATS=$(git log --no-merges --pretty='- %s' $RANGE | grep -E '^- (feat)' || true)
+            OTHER=$(git log --no-merges --pretty='- %s' $RANGE | grep -vE '^- (fix|revert|feat)' || true)
+            {
+              [ -n "$FEATS" ] && printf '### New\n%s\n\n' "$FEATS"
+              [ -n "$FIXES" ] && printf '### Fixed\n%s\n\n' "$FIXES"
+              [ -n "$OTHER" ] && printf '### Other\n%s\n' "$OTHER"
+            } > /tmp/changelog_notes.txt
+            if [ -n "$PREV" ]; then
+              printf '\n**Full diff:** %s...%s\n' "$PREV" "$TAG" >> /tmp/changelog_notes.txt
+            fi
+          else
+            printf '%s\n' "$NOTES" > /tmp/changelog_notes.txt
           fi
-          echo "$NOTES" > /tmp/changelog_notes.txt
-          {
-            echo "notes<<CHANGELOG_EOF"
-            cat /tmp/changelog_notes.txt
-            echo "CHANGELOG_EOF"
-          } >> "$GITHUB_OUTPUT"
+
+          if [ ! -s /tmp/changelog_notes.txt ]; then
+            echo "No changes recorded for this build." > /tmp/changelog_notes.txt
+          fi
+          cat /tmp/changelog_notes.txt
 
       - name: 📝 Build release notes
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_TYPE: ${{ steps.buildtype.outputs.type }}
+          APK_SHA: ${{ steps.apk.outputs.sha256 }}
+          APK_SIZE: ${{ steps.apk.outputs.size }}
         run: |
-          cat > /tmp/release_notes.md <<EOF
-          ## IsotopeAI Android ${{ steps.version.outputs.tag }}
+          set -euo pipefail
+          # Notes are assembled with cat, not `${{ }}` interpolation into a heredoc:
+          # multi-line changelog output cannot be safely inlined that way.
+          {
+            printf '## IsotopeAI Android %s\n\n' "$TAG"
+            cat /tmp/changelog_notes.txt
+            printf '\n---\n\n'
+            printf '### 📱 Install\n'
+            printf 'Download `IsotopeAI-v%s-%s.apk` below and install it on Android 8.0+.\n' "$VERSION" "$BUILD_TYPE"
+            printf 'You may need to allow "install from unknown sources" for your browser or file manager.\n\n'
+            printf 'Signed with the project sideload key — not a Play Store build. If you have an\n'
+            printf 'older version installed and the update is refused, uninstall it first.\n\n'
+            printf '### 🔍 Verify the download\n'
+            printf '```\nsha256  %s\nsize    %s bytes\n```\n\n' "$APK_SHA" "$APK_SIZE"
+            printf '### 🧩 Built from\n'
+            printf -- '- isotope-apk @ `%s`\n' "$GITHUB_SHA"
+            printf -- '- workflow run [#%s](%s/%s/actions/runs/%s)\n\n' "$GITHUB_RUN_NUMBER" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf '### ❤️ Support\n'
+            printf 'UPI: `9699393886@fam` · [isotopeai.in](https://isotopeai.in)\n'
+          } > /tmp/release_notes.md
+          cat /tmp/release_notes.md
 
-          ${{ steps.changelog.outputs.notes }}
-
-          ---
-
-          ### 📱 Install
-          Download \`IsotopeAI-v${{ steps.version.outputs.version }}-${{ steps.buildtype.outputs.type }}.apk\` below and
-          install it on your Android device (Android 8.0+). You may need to allow
-          "install from unknown sources" for your browser/file manager.
-
-          ### 🧩 Built from
-          - isotope-apk @ \`${{ github.sha }}\`
-
-          ### ❤️ Support
-          UPI: \`9699393886@fam\` · [isotopeai.in](https://isotopeai.in)
-          EOF
-
-      - name: 🏷️ Ensure release tag points to this commit
-        if: github.ref_type == 'tag'
+      # A manual dispatch has no tag, so one is created here from package.json.
+      # Tag-triggered runs already sit on the right commit — the previous version
+      # force-pushed the tag on every tag run, which silently rewrote history if
+      # the tag had been pushed at a different commit. Only move it if it is
+      # genuinely absent or already correct.
+      - name: 🏷️ Ensure the release tag exists at this commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -242,19 +331,32 @@ jobs:
           TAG="${{ steps.version.outputs.tag }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "$TAG" "$GITHUB_SHA"
-          git push --force origin "refs/tags/$TAG"
+
+          EXISTING=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}" || true)
+          if [ -z "$EXISTING" ]; then
+            git tag -a "$TAG" -m "IsotopeAI Android $TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
+            echo "created tag $TAG at $GITHUB_SHA"
+          elif [ "$EXISTING" = "$GITHUB_SHA" ]; then
+            echo "tag $TAG already points at $GITHUB_SHA"
+          else
+            echo "::error::tag $TAG already exists at $EXISTING but this run is $GITHUB_SHA. Refusing to move a published tag — bump package.json and use a new version."
+            exit 1
+          fi
 
       - name: 🎉 Create or update GitHub Release
-        if: "github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           TAG="${{ steps.version.outputs.tag }}"
           APK="${{ steps.apk.outputs.path }}"
+          SHA_FILE="${{ steps.apk.outputs.sha_path }}"
           PRERELEASE_FLAG=()
-          if printf '%s' "$TAG" | grep -Eq -- '(-beta|-rc)'; then
+          # Debug builds and pre-release versions are marked pre-release so they
+          # never become the "Latest" download users land on.
+          if printf '%s' "$TAG" | grep -Eq -- '(-beta|-rc|-alpha)' \
+             || [ "${{ steps.buildtype.outputs.type }}" != "release" ]; then
             PRERELEASE_FLAG=(--prerelease)
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -269,5 +371,15 @@ jobs:
               --notes-file /tmp/release_notes.md \
               "${PRERELEASE_FLAG[@]}"
           fi
-          gh release upload "$TAG" "$APK" --clobber
+          gh release upload "$TAG" "$APK" "$SHA_FILE" --clobber
+
+          # Assert the asset is actually attached. `gh release upload` has
+          # exited 0 on a partial upload before, which produced a release with
+          # notes and no APK — worse than a failed build, because it looks fine.
+          if ! gh release view "$TAG" --json assets \
+               --jq '.assets[].name' | grep -qx "$APK"; then
+            echo "::error::release $TAG has no asset named $APK after upload"
+            gh release view "$TAG" --json assets --jq '.assets[].name' || true
+            exit 1
+          fi
           echo "✅ Release ${TAG} published with ${APK}"
