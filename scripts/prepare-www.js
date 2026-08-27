@@ -144,8 +144,8 @@ console.log(`  SUPABASE_URL        : ${supaUrl}  (${SUPA.source.url})`);
 console.log(`  SUPABASE_ANON_KEY   : ${supaAnon ? '(set, ' + supaAnon.length + ' chars)' : '!! MISSING !!'}  (${SUPA.source.anonKey})`);
 console.log(`  SUPABASE_PROJECT_REF: ${supaRef}  (${SUPA.source.projectRef})`);
 
-const supaUrlRe   = /['"]https:\/\/[a-z0-9]+\.supabase\.co['"]/;
-const supaAnonRe  = /['"]eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_.-]+['"]/;
+// injectSupaConfig() defines its own URL/anon-key regexes; only refPatterns is
+// caller-supplied (the shapes that differ per file).
 const refPatterns = [
   /var ref\s*=\s*'[a-z0-9]+'/g,
   /'sb-[a-z0-9]+-auth-token'/g,
@@ -658,15 +658,15 @@ console.log('\n✅ www/ prepared successfully!\n');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function copyDirSync(src, dest) {
-  if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    copyDirSync(path.join(src, entry.name), path.join(dest, entry.name));
-  }
-}
-
-// Override copyDirSync to handle files too
+// Recursively copies a file or directory. Handles files at the top level, which
+// matters because callers pass both.
+//
+// There used to be TWO `function copyDirSync` declarations here. The first
+// unconditionally called readdirSync() on whatever it was given, so it threw
+// ENOTDIR on any file; the second, commented "Override copyDirSync to handle
+// files too", silently won because function declarations hoist and the later one
+// clobbers the earlier. It worked only by accident of declaration order — moving
+// or reordering these blocks would have swapped in the broken implementation.
 function copyDirSync(src, dest) {
   const stat = fs.statSync(src);
   if (stat.isFile()) {

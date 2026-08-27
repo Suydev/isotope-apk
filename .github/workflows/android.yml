@@ -82,6 +82,12 @@ jobs:
             echo "✓ $f matches www/$f"
           done
 
+      # Correctness lint: no-undef is the gate that would have caught
+      # refreshStoredSessionIfNeeded() before it shipped (ISSUE-035).
+      - name: Lint (correctness rules)
+        working-directory: isotope-apk
+        run: npm run lint
+
       - name: Run regression tests
         working-directory: isotope-apk
         run: npm test
@@ -108,18 +114,12 @@ jobs:
         run: npx cap sync android
 
       # ── Validate www/ JS syntax (fail build if any bundle is corrupted) ──────
+      # Parses as ES modules where applicable. `node --check` alone parses in
+      # script mode and accepted two corrupted stubs for months (see
+      # scripts/validate-www-js.mjs).
       - name: Validate www/ JS syntax
         working-directory: isotope-apk
-        run: |
-          node -e '
-            const fs=require("fs");
-            const {execSync}=require("child_process");
-            function walk(d){let r=[];for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=d+"/"+e.name;if(e.isDirectory())r=r.concat(walk(p));else if(e.name.endsWith(".js"))r.push(p);}return r;}
-            const files=walk("www");const bad=[];
-            for(const f of files){try{execSync("node --check "+JSON.stringify(f),{stdio:"ignore"});}catch(e){bad.push(f);}}
-            if(bad.length){console.error("CORRUPTED JS FILES (build must not ship these):\n"+bad.join("\n"));process.exit(1);}
-            console.log("All www/ JS files valid ("+files.length+" files checked)");
-          '
+        run: node scripts/validate-www-js.mjs
 
       # ── Make Gradle executable ────────────────────────────────────────────
       - name: Make Gradle wrapper executable

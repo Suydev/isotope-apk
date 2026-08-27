@@ -8,8 +8,8 @@
 // restore: node scripts/supabase-backup.mjs restore --src DIR
 //            --supabase-url URL --anon-key K --service-key K --pat TOKEN
 //            [--no-storage]
-import { readFileSync, writeFileSync, mkdirSync, createWriteStream, existsSync } from 'fs';
-import { dirname, join, sep, relative } from 'path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = dirname(fileURLToPath(import.meta.url)) === process.cwd()
@@ -82,15 +82,6 @@ function lit(v, cast) {
   return `'${s.replace(/'/g, "''")}'::${cast}`;
 }
 
-function streamToFile(res, file) {
-  return new Promise((resolve, reject) => {
-    const ws = createWriteStream(file);
-    res.body.pipe(ws);
-    ws.on('finish', resolve);
-    ws.on('error', reject);
-    res.body.on('error', reject);
-  });
-}
 
 async function sha256(buf) {
   const { createHash } = await import('crypto');
@@ -98,16 +89,26 @@ async function sha256(buf) {
 }
 
 // ── SQL access via management API ───────────────────────────────────────────
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 let _lastCall = 0;
 const MIN_GAP = 120;
 
 function createSqlClient(projectRef, pat) {
   const url = `https://api.supabase.com/v1/projects/${projectRef}/database/query`;
   async function query(sql, _retries = 0) {
-    const wait = Math.max(0, MIN_GAP - (Date.now() - _lastCall));
-    if (wait && _retries === 0) await sleep(wait);
-    _lastCall = Date.now();
+    // Reserve this call's slot BEFORE awaiting. Reading _lastCall, awaiting, then
+    // writing it meant two concurrent queries both computed their wait from the
+    // same stale timestamp and fired together, defeating the rate limit and
+    // risking 429s from the management API mid-backup.
+    if (_retries === 0) {
+      const now = Date.now();
+      const slot = Math.max(now, _lastCall + MIN_GAP);
+      _lastCall = slot;
+      const wait = slot - now;
+      if (wait > 0) await sleep(wait);
+    } else {
+      _lastCall = Date.now();
+    }
     const res = await fetch(url, {
       method: 'POST',
       headers: { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' },
@@ -244,12 +245,6 @@ async function userSchemas(sql) {
   return rows.map((r) => r.nspname);
 }
 
-async function tableColumns(sql, schema, table) {
-  return sql.query(`select column_name, is_nullable, is_generated, data_type, udt_schema, udt_name
-    from information_schema.columns
-    where table_schema = '${schema.replace(/'/g, "''")}' and table_name = '${table.replace(/'/g, "''")}'
-    order by ordinal_position`);
-}
 
 async function tableList(sql) {
   const rows = await sql.query(`select table_schema, table_name
@@ -445,7 +440,6 @@ async function backup(args, env) {
 // ── RESTORE ─────────────────────────────────────────────────────────────────
 async function restore(args, env) {
   const url = args['supabase-url'] || env.SUPABASE_URL;
-  const anon = args['anon-key'] || env.SUPABASE_ANON_KEY;
   const service = args['service-key'] || env.SUPABASE_SERVICE_ROLE_KEY;
   const pat = args.pat || env.SUPABASE_ACCESS_TOKEN;
   if (!url || !pat) throw new Error('restore needs --supabase-url and --pat (or env vars)');
@@ -534,11 +528,10 @@ async function restore(args, env) {
     let ok = 0, failed = 0;
     for (const chunk of chunkRows(rows, 100)) {
       const values = chunk.map((r) => `(${cols.map((c) => lit(r[c.name], c.cast)).join(', ')})`).join(', ');
-      let inserted = false;
       for (const over of [true, false]) {
         try {
           await sql.query(`insert into "${info.schema}"."${info.table}" (${colList})${over ? ' overriding system value' : ''} values ${values} on conflict do nothing`);
-          ok += chunk.length; inserted = true; break;
+          ok += chunk.length; break;
         } catch (e) {
           if (over) continue;
           for (const r of chunk) {
@@ -587,7 +580,7 @@ async function restore(args, env) {
       let ok = 0, failed = 0;
       const retries = (fn, n = 3) => fn().catch(async (e) => {
         if (n <= 1 || !/fetch failed|ECONNRESET|ETIMEDOUT|socket/i.test(e.message || '')) throw e;
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => { setTimeout(r, 1500); });
         return retries(fn, n - 1);
       });
       for (const f of manifest.storage_files) {

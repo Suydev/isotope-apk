@@ -6,6 +6,8 @@
   "scripts": {
     "prepare-www": "node scripts/prepare-www.js",
     "build": "npm run prepare-www && npx cap sync android",
+    "lint": "eslint .",
+    "validate-www": "node scripts/validate-www-js.mjs",
     "test": "node --test test/*.test.mjs",
     "android:debug": "cd android && ./gradlew assembleDebug --no-daemon",
     "android:release": "cd android && ./gradlew bundleRelease --no-daemon",
@@ -29,6 +31,8 @@
     "@capacitor/cli": "6.2.1",
     "acorn": "^8.18.0",
     "esbuild": "^0.25.11",
+    "eslint": "10.9.1",
+    "globals": "17.11.0",
     "katex": "^0.16.28"
   }
 }

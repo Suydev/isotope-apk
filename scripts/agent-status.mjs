@@ -47,7 +47,6 @@ const DIM   = '\x1b[2m';
 function ok(s)   { return `${GREEN}✓${RESET} ${s}`; }
 function warn(s) { return `${YELLOW}⚠${RESET} ${s}`; }
 function err(s)  { return `${RED}✗${RESET} ${s}`; }
-function info(s) { return `${CYAN}→${RESET} ${s}`; }
 
 console.log(`\n${BOLD}═══════════════════════════════════════════════════${RESET}`);
 console.log(`${BOLD}  IsotopeAI Android — Agent Status${RESET}`);

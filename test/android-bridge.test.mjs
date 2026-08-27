@@ -813,7 +813,7 @@ test('Android bridge routes online state through Capacitor Network', async () =>
     },
   });
 
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => { setTimeout(resolve, 20); });
   assert.equal(harness.window.__isoIsOnline(), false);
   assert.equal(harness.window.navigator.onLine, false);
 

@@ -135,7 +135,7 @@
       var pre=document.createElement('pre'); pre.style.cssText='white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;line-height:1.6;';
       var cap=document.createElement('div'); cap.style.cssText='padding:8px 14px;background:#020617;border-top:1px solid #1f2937;color:#64748b;font-size:10px;';
       try{ cap.textContent='UA: '+navigator.userAgent.slice(0,120)+' | '+location.href+' | bridge:ok • 5 taps to open • __isoShowLogViewer() in console'; }catch(e){ cap.textContent='bridge:ok • 5 taps • __isoShowLogViewer()'; }
-      function render(){ var list=active==='ALL'?window.__isoLogs:window.__isoLogs.filter(function(x){ return x.l===active; }); pre.textContent=list.map(function(x){ var c=x.l==='JSERR'?'#f87171':x.l==='error'?'#fb7185':x.l==='FETCH_ERR'?'#fbbf24':x.l==='warn'?'#facc15':'#cbd5e1'; return '['+x.t+'] '+x.l.padEnd(10)+' '+x.m; }).join('\n') || '(no logs for '+active+')'; body.scrollTop=body.scrollHeight; }
+      function render(){ var list=active==='ALL'?window.__isoLogs:window.__isoLogs.filter(function(x){ return x.l===active; }); pre.textContent=list.map(function(x){ return '['+x.t+'] '+x.l.padEnd(10)+' '+x.m; }).join('\n') || '(no logs for '+active+')'; body.scrollTop=body.scrollHeight; }
       body.appendChild(pre); d.appendChild(h); d.appendChild(tabs); d.appendChild(body); d.appendChild(cap);
       document.body.appendChild(d);
       document.getElementById('__isoLogClose').onclick=function(){ d.remove(); };
@@ -536,7 +536,7 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       setInterval(function(){
         try{
           var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);
-          var n; while(n=w.nextNode()){
+          var n; while ((n = w.nextNode())) {
             if(n.nodeValue&&n.nodeValue.indexOf('NaN')!==-1){
               n.nodeValue=n.nodeValue.replace(/NaN[smhdw]?\s*ago/g,'just now').replace(/NaNa/g,'—').replace(/NaN/g,'—');
             }
@@ -1362,6 +1362,10 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
   // Exposed so the separate OAuth-callback IIFE at the bottom of this file uses
   // the same writer instead of duplicating (and drifting from) the storage keys.
   try { window.__isoPersistSession = persistSession; } catch (e) {}
+  // Also exposed for the OAuth-callback IIFE at the bottom of this file, which is
+  // a separate closure and cannot see these declarations lexically.
+  try { window.__isoGetSession = getSession; } catch (e) {}
+  try { window.__isoNormalizeSessionShape = normalizeSessionShape; } catch (e) {}
 
   // Fills in session.user by calling /auth/v1/user when a login path could not
   // supply it (the OAuth fragment flow returns tokens only). Without this,
@@ -1455,14 +1459,6 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       if (obj[key] !== undefined) out[key] = obj[key];
     });
     return out;
-  }
-
-  function fetchJson(url, opts) {
-    return fetch(url, opts).then(function (r) {
-      return r.text().then(function (text) {
-        return { ok: r.ok, status: r.status, body: safeJsonParse(text, text ? { raw: text } : null) };
-      });
-    });
   }
 
   function supaJson(path, opts) {
@@ -2859,31 +2855,12 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
         }));
         var settings = isObject(settingsRow && settingsRow.settings) ? settingsRow.settings : (isObject(rawProfileData.settings) ? rawProfileData.settings : {});
         var tours = isObject(rawProfileData.tours) ? rawProfileData.tours : {};
-        return jsonResponse({
-          ok: true,
-          code: 'BOOTSTRAP_OK',
-          user_id: userId,
-          session: session,
-          user: userRow || null,
-          profile: normalizedProfile,
-          profile_data: rawProfileData,
-          profile_updated_at: profileRow && profileRow.updated_at || null,
-          onboarding: onboarding,
-          onboarding_completed: onboarding.completed,
-          settings: settings,
-          tours: tours,
-          stats_summary: statsSummary || null,
-          daily_user_stats: dailyRows,
-          study_sessions_log: sessionRows,
-          cloud_snapshot: cloudSnapshot,
-          best_backup: bestBackup.selected || null,
-          backup_candidates: bestBackup.candidates || [],
-          restore_recommended: !!(bestBackup.selected && bestBackup.selected.rich),
-          backup_warning: bestBackup.warning_if_empty_latest || bestBackup.error || null,
-          fetched_at: new Date().toISOString()
-        });
-
-        // ── Fire-and-forget: auto-enroll community + seed points + backfill sessions ──
+        // ── Fire-and-forget side effects ─────────────────────────────────────
+        // MUST run BEFORE the return below. This block previously sat AFTER
+        // `return jsonResponse(...)`, so it was unreachable and had never run:
+        // no community_enrollments row (user never enrolled in Community), no
+        // user_points row (missing from leaderboards), and unsynced local
+        // sessions were never backfilled to study_sessions_log.
         try {
           // Ensure community_enrollments row exists
           supaJson('/rest/v1/community_enrollments?on_conflict=user_id', {
@@ -2938,6 +2915,31 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
             }
           } catch (_bfErr) {}
         } catch (_autoErr) {}
+
+        return jsonResponse({
+          ok: true,
+          code: 'BOOTSTRAP_OK',
+          user_id: userId,
+          session: session,
+          user: userRow || null,
+          profile: normalizedProfile,
+          profile_data: rawProfileData,
+          profile_updated_at: profileRow && profileRow.updated_at || null,
+          onboarding: onboarding,
+          onboarding_completed: onboarding.completed,
+          settings: settings,
+          tours: tours,
+          stats_summary: statsSummary || null,
+          daily_user_stats: dailyRows,
+          study_sessions_log: sessionRows,
+          cloud_snapshot: cloudSnapshot,
+          best_backup: bestBackup.selected || null,
+          backup_candidates: bestBackup.candidates || [],
+          restore_recommended: !!(bestBackup.selected && bestBackup.selected.rich),
+          backup_warning: bestBackup.warning_if_empty_latest || bestBackup.error || null,
+          fetched_at: new Date().toISOString()
+        });
+
       })
       .catch(function (e) {
         // Network failure during DB fetch — preserve local state and let boot use cached snapshots/retry.
@@ -6095,55 +6097,55 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     window.location.href = safeRedirect;
   }
 
-  // Silent auth / prompt=none support - check for existing session without UI
-  window.__isoSilentAuth = function() {
-    return new Promise(function(resolve) {
-      try {
-        var raw = localStorage.getItem('sb-' + SUPA_REF + '-auth-token') ||
-                  localStorage.getItem('isotope-last-session-raw') ||
-                  localStorage.getItem('isotope-auth-token');
-        if (!raw) return resolve({ ok: false, reason: 'no_session' });
-        var session = JSON.parse(raw);
-        if (!session || !session.access_token) return resolve({ ok: false, reason: 'invalid_session' });
-        var now = Math.floor(Date.now() / 1000);
-        if (session.expires_at && session.expires_at < now + 60) {
-          // Token expires soon, try refresh
-          if (!session.refresh_token) return resolve({ ok: false, reason: 'token_expired_no_refresh' });
-          fetch(SUPA_URL + '/auth/v1/token?grant_type=refresh_token', {
-            method: 'POST',
-            headers: {
-              'apikey': SUPA_ANON,
-              'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: 'refresh_token=' + encodeURIComponent(session.refresh_token)
-          }).then(function(r) { return r.json(); }).then(function(data) {
-            if (data.access_token) {
-              var newSession = {
-                access_token: data.access_token,
-                refresh_token: data.refresh_token || session.refresh_token,
-                expires_in: data.expires_in || 3600,
-                expires_at: Math.floor(Date.now() / 1000) + (data.expires_in || 3600),
-                token_type: data.token_type || 'bearer'
-              };
-              var newRaw = JSON.stringify(newSession);
-              localStorage.setItem('isotope-auth-token', newRaw);
-              localStorage.setItem('sb-' + SUPA_REF + '-auth-token', newRaw);
-              localStorage.setItem('isotope-last-jwt', data.access_token);
-              if (newSession.refresh_token) localStorage.setItem('isotope-last-rt', newSession.refresh_token);
-              localStorage.setItem('isotope-last-session-raw', newRaw);
-              window.dispatchEvent(new Event('isotope:auth-unblock'));
-              window.dispatchEvent(new Event('isotope:sync_refresh'));
-              resolve({ ok: true, session: newSession, refreshed: true });
-            } else {
-              resolve({ ok: false, reason: 'refresh_failed' });
-            }
-          }).catch(function() { resolve({ ok: false, reason: 'refresh_error' }); });
-        } else {
-          resolve({ ok: true, session: session, refreshed: false });
-        }
-      } catch (e) {
-        resolve({ ok: false, reason: 'parse_error' });
+  // Silent auth / prompt=none support — report the current session without UI.
+  //
+  // This used to carry its OWN third copy of the refresh-token exchange, using a
+  // different content type, writing the storage keys by hand, and with no
+  // single-flight guard. Because Supabase rotates refresh tokens, that copy could
+  // race refreshStoredSessionIfNeeded() and invalidate the token the other call
+  // had just obtained — hard-logging the user out. It also skipped the Filesystem
+  // mirror and never set __ISO_CURRENT_USER_ID__.
+  //
+  // It now delegates to the shared session helpers so there is exactly one
+  // refresh path and one writer.
+  window.__isoSilentAuth = function () {
+    // getSession/refresh live in the main bridge IIFE; this is a separate closure,
+    // so they arrive via window. Guard in case this file is evaluated standalone.
+    var readSession = window.__isoGetSession;
+    var refresh = window.__isoRefreshSession;
+    if (typeof readSession !== 'function' || typeof refresh !== 'function') {
+      return Promise.resolve({ ok: false, reason: 'bridge_unavailable' });
+    }
+    var session;
+    try {
+      session = readSession();
+    } catch (e) {
+      return Promise.resolve({ ok: false, reason: 'parse_error' });
+    }
+    if (!session) return Promise.resolve({ ok: false, reason: 'no_session' });
+    if (!session.access_token) return Promise.resolve({ ok: false, reason: 'invalid_session' });
+
+    var now = Math.floor(Date.now() / 1000);
+    var expiringSoon = session.expires_at && session.expires_at < now + 60;
+    if (!expiringSoon) {
+      return Promise.resolve({ ok: true, session: session, refreshed: false });
+    }
+    if (!session.refresh_token) {
+      return Promise.resolve({ ok: false, reason: 'token_expired_no_refresh' });
+    }
+    return refresh(session).then(function (next) {
+      if (!next || !next.access_token) {
+        return { ok: false, reason: 'refresh_failed' };
       }
+      // persistSession() (inside the refresh helper) has already written every
+      // storage key plus the Filesystem mirror; only the notifications are ours.
+      try {
+        window.dispatchEvent(new Event('isotope:auth-unblock'));
+        window.dispatchEvent(new Event('isotope:sync_refresh'));
+      } catch (e) {}
+      return { ok: true, session: next, refreshed: true };
+    }).catch(function () {
+      return { ok: false, reason: 'refresh_error' };
     });
   };
 

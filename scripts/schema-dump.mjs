@@ -57,7 +57,6 @@ const query = (sql) => new Promise((resolve, reject) => {
 const out = [];
 const counts = { schemas: 0, extensions: 0, types: 0, sequences: 0, tables: 0, views: 0, pks: 0, fks: 0, unique: 0, checks: 0, indexes: 0, functions: 0, triggers: 0, rls: 0, policies: 0, tableGrants: 0, fnGrants: 0 };
 const add = (s) => { if (s) out.push(s); };
-const scq = (schema) => quoteIdent(schema);
 
 // 0. user schemas (exclude system + Supabase-managed)
 const EXCLUDE_SCHEMAS = "'pg_catalog','information_schema','pg_toast','auth','storage','vault','extensions','supabase_migrations','realtime','_realtime','net','pgbouncer','supabase_functions','cron','graphql','graphql_public'";
@@ -424,4 +423,3 @@ function buildFunctionDef(s, r) {
   parts.push(tag + ';');
   return parts.join('\n');
 }
-const searchPathKw = 'search_path';

@@ -17,8 +17,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const CONFIG_PATH = process.env.SUPA_CONFIG_PATH || path.resolve(__dirname, '..', 'supabase.config.json');
-const ENV_PATH    = process.env.SUPA_ENV_PATH   || path.resolve(__dirname, '..', '.env');
+// Path resolution lives in _paths() so tests can re-read the env vars per call;
+// two module-level CONFIG_PATH/ENV_PATH constants used to shadow-duplicate it here
+// and were dead (they captured process.env once, at require time).
 
 function parseDotEnv(content) {
   const out = {};

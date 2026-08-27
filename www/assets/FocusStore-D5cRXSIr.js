@@ -1,1 +1,1 @@
-export default function RemovedFeature(){return null;}\n
+export default function RemovedFeature(){return null;}
