@@ -1300,8 +1300,11 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
   function refreshStoredSessionIfNeeded(session) {
     var current = session || getSession();
     if (!current || !current.refresh_token) return Promise.resolve(null);
-    // Coalesce concurrent refreshes; Supabase rotates refresh tokens, so two
-    // parallel calls would invalidate each other and hard-log-out the user.
+    // Coalesce concurrent refreshes. Rotation is currently OFF on this project
+    // with a 10s reuse interval, so parallel exchanges are survivable today —
+    // but flipping rotation on in the dashboard would make them invalidate each
+    // other and hard-log-out the user. Single-flight is the correct behaviour
+    // either way, and it avoids a thundering herd on boot.
     if (_refreshInFlight) return _refreshInFlight;
     _refreshInFlight = fetch(SUPA_URL + '/auth/v1/token?grant_type=refresh_token', {
       method: 'POST',
@@ -6099,12 +6102,11 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
 
   // Silent auth / prompt=none support — report the current session without UI.
   //
-  // This used to carry its OWN third copy of the refresh-token exchange, using a
-  // different content type, writing the storage keys by hand, and with no
-  // single-flight guard. Because Supabase rotates refresh tokens, that copy could
-  // race refreshStoredSessionIfNeeded() and invalidate the token the other call
-  // had just obtained — hard-logging the user out. It also skipped the Filesystem
-  // mirror and never set __ISO_CURRENT_USER_ID__.
+  // This used to carry its OWN third copy of the refresh-token exchange with no
+  // single-flight guard. Rotation is off on this project today, but the copy also
+  // used a different content type, wrote the storage keys by hand, skipped the
+  // Filesystem mirror, and never set __ISO_CURRENT_USER_ID__ — so the two paths
+  // produced different persisted state for the same event.
   //
   // It now delegates to the shared session helpers so there is exactly one
   // refresh path and one writer.

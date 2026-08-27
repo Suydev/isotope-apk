@@ -105,6 +105,13 @@ Full parity with `server.mjs`. Intercepts `window.fetch`:
 - Supabase Auth → URL Configuration → Redirect URLs must include
   `isotopeai://auth/callback` **and** `http://localhost:6767/callback`, otherwise
   Supabase refuses the redirect and the browser never returns to the app.
+  **Both are configured and verified as of 2026-08-27** — `/auth/v1/authorize`
+  302s to `accounts.google.com` for each, and Google accepts the client
+  (`726908208904-…apps.googleusercontent.com`, Web type, callback
+  `https://<ref>.supabase.co/auth/v1/callback`).
+- Supabase returns `response_type=code` with **no** `code_challenge`, i.e. the
+  plain authorization-code flow, not PKCE. The bridge's OAuth handler covers both
+  the `#access_token=…` fragment and the `?code=…` exchange.
 - See the "Auth pipeline" section below for the full in-app flow.
 
 ## PiP decision (DEC)
@@ -146,9 +153,13 @@ Focus bundle's `__pipBridge` HTTP relay is stripped.
 - **One session writer:** `persistSession()` (exposed as `window.__isoPersistSession`).
   Every login path — password, signup inline session, OAuth fragment, PKCE, refresh —
   goes through it. Do not write auth localStorage keys directly.
-- **Token refresh:** `refreshStoredSessionIfNeeded()` is single-flight. Supabase
-  rotates refresh tokens, so two parallel exchanges invalidate each other and hard
-  log the user out. Community RPC passthrough refreshes + retries once on 401.
+- **Token refresh:** `refreshStoredSessionIfNeeded()` is single-flight. Refresh-token
+  rotation is currently **off** on this project (10s reuse interval), so parallel
+  exchanges are survivable today — but turning rotation on would make them
+  invalidate each other and hard-log-out users, so keep the guard. Community RPC
+  passthrough refreshes + retries once on 401.
+- **Access tokens last 7 days** (`jwt_exp` = 604800), which is why the missing
+  refresh helper took so long to surface as "Community broke".
 - **Filesystem mirror is async.** Use `primeSessionFileCache()` (async, validates
   before trusting) then the sync `readSessionFromFile()`. `Filesystem.readFile`
   returns a Promise — reading `.data` off it directly is the bug that made the
