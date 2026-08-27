@@ -1,6 +1,6 @@
 # AGENTS.md — isotope-apk
 
-**Version:** 3.5.0 · **Updated:** 2026-08-21 · **Branch:** main
+**Version:** see `package.json` (single source of truth) · **Updated:** 2026-08-27 · **Branch:** main
 
 Android APK (Capacitor 6) for IsotopeAI. Ships the compiled web app in `www/` with a
 JS bridge (`www/android-bridge.js`) that replaces every server endpoint the web app's
@@ -75,17 +75,25 @@ Full parity with `server.mjs`. Intercepts `window.fetch`:
   expiry dates 2099 (port of PREMIUM_SCRIPT `patchResp`).
 - **Ranker upgrade:** `upgradeProfileToRanker()` PATCHes `users`/`profiles` on bootstrap
   so server-side RLS passes.
-- **Session persistence:** login/OAuth write localStorage **and** Capacitor Filesystem
-  (`isotope_session.json`, Data dir); `getSession()` falls back to file if localStorage
-  is empty (survives process death). Belt-and-suspenders on top of the baked
-  vs-adapter mirror + `autoRefreshToken`.
+- **Session persistence:** all login paths write through `persistSession()`, which
+  updates localStorage **and** the Capacitor Filesystem mirror (`isotope_session.json`,
+  Data dir). Because `Filesystem.readFile` is async, the file is read via
+  `primeSessionFileCache()` and served from an in-memory cache by the synchronous
+  `readSessionFromFile()`. Belt-and-suspenders on top of the baked vs-adapter mirror
+  + `autoRefreshToken`. Details in the "Auth pipeline" section.
 
 ## Supabase project
 
-- Ref `ollsqiutzartjhiuzkbf` · config in `supabase.config.json` (+ `.env`)
-- All 31 `community_*` RPCs verified present (incl. chat:
-  `community_get_group_messages`, `community_send_group_message`).
-- Migrations live in `supabase/*.sql` (009–014 applied; RLS recursion fixed in 011).
+- Ref `ollsqiutzartjhiuzkbf` · config in `supabase.config.json` (+ `.env`).
+  Keys are shared with `isotope-code`'s `.env` (same project, same anon key —
+  verified by hash on 2026-08-27). `app-config.json` was a stale duplicate of this
+  and has been deleted; do not re-add it.
+- Migrations live in `supabase/*.sql` only (009–018; RLS recursion fixed in 011).
+  Root-level copies were removed — do not re-add them.
+- 30 `community_*` RPCs verified live against the prod project on 2026-08-27
+  (incl. chat: `community_get_group_messages`, `community_send_group_message`).
+  The compiled `communityApi` bundle's call signatures match the deployed ones, so
+  Community breakage is an auth/session problem, not a schema mismatch.
 
 ## Google Sign-In status
 
@@ -94,6 +102,10 @@ Full parity with `server.mjs`. Intercepts `window.fetch`:
   dashboard). Redirect URI for the Google Console client:
   `https://ollsqiutzartjhiuzkbf.supabase.co/auth/v1/callback`.
 - Android-type keys NOT required (no native Credential Manager).
+- Supabase Auth → URL Configuration → Redirect URLs must include
+  `isotopeai://auth/callback` **and** `http://localhost:6767/callback`, otherwise
+  Supabase refuses the redirect and the browser never returns to the app.
+- See the "Auth pipeline" section below for the full in-app flow.
 
 ## PiP decision (DEC)
 
@@ -103,13 +115,56 @@ Focus bundle's `__pipBridge` HTTP relay is stripped.
 
 ## Build & release
 
-- Push to `main` → GitHub Actions `android.yml`: npm test → cap sync → `node --check`
-  gate over all www JS → assembleDebug → artifact `IsotopeAI-debug-<run>`.
-- Version: bump `package.json`, `android/app/build.gradle` VERSION_NAME,
-  `www/android-bridge.js` APP_VERSION together. versionCode auto-computes
-  (major*10000+minor*100+patch).
+- Push to `main` → GitHub Actions `android.yml`: bridge parity gate → npm test →
+  cap sync → `node --check` gate over all www JS → assembleDebug → artifact
+  `IsotopeAI-debug-<run>`. `release.yml` handles tags/releases. There is no
+  second debug workflow — `android-build.yml` was deleted (it duplicated this one).
+- **Version: bump `package.json` only.** `android/app/build.gradle` reads it (and
+  derives versionCode as major*10000+minor*100+patch), and `scripts/prepare-www.js`
+  rewrites `APP_VERSION` in `www/android-bridge.js` plus `__ISO_APP_VERSION__` in
+  `www/index.html`. Do not hardcode versions anywhere else — five files had drifted
+  to three different values before this was centralised.
+- **`android-bridge.js` source of truth is the ROOT copy.** `prepare-www.js` copies
+  root → `www/`. Both copies are committed and CI fails if they differ, so edit the
+  root file and copy it into `www/` (or run `npm run prepare-www`) before committing.
 - Install/test loop: `gh run watch` → download artifact → `adb install -r` →
   logcat + UI sweep.
+
+## Auth pipeline (rebuilt 2026-08-27 — see .agent/KNOWN_ISSUES.md ISSUE-031…036)
+
+- **Google sign-in runs in the system browser**, never the WebView (Google returns
+  `disallowed_useragent` for embedded WebViews). Flow:
+  `signInWithGoogle` → patched `AuthService.signInWithOAuth` (`/*__isoOAuthPatched*/`
+  in `useAuthStore-Aw1au7RF.js`, honours caller `redirectTo` + `skipBrowserRedirect`)
+  → `window.__isoOpenOAuthUrl(url)` → `IsotopeAndroid.openExternalUrl` → browser →
+  `isotopeai://auth/callback#access_token=…` → `MainActivity.deliverOAuthPayload`
+  (base64, 12 retries for the cold-start race) → `window.__isoHandleOAuthDeepLink`.
+- `__isoOpenOAuthUrl` is defined **only** when the native opener exists — the app
+  keys `skipBrowserRedirect` off `typeof … === 'function'`.
+- Supabase dashboard must allow both redirect URLs: `isotopeai://auth/callback` and
+  `http://localhost:6767/callback` (the latter is served by `PipHttpServer`).
+- **One session writer:** `persistSession()` (exposed as `window.__isoPersistSession`).
+  Every login path — password, signup inline session, OAuth fragment, PKCE, refresh —
+  goes through it. Do not write auth localStorage keys directly.
+- **Token refresh:** `refreshStoredSessionIfNeeded()` is single-flight. Supabase
+  rotates refresh tokens, so two parallel exchanges invalidate each other and hard
+  log the user out. Community RPC passthrough refreshes + retries once on 401.
+- **Filesystem mirror is async.** Use `primeSessionFileCache()` (async, validates
+  before trusting) then the sync `readSessionFromFile()`. `Filesystem.readFile`
+  returns a Promise — reading `.data` off it directly is the bug that made the
+  "survives process death" fallback a no-op.
+- **Auth errors** go through `authErrorMessage()` / `networkErrorMessage()`. Never
+  call `r.json()` on an auth response without reading `text()` first; a gateway HTML
+  page otherwise surfaces "Unexpected token <" into the login form.
+
+## Crash recovery
+
+A render error in any tab empties `#root` and used to be unrecoverable until
+force-stop. `setupAndroidRenderRecovery()` now watches `error`,
+`unhandledrejection`, and `popstate`, and on a confirmed blank root navigates to
+`/dashboard` (capped at 3 attempts). This is a safety net — each recovery logs
+`[IsotopeAndroidRuntime] blank #root after <reason> on <route>` to Logcat, which is
+how you find the tab that actually needs fixing.
 
 ## Testing
 
