@@ -87,12 +87,16 @@ jobs:
       - name: 📥 Install npm dependencies
         run: npm ci
 
-      - name: 🔄 Sync bridge for test harness
+      - name: 🔄 Verify bridge copies are identical
         run: |
-          if [ -f www/android-bridge.js ]; then
-            cp www/android-bridge.js android-bridge.js
-            echo "Synced android-bridge.js root <- www/android-bridge.js"
-          fi
+          for f in android-bridge.js android-floating-timer-bridge.js; do
+            if ! diff -q "$f" "www/$f" >/dev/null 2>&1; then
+              echo "::error::$f differs from www/$f — refusing to cut a release from drifted bridge copies"
+              diff -u "$f" "www/$f" | head -40 || true
+              exit 1
+            fi
+            echo "✓ $f matches www/$f"
+          done
 
       - name: 🧭 Resolve build type
         id: buildtype
