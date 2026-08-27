@@ -98,6 +98,7 @@ function createBridgeHarness(handler, options = {}) {
     navigator: window.navigator,
     console,
     URL,
+    URLSearchParams,
     Response,
     CustomEvent: class CustomEvent {
       constructor(type, init) { this.type = type; this.detail = init?.detail; }
@@ -1041,4 +1042,382 @@ test('installScrollEnabler guard does not throw and skips install when history l
   // history must remain unmodified — no pushState monkey-patch
   assert.equal(context.window.history.pushState, undefined,
     'history.pushState must remain undefined when the guard bails');
+});
+
+// ── Auth pipeline regression tests ──────────────────────────────────────────
+// Each test below pins a bug that shipped in 3.5.3 and broke sign-in or
+// Community. See .agent/KNOWN_ISSUES.md ISSUE-031..035.
+
+test('expired community RPC refreshes the session and retries instead of throwing', async () => {
+  // Regression: rpcPost called refreshStoredSessionIfNeeded(), which was never
+  // defined — every 401 became a ReferenceError and Community appeared "broken".
+  const rpcAttempts = [];
+  let refreshed = 0;
+  const harness = createBridgeHarness(async (url, init) => {
+    if (url.includes('/auth/v1/token?grant_type=refresh_token')) {
+      refreshed += 1;
+      return jsonResponse({
+        access_token: 'fresh-token',
+        refresh_token: 'rotated-refresh',
+        expires_in: 3600,
+        token_type: 'bearer',
+      });
+    }
+    if (url.includes('/rest/v1/rpc/community_get_overview')) {
+      rpcAttempts.push(init?.headers?.Authorization);
+      if (rpcAttempts.length === 1) return jsonResponse({ message: 'JWT expired' }, 401);
+      return jsonResponse({ groups: [], buddies: [] });
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage);
+
+  const { response, data } = await fetchJson(
+    harness.window,
+    'https://ollsqiutzartjhiuzkbf.supabase.co/rest/v1/rpc/community_get_overview',
+    { method: 'POST', body: '{}' },
+  );
+
+  assert.equal(refreshed, 1, 'must attempt exactly one refresh');
+  assert.equal(rpcAttempts.length, 2, 'must retry the RPC after refreshing');
+  assert.equal(rpcAttempts[0], 'Bearer access-token');
+  assert.equal(rpcAttempts[1], 'Bearer fresh-token', 'retry must use the refreshed token');
+  assert.equal(response.status, 200);
+  assert.deepEqual(data.groups, []);
+});
+
+test('community RPC surfaces a readable error when the refresh token is rejected', async () => {
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('grant_type=refresh_token')) {
+      return jsonResponse({ error: 'invalid_grant' }, 400);
+    }
+    if (url.includes('/rest/v1/rpc/community_get_overview')) {
+      return jsonResponse({ message: 'JWT expired' }, 401);
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage);
+
+  const { response, data } = await fetchJson(
+    harness.window,
+    'https://ollsqiutzartjhiuzkbf.supabase.co/rest/v1/rpc/community_get_overview',
+    { method: 'POST', body: '{}' },
+  );
+
+  assert.equal(response.status, 401);
+  assert.equal(data.code, 'SESSION_EXPIRED');
+  assert.match(data.error, /Sign in again/i);
+  assert.equal(data.ok, false);
+});
+
+test('refresh rotates and persists the new token across all storage keys', async () => {
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('grant_type=refresh_token')) {
+      return jsonResponse({
+        access_token: 'rotated-access',
+        refresh_token: 'rotated-refresh',
+        expires_in: 3600,
+        token_type: 'bearer',
+        user: { id: 'abc', email: 'student@example.com' },
+      });
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage);
+
+  const next = await harness.window.__isoRefreshSession();
+
+  assert.equal(next.access_token, 'rotated-access');
+  for (const key of [
+    'isotope-auth-token',
+    'sb-ollsqiutzartjhiuzkbf-auth-token',
+    'isotope-last-session-raw',
+  ]) {
+    const stored = JSON.parse(harness.localStorage.getItem(key));
+    assert.equal(stored.access_token, 'rotated-access', `${key} must hold the rotated token`);
+    assert.equal(stored.refresh_token, 'rotated-refresh', `${key} must hold the rotated refresh token`);
+  }
+  assert.equal(harness.localStorage.getItem('isotope-last-jwt'), 'rotated-access');
+});
+
+test('concurrent refreshes are coalesced into a single token exchange', async () => {
+  // Supabase rotates refresh tokens: two parallel exchanges invalidate each
+  // other and hard-log-out the user.
+  let exchanges = 0;
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('grant_type=refresh_token')) {
+      exchanges += 1;
+      return jsonResponse({ access_token: 'once', refresh_token: 'r2', expires_in: 3600 });
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage);
+
+  const [a, b, c] = await Promise.all([
+    harness.window.__isoRefreshSession(),
+    harness.window.__isoRefreshSession(),
+    harness.window.__isoRefreshSession(),
+  ]);
+
+  assert.equal(exchanges, 1, 'refresh must be de-duplicated');
+  assert.equal(a.access_token, 'once');
+  assert.equal(b.access_token, 'once');
+  assert.equal(c.access_token, 'once');
+});
+
+test('bootstrap resolves the user id via /auth/v1/user when the session lacks one', async () => {
+  // Regression: the OAuth fragment flow stores tokens with no `user` field, so
+  // bootstrap returned 401 no_user_id and the app bounced a freshly signed-in
+  // user back to the login screen.
+  const userId = '99999999-9999-4999-8999-999999999999';
+  let userLookups = 0;
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/auth/v1/user')) {
+      userLookups += 1;
+      return jsonResponse({ id: userId, email: 'oauth@example.com' });
+    }
+    if (url.includes('/rest/v1/user_profiles')) return jsonResponse([]);
+    if (url.includes('/rest/v1/user_onboarding')) return jsonResponse([]);
+    if (url.includes('/rest/v1/users')) return jsonResponse([]);
+    return jsonResponse([]);
+  });
+  // Session as written by the OAuth fragment handler: tokens only, no user.
+  const tokensOnly = JSON.stringify({
+    access_token: 'oauth-access',
+    refresh_token: 'oauth-refresh',
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    token_type: 'bearer',
+  });
+  harness.localStorage.setItem('sb-ollsqiutzartjhiuzkbf-auth-token', tokensOnly);
+
+  const { response, data } = await fetchJson(harness.window, '/__auth/bootstrap');
+
+  assert.equal(userLookups, 1, 'must look the user up exactly once');
+  assert.notEqual(response.status, 401, 'must not report no_user_id');
+  assert.equal(data.user_id, userId);
+  const persisted = JSON.parse(harness.localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token'));
+  assert.equal(persisted.user.id, userId, 'resolved user must be written back to storage');
+});
+
+test('bootstrap refreshes an access token that is already expired', async () => {
+  const userId = '88888888-8888-4888-8888-888888888888';
+  let refreshed = 0;
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('grant_type=refresh_token')) {
+      refreshed += 1;
+      return jsonResponse({
+        access_token: 'renewed',
+        refresh_token: 'r2',
+        expires_in: 3600,
+        user: { id: userId, email: 'student@example.com' },
+      });
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage, {
+    access_token: 'stale',
+    refresh_token: 'still-good',
+    expires_at: Math.floor(Date.now() / 1000) - 120,
+    token_type: 'bearer',
+    user: { id: userId, email: 'student@example.com' },
+  });
+
+  const { response } = await fetchJson(harness.window, '/__auth/bootstrap');
+
+  assert.equal(refreshed, 1, 'expired token must be refreshed before loading the profile');
+  assert.notEqual(response.status, 401);
+  const stored = JSON.parse(harness.localStorage.getItem('isotope-auth-token'));
+  assert.equal(stored.access_token, 'renewed');
+});
+
+test('login maps Supabase auth errors to user-facing messages', async () => {
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('grant_type=password')) {
+      return jsonResponse({ error: 'invalid_grant', error_description: 'Invalid login credentials' }, 400);
+    }
+    return jsonResponse([]);
+  });
+
+  const { response, data } = await fetchJson(harness.window, '/__auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'a@b.com', password: 'wrong' }),
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(data.error, 'Incorrect email or password.');
+  assert.equal(data.code, 'LOGIN_FAILED');
+});
+
+test('login does not leak JSON parse errors when the server returns HTML', async () => {
+  // Regression: r.json() on a gateway HTML error page surfaced
+  // "Unexpected token <" into the login form.
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('grant_type=password')) {
+      return new Response('<html>502 Bad Gateway</html>', { status: 502 });
+    }
+    return jsonResponse([]);
+  });
+
+  const { data } = await fetchJson(harness.window, '/__auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'a@b.com', password: 'pw' }),
+  });
+
+  assert.doesNotMatch(data.error, /Unexpected token|JSON/i);
+  assert.match(data.error, /Cannot reach the IsotopeAI servers/i);
+});
+
+test('login rejects missing credentials without a network call', async () => {
+  const harness = createBridgeHarness(async () => jsonResponse([]));
+  const before = harness.calls.length;
+
+  const { response, data } = await fetchJson(harness.window, '/__auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: '', password: '' }),
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(data.code, 'MISSING_CREDENTIALS');
+  assert.equal(harness.calls.length, before, 'must not hit the network');
+});
+
+test('signup persists an inline session when email confirmation is disabled', async () => {
+  // Regression: the inline session was returned to the app but never stored, so
+  // the user landed on the dashboard unauthenticated and every request 401'd.
+  const userId = '55555555-5555-4555-8555-555555555555';
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/auth/v1/signup')) {
+      return jsonResponse({
+        user: { id: userId, email: 'new@example.com' },
+        session: {
+          access_token: 'signup-access',
+          refresh_token: 'signup-refresh',
+          expires_in: 3600,
+          token_type: 'bearer',
+        },
+      });
+    }
+    return jsonResponse([]);
+  });
+
+  const { response, data } = await fetchJson(harness.window, '/__auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'new@example.com', password: 'secret123' }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(data.ok, true);
+  const stored = JSON.parse(harness.localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token'));
+  assert.equal(stored.access_token, 'signup-access');
+  assert.ok(stored.expires_at > Math.floor(Date.now() / 1000), 'expires_at must be derived');
+  assert.equal(stored.user.id, userId, 'user must be attached to the stored session');
+});
+
+test('signup still reports email confirmation when no session is returned', async () => {
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/auth/v1/signup')) {
+      return jsonResponse({ user: { id: 'x', email: 'new@example.com' }, session: null });
+    }
+    return jsonResponse([]);
+  });
+
+  const { response, data } = await fetchJson(harness.window, '/__auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'new@example.com', password: 'secret123' }),
+  });
+
+  assert.equal(response.status, 202);
+  assert.equal(data.email_confirmation_required, true);
+  assert.equal(data.code, 'EMAIL_CONFIRMATION_REQUIRED');
+  assert.equal(harness.localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token'), null);
+});
+
+test('signup maps duplicate-account errors to a readable message', async () => {
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/auth/v1/signup')) {
+      return jsonResponse({ msg: 'User already registered' }, 422);
+    }
+    return jsonResponse([]);
+  });
+
+  const { data } = await fetchJson(harness.window, '/__auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ email: 'dupe@example.com', password: 'secret123' }),
+  });
+
+  assert.match(data.error, /already exists/i);
+  assert.equal(data.code, 'SIGNUP_FAILED');
+});
+
+test('OAuth deep-link handler consumes a token fragment and stores the session', async () => {
+  // Regression: the old callback detection required protocol==='http:' and a
+  // pathname starting with /callback. Under Capacitor the page is served from
+  // https://localhost, so tokens were silently discarded.
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/auth/v1/user')) {
+      return jsonResponse({ id: 'deep-link-user', email: 'oauth@example.com' });
+    }
+    return jsonResponse([]);
+  });
+
+  assert.equal(typeof harness.window.__isoHandleOAuthDeepLink, 'function',
+    'bridge must expose __isoHandleOAuthDeepLink for MainActivity');
+
+  const handled = harness.window.__isoHandleOAuthDeepLink(
+    'isotopeai://auth/callback#access_token=deep-access&refresh_token=deep-refresh&expires_in=3600&token_type=bearer',
+  );
+
+  assert.equal(handled, true, 'a fragment carrying access_token must be consumed');
+  const stored = JSON.parse(harness.localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token'));
+  assert.equal(stored.access_token, 'deep-access');
+  assert.equal(stored.refresh_token, 'deep-refresh');
+});
+
+test('OAuth deep-link handler ignores URLs with no auth payload', async () => {
+  const harness = createBridgeHarness(async () => jsonResponse([]));
+
+  assert.equal(harness.window.__isoHandleOAuthDeepLink('isotopeai://auth/callback'), false);
+  assert.equal(harness.window.__isoHandleOAuthDeepLink(''), false);
+  assert.equal(harness.window.__isoHandleOAuthDeepLink('isotopeai://auth/callback#state=xyz'), false);
+  assert.equal(harness.localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token'), null,
+    'a payload-free callback must not touch stored session state');
+});
+
+test('bridge advertises the native OAuth redirect target', async () => {
+  const harness = createBridgeHarness(async () => jsonResponse([]));
+  assert.equal(harness.window.__isoOAuthRedirect, 'isotopeai://auth/callback');
+});
+
+test('__isoOpenOAuthUrl is only defined when the native bridge can open URLs', async () => {
+  // The app decides whether to set skipBrowserRedirect based on this being a
+  // function. A stub that silently failed would leave the user unable to sign in.
+  const withoutNative = createBridgeHarness(async () => jsonResponse([]));
+  assert.equal(typeof withoutNative.window.__isoOpenOAuthUrl, 'undefined',
+    'must not advertise external OAuth without a native opener');
+});
+
+test('getSession unwraps supabase-js and zustand session wrappers', async () => {
+  const harness = createBridgeHarness(async () => jsonResponse([]));
+  const inner = {
+    access_token: 'wrapped-token',
+    refresh_token: 'wrapped-refresh',
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    user: { id: 'wrapped-user' },
+  };
+  harness.localStorage.setItem(
+    'sb-ollsqiutzartjhiuzkbf-auth-token',
+    JSON.stringify({ state: { session: inner } }),
+  );
+
+  const token = harness.window.__isoGetValidJwt();
+
+  assert.equal(token, 'wrapped-token', 'nested session shapes must still yield a JWT');
+});
+
+test('getSession survives a corrupt stored session without throwing', async () => {
+  const harness = createBridgeHarness(async () => jsonResponse([]));
+  harness.localStorage.setItem('sb-ollsqiutzartjhiuzkbf-auth-token', '{not json');
+
+  assert.doesNotThrow(() => harness.window.__isoGetValidJwt());
+  assert.equal(harness.window.__isoGetValidJwt(), null);
 });

@@ -27,6 +27,16 @@ public final class PipHttpServer {
     private static volatile String lastStateJson = null;
     private static volatile long lastStateAt = 0L;
     private static volatile boolean oauthReturnConsumed = false;
+
+    /**
+     * Clears the "already consumed" latch so a second sign-in attempt in the same
+     * process still forwards its tokens. Without this, the first OAuth round trip
+     * permanently flipped the flag and every later attempt was served the static
+     * "Signed in" page while the tokens were silently discarded.
+     */
+    public static void resetOAuthReturn() {
+        oauthReturnConsumed = false;
+    }
     private static final java.util.List<ServerSocket> sockets = new java.util.ArrayList<>();
     private static final java.util.List<Thread> threads = new java.util.ArrayList<>();
     private static final Set<OutputStream> pipEventClients = Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -141,7 +151,19 @@ public final class PipHttpServer {
                 handleSse(sock);
                 return;
             }
-            if ("GET".equals(method) && ("/oauth-return".equals(path) || "/auth/oauth-return".equals(path))) {
+            // OAuth loopback return. Google and Supabase both accept
+            // http://localhost:<port>/... redirect URIs; custom schemes are
+            // often rejected or stripped. The browser lands here, and the page
+            // we serve forwards the URL FRAGMENT (which is never sent to a
+            // server) into the app via isotopeai://auth/callback#<fragment>.
+            //
+            // AndroidManifest declares an intent filter for
+            // http://localhost:6767/callback, so "/callback" must be handled
+            // here or the redirect 404s and sign-in dead-ends.
+            if ("GET".equals(method) && ("/callback".equals(path)
+                    || "/auth/callback".equals(path)
+                    || "/oauth-return".equals(path)
+                    || "/auth/oauth-return".equals(path))) {
                 writeHtml(sock, 200, oauthReturnConsumed ? oauthDoneHtml() : oauthReturnHtml());
                 return;
             }

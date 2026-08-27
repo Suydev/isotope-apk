@@ -149,7 +149,22 @@ public class MainActivity extends BridgeActivity {
         // The WebView MUST receive that fragment verbatim so supabase-js can consume it
         // (detectSessionInUrl); dropping it destroys the Google sign-in.
         String fragment = uri.getEncodedFragment();
+        String query = uri.getEncodedQuery();
         String webRoute = resolveDeepLinkRoute(uri);
+
+        // Auth callbacks are handed to the bridge directly rather than relying on
+        // WebView route navigation. Route-only handling was lossy: pushState fires
+        // popstate, the app's router re-rendered, and whether the token fragment
+        // survived depended on load order. __isoHandleOAuthDeepLink parses the raw
+        // URL and persists the session immediately.
+        boolean isAuthCallback = webRoute != null && webRoute.startsWith("/auth/callback");
+        String authPayload = (fragment != null && !fragment.isEmpty()) ? fragment : query;
+        if (isAuthCallback && authPayload != null && !authPayload.isEmpty()) {
+            PipHttpServer.resetOAuthReturn();
+            deliverOAuthPayload(authPayload, immediate ? 0 : 1500);
+            return;
+        }
+
         if (webRoute == null) return;
         if (fragment != null && !fragment.isEmpty() && webRoute.startsWith("/auth/callback") && !webRoute.contains("#")) {
             webRoute = webRoute + "#" + fragment;
@@ -163,6 +178,51 @@ public class MainActivity extends BridgeActivity {
             android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
             handler.postDelayed(() -> navigateWebViewTo(route), 1500);
         }
+    }
+
+    /**
+     * Passes an OAuth callback payload (URL fragment or query string) into the JS
+     * bridge. Retries a few times because on a cold start the WebView may not have
+     * evaluated android-bridge.js yet, and a dropped payload means the user appears
+     * to sign in successfully in the browser but returns to a logged-out app.
+     *
+     * @param payload   the raw fragment/query, e.g. "access_token=...&refresh_token=..."
+     * @param delayMs   initial delay before the first attempt
+     */
+    private void deliverOAuthPayload(String payload, long delayMs) {
+        final String encoded = android.util.Base64.encodeToString(
+            payload.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            android.util.Base64.NO_WRAP);
+        final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        final int[] attempt = { 0 };
+        final Runnable[] task = new Runnable[1];
+        task[0] = () -> {
+            if (getBridge() == null || getBridge().getWebView() == null) {
+                if (++attempt[0] < 12) handler.postDelayed(task[0], 500);
+                return;
+            }
+            // atob + decodeURIComponent(escape(...)) keeps the payload byte-exact
+            // regardless of quoting, and avoids building a JS string literal out of
+            // attacker-influenced characters.
+            String js = "(function(){try{"
+                + "var p=decodeURIComponent(escape(atob('" + encoded + "')));"
+                + "if(typeof window.__isoHandleOAuthDeepLink==='function'){"
+                + "return window.__isoHandleOAuthDeepLink('isotopeai://auth/callback#'+p)?'ok':'noop';}"
+                + "return 'nobridge';"
+                + "}catch(e){return 'err:'+(e&&e.message);}})();";
+            getBridge().getWebView().post(() ->
+                getBridge().getWebView().evaluateJavascript(js, value -> {
+                    boolean handled = value != null && value.contains("ok");
+                    if (!handled && ++attempt[0] < 12) {
+                        handler.postDelayed(task[0], 500);
+                    } else if (!handled) {
+                        android.util.Log.w("IsotopeAI", "OAuth payload not consumed by bridge: " + value);
+                        navigateWebViewTo("/auth");
+                    }
+                })
+            );
+        };
+        handler.postDelayed(task[0], Math.max(0, delayMs));
     }
 
     /**

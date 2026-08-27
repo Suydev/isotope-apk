@@ -11,8 +11,7 @@
     "android:release": "cd android && ./gradlew bundleRelease --no-daemon",
     "agent:status": "node scripts/agent-status.mjs",
     "agent:resume": "bash scripts/agent-resume.sh",
-    "agent:handoff": "bash scripts/agent-handoff.sh",
-    "push": "node scripts/push-to-github.js"
+    "agent:handoff": "bash scripts/agent-handoff.sh"
   },
   "dependencies": {
     "@capacitor/android": "6.2.1",

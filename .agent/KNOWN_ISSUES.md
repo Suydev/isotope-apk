@@ -2,6 +2,155 @@
 
 ---
 
+## ISSUE-036 — Any tab crash leaves a permanent black screen
+**Severity:** CRITICAL — **FIXED IN CODE + UNIT TESTED 2026-08-27**
+**Status:** APK RUNTIME UNVERIFIED
+
+A render error in any route (Tasks, Community, Analytics, …) unmounts the React tree
+and leaves an empty `#root`. The only recovery hook was `checkBlankRoot()`, which ran
+solely on resume / rotation / focus — so a crash while switching tabs was permanent
+until the app was force-stopped.
+
+**Fix:** `setupAndroidRenderRecovery()` in `android-bridge.js` now also listens for
+`error`, `unhandledrejection`, and `popstate`, and on a confirmed blank `#root`
+navigates to `/dashboard` (a route that does not depend on the crashed data) rather
+than reloading the crashing route in place. Capped at 3 recoveries so a crash on
+`/dashboard` itself cannot loop. Exposed as `window.__isoRecoverFromTabCrash`.
+
+**Note:** this is a safety net, not a cure. The underlying per-tab crashes still need
+individual root-causing; each recovery logs `[IsotopeAndroidRuntime] blank #root after
+<reason> on <route>` to Logcat, which identifies the failing route.
+
+---
+
+## ISSUE-035 — `refreshStoredSessionIfNeeded()` called but never defined
+**Severity:** CRITICAL — **FIXED IN CODE + UNIT TESTED 2026-08-27**
+**Status:** APK RUNTIME UNVERIFIED
+
+`rpcPost()` (`android-bridge.js`) retried 401s by calling
+`refreshStoredSessionIfNeeded(session)` — a function that did not exist anywhere in the
+file. Every expired-token community/leaderboard RPC therefore threw
+`ReferenceError: refreshStoredSessionIfNeeded is not defined` instead of recovering.
+This is the direct cause of "Community is fully broken" once a session aged past the
+access-token lifetime.
+
+**Fix:** implemented `refreshStoredSessionIfNeeded()` with a single-flight guard
+(Supabase rotates refresh tokens, so parallel exchanges invalidate each other and
+hard-log-out the user). Community RPC passthrough now refreshes and retries once, then
+returns a readable `SESSION_EXPIRED` error instead of a bare 401.
+
+**Tests:** `expired community RPC refreshes the session and retries instead of throwing`,
+`community RPC surfaces a readable error when the refresh token is rejected`,
+`refresh rotates and persists the new token across all storage keys`,
+`concurrent refreshes are coalesced into a single token exchange`.
+
+---
+
+## ISSUE-034 — Google sign-in succeeded in the browser, app stayed logged out
+**Severity:** CRITICAL — **FIXED IN CODE + UNIT TESTED 2026-08-27**
+**Status:** APK RUNTIME UNVERIFIED
+
+Three independent faults in the OAuth round trip:
+
+1. **App ignored the Android redirect target.** `AuthService.signInWithOAuth()` in
+   `useAuthStore-Aw1au7RF.js` hardcoded `redirectTo: ${window.location.origin}/dashboard`
+   and dropped the caller's options — so `signInWithGoogle()`'s
+   `redirectTo: "isotopeai://auth/callback"` never took effect, and the flow navigated
+   the WebView to Google, which rejects embedded WebViews (`disallowed_useragent`).
+2. **Callback detection never matched.** The bridge only handled callbacks when
+   `protocol === 'http:'` and `pathname` started with `/callback`. Under Capacitor the
+   page is served from `https://localhost`, so returning tokens were silently discarded.
+3. **Loopback redirect 404'd.** `AndroidManifest.xml` declares an intent filter for
+   `http://localhost:6767/callback`, but `PipHttpServer` only served `/oauth-return`.
+
+**Fix:**
+- Patched `signInWithOAuth` to honour caller options and hand the authorize URL to
+  `window.__isoOpenOAuthUrl()` with `skipBrowserRedirect`, so the system browser runs
+  the flow (marked `/*__isoOAuthPatched*/`).
+- `__isoOpenOAuthUrl` is defined **only** when the native opener exists, because the app
+  keys `skipBrowserRedirect` off `typeof … === 'function'`.
+- Added `window.__isoHandleOAuthDeepLink(rawUrl)`; `MainActivity.deliverOAuthPayload()`
+  base64-passes the fragment straight to it with up to 12 retries (cold start races the
+  WebView), and falls back to `/auth` if the payload is never consumed.
+- Callback matching is now path-suffix + scheme agnostic, and listens on `popstate` as
+  well as `hashchange`.
+- `PipHttpServer` serves `/callback` and `/auth/callback`; `resetOAuthReturn()` clears
+  the consumed latch so a second sign-in attempt still forwards its tokens.
+
+**Tests:** `OAuth deep-link handler consumes a token fragment and stores the session`,
+`OAuth deep-link handler ignores URLs with no auth payload`,
+`bridge advertises the native OAuth redirect target`,
+`__isoOpenOAuthUrl is only defined when the native bridge can open URLs`.
+
+**Still required (not code):** the Supabase dashboard must list
+`isotopeai://auth/callback` and `http://localhost:6767/callback` under Auth → URL
+Configuration → Redirect URLs, and a **Web-type** Google OAuth client must be configured.
+
+---
+
+## ISSUE-033 — Bootstrap rejected valid sessions with `no_user_id`
+**Severity:** CRITICAL — **FIXED IN CODE + UNIT TESTED 2026-08-27**
+**Status:** APK RUNTIME UNVERIFIED
+
+`/__auth/bootstrap` required `session.user.id`, but the OAuth fragment flow stores
+tokens only (no `user`), and `handleSignup` never persisted its inline session at all.
+Result: sign-in "worked", then the app bounced straight back to the login screen.
+
+**Fix:** bootstrap now resolves the session asynchronously and self-heals —
+localStorage → Filesystem mirror → `refresh_token` exchange if expired →
+`/auth/v1/user` lookup if `user` is missing — and writes the resolved user back.
+`handleSignup` persists an inline session (deriving `expires_at`) and attaches the user.
+All login paths now write through one `persistSession()` function, exposed as
+`window.__isoPersistSession` so the separate OAuth IIFE cannot drift from it.
+
+**Tests:** `bootstrap resolves the user id via /auth/v1/user when the session lacks one`,
+`bootstrap refreshes an access token that is already expired`,
+`signup persists an inline session when email confirmation is disabled`,
+`signup still reports email confirmation when no session is returned`.
+
+---
+
+## ISSUE-032 — Filesystem session fallback never worked (async read used synchronously)
+**Severity:** HIGH — **FIXED IN CODE + UNIT TESTED 2026-08-27**
+**Status:** APK RUNTIME UNVERIFIED
+
+`readSessionFromFile()` called `Capacitor Filesystem.readFile(...)` — which returns a
+**Promise** — and then read `result.data` off the Promise object, always `undefined`.
+The "survives process death" guarantee in AGENTS.md was therefore never real: any user
+whose localStorage was cleared by the WebView was logged out with no recovery.
+
+**Fix:** split into `primeSessionFileCache()` (async, validates the payload before
+trusting it, mirrors into localStorage) and a synchronous `readSessionFromFile()` that
+reads the in-memory cache. Bootstrap primes the cache when localStorage is empty.
+Session shape unwrapping (supabase-js / zustand wrappers) is now one shared
+`normalizeSessionShape()` helper.
+
+**Tests:** `getSession unwraps supabase-js and zustand session wrappers`,
+`getSession survives a corrupt stored session without throwing`.
+
+---
+
+## ISSUE-031 — Auth errors surfaced raw JSON/parse failures to users
+**Severity:** MEDIUM — **FIXED IN CODE + UNIT TESTED 2026-08-27**
+**Status:** APK RUNTIME UNVERIFIED
+
+`handleLogin`/`handleSignup` called `r.json()` unconditionally, so a gateway HTML error
+page produced `Unexpected token <` in the login form. Supabase's machine strings
+(`invalid_grant`) were also shown verbatim.
+
+**Fix:** both handlers read `text()` first and map through new `authErrorMessage()` /
+`networkErrorMessage()` helpers (wrong password, unconfirmed email, duplicate account,
+weak password, rate limit, offline, timeout). Missing credentials are rejected without a
+network call. Responses carry a stable `code` (`LOGIN_FAILED`, `SIGNUP_FAILED`,
+`MISSING_CREDENTIALS`, `NETWORK`, `SESSION_EXPIRED`).
+
+**Tests:** `login maps Supabase auth errors to user-facing messages`,
+`login does not leak JSON parse errors when the server returns HTML`,
+`login rejects missing credentials without a network call`,
+`signup maps duplicate-account errors to a readable message`.
+
+---
+
 ## ISSUE-030 — WebView "Missing initializer in destructuring declaration" (app never mounts)
 **Severity:** CRITICAL — **RESOLVED 2026-08-20**
 **Status:** FIXED, verification on phone browser in progress

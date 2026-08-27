@@ -19,6 +19,10 @@
   var APP_VERSION = '3.5.3';
   var SUPA_URL       = 'https://ollsqiutzartjhiuzkbf.supabase.co';
   var SUPA_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
+  // NOTE: the literal `var ref = '<projectRef>'` form is required — scripts/prepare-www.js
+  // rewrites it at build time (refPatterns). Do not rename or inline it.
+  var ref = 'ollsqiutzartjhiuzkbf';
+  var SUPA_REF = ref;
 
   // ── Android detection ───────────────────────────────────────────────────────
   var isAndroid = (
@@ -543,16 +547,23 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
   })();
 
   // ── Google OAuth: force external browser ───────────────────────────────────
-  // Google blocks OAuth in embedded WebViews. `accounts.google.com` is removed
-  // from Capacitor allowNavigation so the system browser handles it natively.
-  // This interceptor catches any remaining in-WebView navigation attempts.
+  // Google blocks OAuth inside embedded WebViews (error: disallowed_useragent),
+  // so the whole flow must happen in the system browser and come back to the app
+  // through the isotopeai://auth/callback deep link (declared in AndroidManifest).
+  //
+  // The app calls window.__isoOpenOAuthUrl(url) (see the patched signInWithOAuth
+  // in useAuthStore) with the Supabase /authorize URL. The URL interceptors below
+  // stay as a safety net for any code path that still navigates directly.
   (function installExternalOAuth() {
     if (!isAndroid) return;
     var bridge = function() { try { return window.IsotopeAndroid || null; } catch(e) { return null; } };
     function isGoogleAuthUrl(url) {
       return typeof url === 'string' && (
         url.indexOf('accounts.google.com') !== -1 ||
-        url.indexOf('accounts.youtube.com') !== -1
+        url.indexOf('accounts.youtube.com') !== -1 ||
+        // Supabase's own authorize endpoint 302s to Google; opening it in the
+        // WebView is what produced disallowed_useragent.
+        url.indexOf('/auth/v1/authorize') !== -1
       );
     }
     function openExternally(url) {
@@ -562,6 +573,33 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
         return true;
       }
       return false;
+    }
+
+    // Deep link the browser returns to. Must be registered in Supabase Auth
+    // "Redirect URLs" as well, or Supabase refuses the redirect.
+    window.__isoOAuthRedirect = 'isotopeai://auth/callback';
+
+    // Entry point used by the app. Returns true when the native layer took over.
+    // Only defined when the native bridge is actually present, because the app
+    // uses `typeof window.__isoOpenOAuthUrl === 'function'` to decide whether to
+    // set skipBrowserRedirect — a stub that silently failed would leave the user
+    // on a dead screen with no way to sign in.
+    if (bridge() && typeof bridge().openExternalUrl === 'function') {
+      window.__isoOpenOAuthUrl = function (url) {
+        if (!url) {
+          console.warn('[ISO-BRIDGE] __isoOpenOAuthUrl called without a URL');
+          return false;
+        }
+        try { sessionStorage.setItem('iso_oauth_pending', String(Date.now())); } catch (e) {}
+        var opened = openExternally(url);
+        if (!opened) {
+          // Native call unavailable at runtime: fall back to in-WebView
+          // navigation so the user is not simply stuck.
+          console.warn('[ISO-BRIDGE] native openExternalUrl missing — falling back to WebView nav');
+          try { window.location.assign(url); } catch (e) {}
+        }
+        return opened;
+      };
     }
     // Patch location.assign and location.replace
     try {
@@ -1005,6 +1043,92 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       }, 2500);
     }
 
+    // ── Tab-crash recovery ────────────────────────────────────────────────────
+    // A render error inside any route (Tasks, Community, Analytics, …) unmounts
+    // the React tree and leaves an empty #root — the user sees a permanent black
+    // screen with no way back. checkBlankRoot() only ran on resume/rotation, so a
+    // crash while simply switching tabs was unrecoverable.
+    //
+    // Recovery is deliberately conservative: navigate back to /dashboard (a route
+    // known not to depend on the crashed data) instead of reloading in place,
+    // because reloading the same crashing route just reproduces the crash. A
+    // reload is used only once, as a second-stage fallback.
+    var lastCrashRoute = null;
+    var crashRecoveries = 0;
+
+    function recoverFromTabCrash(reason) {
+      try {
+        if (document.getElementById && document.getElementById('isotope-boot-splash')) return;
+        var root = document.getElementById && document.getElementById('root');
+        if (!root || !root.children || root.children.length > 0) return;
+
+        var here = window.location.pathname || '/';
+        crashRecoveries++;
+        console.error('[IsotopeAndroidRuntime] blank #root after ' + reason +
+          ' on ' + here + ' (recovery ' + crashRecoveries + ')');
+
+        // Cap recoveries so a crash on /dashboard itself cannot spin forever.
+        if (crashRecoveries > 3) {
+          console.error('[IsotopeAndroidRuntime] giving up automatic recovery');
+          return;
+        }
+
+        if (here !== '/dashboard' && here !== lastCrashRoute) {
+          lastCrashRoute = here;
+          if (typeof window.__iso_navigate === 'function') {
+            window.__iso_navigate('/dashboard');
+          } else if (window.history && typeof window.history.pushState === 'function') {
+            window.history.pushState({}, '', '/dashboard');
+            window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+          } else {
+            window.location.href = '/dashboard';
+          }
+          // If navigation did not re-mount anything, fall through to a reload.
+          setTimeout(function () {
+            try {
+              var r2 = document.getElementById && document.getElementById('root');
+              if (r2 && r2.children && r2.children.length === 0 && !reloadAttempted) {
+                reloadAttempted = true;
+                window.location.href = '/dashboard';
+              }
+            } catch (e) {}
+          }, 1200);
+          return;
+        }
+
+        if (!reloadAttempted) {
+          reloadAttempted = true;
+          window.location.href = '/dashboard';
+        }
+      } catch (e) {}
+    }
+
+    // Any uncaught render error is a candidate; the blank-root check inside
+    // recoverFromTabCrash() decides whether the tree actually died.
+    try {
+      window.addEventListener('error', function (ev) {
+        setTimeout(function () {
+          recoverFromTabCrash('error: ' + ((ev && ev.message) || 'unknown'));
+        }, 400);
+      });
+    } catch (e) {}
+    try {
+      window.addEventListener('unhandledrejection', function (ev) {
+        setTimeout(function () {
+          var r = ev && ev.reason;
+          recoverFromTabCrash('rejection: ' + ((r && (r.message || r)) || 'unknown'));
+        }, 400);
+      });
+    } catch (e) {}
+    // Route changes are the other trigger: a tab that crashes on mount produces
+    // no error event in some React paths, only an empty tree.
+    try {
+      window.addEventListener('popstate', function () {
+        setTimeout(function () { recoverFromTabCrash('popstate'); }, 900);
+      });
+    } catch (e) {}
+    try { window.__isoRecoverFromTabCrash = recoverFromTabCrash; } catch (e) {}
+
     function installStyles() {
       if (!document.head || document.getElementById && document.getElementById('iso-android-render-style')) return;
       try {
@@ -1099,49 +1223,169 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     } catch (e) {}
   }
 
-  function readSessionFromFile() {
+  // Capacitor Filesystem.readFile is ASYNC (returns a Promise). The old sync
+  // version of this helper read `result.data` off the Promise object, which is
+  // always undefined — so the file fallback silently never worked and any user
+  // whose localStorage was cleared by the WebView (process death, low memory,
+  // "clear cache") was logged out with no recovery. We now keep a synchronously
+  // readable mirror in memory + localStorage, and prime it from the file on boot.
+  var _sessionFileCache = null;
+
+  function primeSessionFileCache() {
     var fs = getFilesystem();
-    if (!fs) return null;
-    try {
-      var result = fs.readFile({ path: SESSION_FILE, directory: 'Data' });
-      if (result && result.data) return typeof result.data === 'string' ? result.data : String(result.data);
-    } catch (e) {}
-    return null;
+    if (!fs) return Promise.resolve(null);
+    return Promise.resolve()
+      .then(function () { return fs.readFile({ path: SESSION_FILE, directory: 'Data' }); })
+      .then(function (result) {
+        var data = result && result.data;
+        if (!data) return null;
+        var raw = typeof data === 'string' ? data : String(data);
+        // Validate before trusting it — a truncated write must not resurrect a
+        // corrupt session and wedge boot.
+        var parsed = normalizeSessionShape(safeJsonParse(raw, null));
+        if (!parsed || !parsed.access_token) return null;
+        _sessionFileCache = raw;
+        try {
+          if (!localStorage.getItem('sb-' + SUPA_REF + '-auth-token')) {
+            localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
+            localStorage.setItem('isotope-auth-token', raw);
+          }
+        } catch (e) {}
+        return raw;
+      })
+      .catch(function () { return null; });
+  }
+
+  function readSessionFromFile() {
+    return _sessionFileCache;
+  }
+
+  // Unwraps the several shapes a stored session can take (raw session, supabase-js
+  // wrapper, zustand persist wrapper) into a flat session object.
+  function normalizeSessionShape(s) {
+    if (!s || typeof s !== 'object') return null;
+    if (s.session && s.session.access_token) s = s.session;
+    if (s.currentSession && s.currentSession.access_token) s = s.currentSession;
+    if (s.state && s.state.session && s.state.session.access_token) s = s.state.session;
+    return s && s.access_token ? s : null;
   }
 
   function getSession() {
+    var raw = null;
     try {
-      var ref = 'ollsqiutzartjhiuzkbf';
-      var raw = localStorage.getItem('sb-' + ref + '-auth-token')
-             || localStorage.getItem('isotope-last-session-raw')
-             || localStorage.getItem('isotope-auth-token');
-      // Fallback to Capacitor Filesystem backup if localStorage is empty (process death)
-      if (!raw) {
-        raw = readSessionFromFile();
-      }
-      if (!raw) return null;
-      var s = JSON.parse(raw);
-      if (s && s.session && s.session.access_token) s = s.session;
-      if (s && s.currentSession && s.currentSession.access_token) s = s.currentSession;
-      if (s && s.state && s.state.session && s.state.session.access_token) s = s.state.session;
-      // Check expiry
-      var exp = s.expires_at || 0;
-      if (exp && exp < Math.floor(Date.now() / 1000) - 60) {
-        // Try to return expired session anyway — Supabase client will refresh
-      }
-      return s;
-    } catch (e) { 
-      // Last resort: try file backup
-      try {
-        raw = readSessionFromFile();
-        if (raw) {
-          var s2 = JSON.parse(raw);
-          if (s2 && s2.session && s2.session.access_token) return s2.session;
-          if (s2 && s2.access_token && s2.user) return s2;
+      raw = localStorage.getItem('sb-' + SUPA_REF + '-auth-token')
+         || localStorage.getItem('isotope-last-session-raw')
+         || localStorage.getItem('isotope-auth-token');
+    } catch (e) {}
+    // Fallback to the Capacitor Filesystem mirror if localStorage was wiped
+    // (process death / low-memory / user cleared cache).
+    if (!raw) raw = readSessionFromFile();
+    if (!raw) return null;
+    var s = normalizeSessionShape(safeJsonParse(raw, null));
+    if (!s) return null;
+    // Expired sessions are returned deliberately: callers use the refresh_token
+    // via refreshStoredSessionIfNeeded() rather than dropping the user to /auth.
+    return s;
+  }
+
+  // Exchanges a stored refresh_token for a fresh access_token and persists the
+  // result everywhere getSession() looks. Returns the new session, or null if the
+  // refresh is impossible (no refresh_token) or was rejected by Supabase.
+  //
+  // Was previously CALLED BUT NEVER DEFINED (rpcPost 401 retry path), so every
+  // expired-token community/leaderboard RPC threw ReferenceError instead of
+  // recovering — that is the "community is fully broken after an hour" symptom.
+  var _refreshInFlight = null;
+
+  function refreshStoredSessionIfNeeded(session) {
+    var current = session || getSession();
+    if (!current || !current.refresh_token) return Promise.resolve(null);
+    // Coalesce concurrent refreshes; Supabase rotates refresh tokens, so two
+    // parallel calls would invalidate each other and hard-log-out the user.
+    if (_refreshInFlight) return _refreshInFlight;
+    _refreshInFlight = fetch(SUPA_URL + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: {
+        'apikey': SUPA_ANON_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ refresh_token: current.refresh_token }),
+      credentials: 'omit'
+    }).then(function (r) {
+      return r.text().then(function (text) {
+        var d = safeJsonParse(text, null);
+        if (!r.ok || !d || !d.access_token) {
+          console.warn('[ISO-BRIDGE] session refresh rejected:',
+            r.status, d && (d.error_description || d.msg || d.error) || 'unknown');
+          return null;
         }
-      } catch (e2) {}
-      return null; 
-    }
+        var next = {
+          access_token: d.access_token,
+          refresh_token: d.refresh_token || current.refresh_token,
+          expires_in: d.expires_in || 3600,
+          expires_at: Math.floor(Date.now() / 1000) + Number(d.expires_in || 3600),
+          token_type: d.token_type || 'bearer',
+          user: d.user || current.user || null
+        };
+        persistSession(next);
+        return next;
+      });
+    }).catch(function (e) {
+      console.warn('[ISO-BRIDGE] session refresh failed:', e && e.message);
+      return null;
+    }).then(function (result) {
+      _refreshInFlight = null;
+      return result;
+    });
+    return _refreshInFlight;
+  }
+  try { window.__isoRefreshSession = refreshStoredSessionIfNeeded; } catch (e) {}
+
+  // Single writer for session state. Every login path (password, OAuth fragment,
+  // PKCE, refresh) must go through this so the storage keys never diverge.
+  function persistSession(session) {
+    if (!session || !session.access_token) return;
+    var raw = JSON.stringify(session);
+    try {
+      localStorage.setItem('isotope-auth-token', raw);
+      localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
+      localStorage.setItem('isotope-last-session-raw', raw);
+      localStorage.setItem('isotope-last-jwt', session.access_token);
+      if (session.refresh_token) localStorage.setItem('isotope-last-rt', session.refresh_token);
+    } catch (e) {}
+    _sessionFileCache = raw;
+    backupSessionToFile(raw);
+    try {
+      if (session.user && session.user.id) window.__ISO_CURRENT_USER_ID__ = session.user.id;
+    } catch (e) {}
+  }
+  // Exposed so the separate OAuth-callback IIFE at the bottom of this file uses
+  // the same writer instead of duplicating (and drifting from) the storage keys.
+  try { window.__isoPersistSession = persistSession; } catch (e) {}
+
+  // Fills in session.user by calling /auth/v1/user when a login path could not
+  // supply it (the OAuth fragment flow returns tokens only). Without this,
+  // /__auth/bootstrap short-circuits with 401 no_user_id and the app bounces the
+  // freshly-signed-in user straight back to the login screen.
+  function ensureSessionUser(session) {
+    if (!session || !session.access_token) return Promise.resolve(session || null);
+    if (session.user && session.user.id) return Promise.resolve(session);
+    return fetch(SUPA_URL + '/auth/v1/user', {
+      headers: { 'apikey': SUPA_ANON_KEY, 'Authorization': 'Bearer ' + session.access_token },
+      credentials: 'omit'
+    }).then(function (r) {
+      if (!r.ok) return session;
+      return r.json().then(function (user) {
+        if (user && user.id) {
+          session.user = user;
+          persistSession(session);
+        }
+        return session;
+      });
+    }).catch(function (e) {
+      console.warn('[ISO-BRIDGE] could not resolve session user:', e && e.message);
+      return session;
+    });
   }
 
   function getAccessToken() {
@@ -2324,47 +2568,89 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     return Promise.resolve(jsonResponse({ ok: true, received: n }));
   }
 
+  // Maps a Supabase auth error payload to a message worth showing a user.
+  // Supabase returns machine-ish strings ("Invalid login credentials") and
+  // sometimes an empty body on gateway errors; the old code surfaced JSON parse
+  // errors ("Unexpected token <") straight into the login form.
+  function authErrorMessage(status, d, fallback) {
+    var raw = d && (d.error_description || d.msg || d.message || d.error_code || d.error) || '';
+    var text = String(raw);
+    if (/invalid login credentials|invalid_grant/i.test(text)) {
+      return 'Incorrect email or password.';
+    }
+    if (/email not confirmed|email_not_confirmed/i.test(text)) {
+      return 'Confirm your email address first — check your inbox for the confirmation link.';
+    }
+    if (/user already registered|already been registered/i.test(text)) {
+      return 'An account with this email already exists. Try signing in instead.';
+    }
+    if (/password should be at least|weak.?password/i.test(text)) {
+      return 'Password is too short — use at least 6 characters.';
+    }
+    if (/over_email_send_rate_limit|rate limit|too many requests/i.test(text) || status === 429) {
+      return 'Too many attempts. Wait a minute and try again.';
+    }
+    if (status === 0 || status >= 502) {
+      return 'Cannot reach the IsotopeAI servers. Check your connection and try again.';
+    }
+    return text || fallback;
+  }
+
+  // Turns a thrown fetch error into a user-facing message. Network failures in a
+  // WebView surface as bare "Failed to fetch", which is meaningless to a student.
+  function networkErrorMessage(e, action) {
+    var msg = e && e.message || '';
+    if (/Failed to fetch|NetworkError|Load failed|offline|ERR_INTERNET/i.test(msg)) {
+      return 'No internet connection — could not ' + action + '.';
+    }
+    if (/AbortError|timeout|timed out/i.test(msg) || (e && e.name === 'AbortError')) {
+      return 'The server took too long to respond. Try again.';
+    }
+    return msg || ('Could not ' + action + '.');
+  }
+
   // POST /__auth/login
   function handleLogin(body) {
+    var email = body.username || body.email;
+    if (!email || !body.password) {
+      return Promise.resolve(jsonResponse(
+        { ok: false, error: 'Enter both your email and password.', code: 'MISSING_CREDENTIALS' }, 400));
+    }
     return fetch(SUPA_URL + '/auth/v1/token?grant_type=password', {
       method: 'POST',
       headers: { 'apikey': SUPA_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: body.username || body.email, password: body.password }),
+      body: JSON.stringify({ email: email, password: body.password }),
       credentials: 'omit'
     }).then(function (r) {
-      return r.json().then(function (d) {
-        if (r.ok && d.access_token) {
-          var session = {
-            access_token: d.access_token,
-            refresh_token: d.refresh_token,
-            expires_in: d.expires_in,
-            expires_at: Math.floor(Date.now() / 1000) + Number(d.expires_in || 3600),
-            token_type: d.token_type || 'bearer',
-            user: d.user
-          };
-          // Write session to localStorage AND Capacitor Filesystem backup
-          try {
-            var raw = JSON.stringify(session);
-            var ref = 'ollsqiutzartjhiuzkbf';
-            localStorage.setItem('isotope-auth-token', raw);
-            localStorage.setItem('sb-' + ref + '-auth-token', raw);
-            localStorage.setItem('isotope-last-jwt', d.access_token);
-            if (d.refresh_token) localStorage.setItem('isotope-last-rt', d.refresh_token);
-            // Backup to Capacitor Filesystem so session survives process death
-            backupSessionToFile(JSON.stringify(session));
-          } catch (e) {}
-          // Keep current-user-ID global in sync for community features
-          try {
-            if (d.user && d.user.id) window.__ISO_CURRENT_USER_ID__ = d.user.id;
-          } catch (e) {}
-          return jsonResponse({ ok: true, session: session, user: d.user });
-        } else {
-          var errMsg = d.error_description || d.msg || d.message || d.error || 'Login failed';
-          return jsonResponse({ ok: false, error: errMsg }, r.status >= 400 ? r.status : 401);
+      // Read as text first: an HTML error page from a gateway must not become a
+      // JSON parse exception presented to the user as the login failure reason.
+      return r.text().then(function (text) {
+        var d = safeJsonParse(text, null);
+        if (!r.ok || !d || !d.access_token) {
+          return jsonResponse({
+            ok: false,
+            error: authErrorMessage(r.status, d, 'Login failed'),
+            code: 'LOGIN_FAILED',
+            status: r.status
+          }, r.status >= 400 ? r.status : 401);
         }
+        var session = {
+          access_token: d.access_token,
+          refresh_token: d.refresh_token,
+          expires_in: d.expires_in,
+          expires_at: Math.floor(Date.now() / 1000) + Number(d.expires_in || 3600),
+          token_type: d.token_type || 'bearer',
+          user: d.user
+        };
+        persistSession(session);
+        // Password grant already returns `user`; ensureSessionUser is a no-op then.
+        return ensureSessionUser(session).then(function (full) {
+          return jsonResponse({ ok: true, session: full, user: full && full.user || d.user });
+        });
       });
     }).catch(function (e) {
-      return errorResponse(e.message || 'Network error during login');
+      return jsonResponse(
+        { ok: false, error: networkErrorMessage(e, 'sign in'), code: 'NETWORK' }, 503);
     });
   }
 
@@ -2382,6 +2668,10 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
 
   // POST /__auth/signup
   function handleSignup(body) {
+    if (!body.email || !body.password) {
+      return Promise.resolve(jsonResponse(
+        { ok: false, error: 'Enter both your email and a password.', code: 'MISSING_CREDENTIALS' }, 400));
+    }
     return fetch(SUPA_URL + '/auth/v1/signup', {
       method: 'POST',
       headers: { 'apikey': SUPA_ANON_KEY, 'Content-Type': 'application/json' },
@@ -2392,42 +2682,100 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       }),
       credentials: 'omit'
     }).then(function (r) {
-      return r.json().then(function (d) {
-        if (r.ok) {
-          var hasSession = !!(d && d.session && d.session.access_token);
+      return r.text().then(function (text) {
+        var d = safeJsonParse(text, null);
+        if (!r.ok) {
           return jsonResponse({
-            ok: hasSession,
-            success: hasSession,
-            data: d,
-            session: d && d.session || null,
-            user: d && d.user || null,
-            email_confirmation_required: !hasSession,
-            code: hasSession ? 'SIGNED_UP' : 'EMAIL_CONFIRMATION_REQUIRED',
-            message: hasSession
-              ? 'Account created.'
-              : 'Confirmation email sent. Check your inbox and confirm your email before logging in.'
-          }, hasSession ? 200 : 202);
+            ok: false,
+            error: authErrorMessage(r.status, d, 'Signup failed'),
+            code: 'SIGNUP_FAILED',
+            status: r.status
+          }, r.status || 400);
         }
-        return jsonResponse({ ok: false, error: d.error_description || d.msg || d.message || 'Signup failed' }, r.status || 400);
+        // Supabase returns the session inline when email confirmation is disabled.
+        // It was previously handed back to the app but never stored, so the user
+        // landed on the dashboard unauthenticated and every request 401'd.
+        var inline = d && d.session && d.session.access_token ? d.session : null;
+        var hasSession = !!inline;
+        if (inline) {
+          if (!inline.expires_at) {
+            inline.expires_at = Math.floor(Date.now() / 1000) + Number(inline.expires_in || 3600);
+          }
+          if (!inline.user && d.user) inline.user = d.user;
+          persistSession(inline);
+        }
+        return jsonResponse({
+          ok: hasSession,
+          success: hasSession,
+          data: d,
+          session: inline,
+          user: d && d.user || null,
+          email_confirmation_required: !hasSession,
+          code: hasSession ? 'SIGNED_UP' : 'EMAIL_CONFIRMATION_REQUIRED',
+          message: hasSession
+            ? 'Account created.'
+            : 'Confirmation email sent. Check your inbox and confirm your email before logging in.'
+        }, hasSession ? 200 : 202);
       });
-    }).catch(function (e) { return errorResponse(e.message); });
+    }).catch(function (e) {
+      return jsonResponse(
+        { ok: false, error: networkErrorMessage(e, 'create your account'), code: 'NETWORK' }, 503);
+    });
   }
 
-  // GET /__auth/bootstrap — check session and load profile
+  // GET /__auth/bootstrap — resolve the session, then load the profile.
+  //
+  // Session resolution is now async and self-healing, in this order:
+  //   1. localStorage / in-memory file mirror
+  //   2. Capacitor Filesystem (primed on demand — survives process death)
+  //   3. refresh_token exchange if the access_token is expired
+  //   4. /auth/v1/user lookup if the login path never supplied `user`
+  // Any one of these failing used to produce a bare 401 that the app treats as
+  // "logged out", which is why Google sign-in appeared to succeed and then
+  // dumped the user back on the login screen.
   function handleBootstrap() {
+    return resolveBootstrapSession().then(function (session) {
+      if (!session || !session.access_token) {
+        return jsonResponse({
+          ok: false, reason: 'no_session', session: null, user: null, profile: null,
+          user_id: null, onboarding: { state: 'unknown' }, onboarding_completed: undefined,
+          restore_recommended: false, best_backup: null, cloud_snapshot: null,
+          backup_candidates: [], backup_warning: null
+        }, 401);
+      }
+      if (!(session.user && session.user.id)) {
+        return jsonResponse({
+          ok: false,
+          reason: 'no_user_id',
+          error: 'Signed in, but your account could not be loaded. Check your connection and reopen the app.',
+          session: session,
+          user_id: null
+        }, 401);
+      }
+      return bootstrapWithSession(session);
+    });
+  }
+
+  function resolveBootstrapSession() {
     var session = getSession();
-    if (!session || !session.access_token) {
-      return Promise.resolve(jsonResponse({
-        ok: false, reason: 'no_session', session: null, user: null, profile: null,
-        user_id: null, onboarding: { state: 'unknown' }, onboarding_completed: undefined,
-        restore_recommended: false, best_backup: null, cloud_snapshot: null,
-        backup_candidates: [], backup_warning: null
-      }, 401));
-    }
-    var userId = session.user && session.user.id;
-    if (!userId) {
-      return Promise.resolve(jsonResponse({ ok: false, error: 'no_user_id', session: session, user_id: null }, 401));
-    }
+    var step = session ? Promise.resolve(session) : primeSessionFileCache().then(getSession);
+    return step.then(function (s) {
+      if (!s || !s.access_token) return null;
+      var now = Math.floor(Date.now() / 1000);
+      // Refresh proactively inside the 60s skew window so the profile queries
+      // below don't all fire with a token that expires mid-flight.
+      if (s.expires_at && s.expires_at <= now + 60 && s.refresh_token) {
+        return refreshStoredSessionIfNeeded(s).then(function (next) { return next || s; });
+      }
+      return s;
+    }).then(function (s) {
+      if (!s) return null;
+      return ensureSessionUser(s);
+    });
+  }
+
+  function bootstrapWithSession(session) {
+    var userId = session.user.id;
 
     try { upgradeProfileToRanker(); } catch (e) {}
 
@@ -4482,18 +4830,48 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       var rpcUrl = url;
       if (url.startsWith(SUPA_URL)) rpcUrl = url;
       else if (pathname.startsWith('/rest/')) rpcUrl = SUPA_URL + pathname + (new URL(url, 'http://x').search || '');
-      var _rpcInit = Object.assign({}, init, { headers: supaFetchHeaders(init) });
-      return fetch(rpcUrl, _rpcInit).then(function (response) {
-        return response.text().then(function (text) {
-          var payload = safeJsonParse(text, text ? { raw: text } : null);
-          if (!response.ok) return jsonResponse(payload || { ok: false, error: 'RPC failed' }, response.status || 500);
-          if (typeof handleDirectInviteRpc === 'function' && pathname.indexOf('invite') !== -1) {
-            return normalizeInviteRpcPayload(payload).then(function (normalized) { return jsonResponse(normalized, 200); });
+      // Every community feature funnels through here. Previously a 401 (expired
+      // access_token) was passed straight back to the app, which surfaced as
+      // "community is broken" for any session older than the token lifetime.
+      // Now one refresh + retry is attempted before giving up.
+      var sendRpc = function (isRetry) {
+        var attemptInit = Object.assign({}, init, { headers: supaFetchHeaders(init) });
+        return fetch(rpcUrl, attemptInit).then(function (response) {
+          if (response.status === 401 && !isRetry) {
+            return refreshStoredSessionIfNeeded().then(function (next) {
+              if (next && next.access_token) return sendRpc(true);
+              return response.text().then(function (text) {
+                return jsonResponse({
+                  ok: false,
+                  success: false,
+                  error: 'Your session expired. Sign in again to use Community.',
+                  code: 'SESSION_EXPIRED',
+                  detail: safeJsonParse(text, null)
+                }, 401);
+              });
+            });
           }
-          return jsonResponse(payload, 200);
+          return response.text().then(function (text) {
+            var payload = safeJsonParse(text, text ? { raw: text } : null);
+            if (!response.ok) {
+              return jsonResponse(
+                payload || { ok: false, error: 'RPC failed', code: 'RPC_FAILED' },
+                response.status || 500);
+            }
+            if (typeof handleDirectInviteRpc === 'function' && pathname.indexOf('invite') !== -1) {
+              return normalizeInviteRpcPayload(payload).then(function (normalized) { return jsonResponse(normalized, 200); });
+            }
+            return jsonResponse(payload, 200);
+          });
         });
-      }).catch(function (e) {
-        return jsonResponse({ ok: false, error: e && e.message || 'Community RPC failed', offline: !window.__isoIsOnline() }, 503);
+      };
+      return sendRpc(false).catch(function (e) {
+        return jsonResponse({
+          ok: false,
+          success: false,
+          error: networkErrorMessage(e, 'reach Community'),
+          offline: !window.__isoIsOnline()
+        }, 503);
       });
     }
 
@@ -5663,23 +6041,33 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       expires_at: expiresAt,
       token_type: tokenType || 'bearer'
     };
-    var raw = JSON.stringify(session);
-    localStorage.setItem('isotope-auth-token', raw);
-    localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
-    localStorage.setItem('isotope-last-jwt', accessToken);
-    if (refreshToken) localStorage.setItem('isotope-last-rt', refreshToken);
-    localStorage.setItem('isotope-last-session-raw', raw);
-    // Backup to Capacitor Filesystem so session survives process death
-    backupSessionToFile(raw);
+    // Single writer (defined in the main bridge IIFE) so the OAuth path cannot
+    // drift from the password path. It also mirrors to the Capacitor Filesystem.
+    if (typeof window.__isoPersistSession === 'function') {
+      window.__isoPersistSession(session);
+    } else {
+      var raw = JSON.stringify(session);
+      localStorage.setItem('isotope-auth-token', raw);
+      localStorage.setItem('sb-' + SUPA_REF + '-auth-token', raw);
+      localStorage.setItem('isotope-last-jwt', accessToken);
+      if (refreshToken) localStorage.setItem('isotope-last-rt', refreshToken);
+      localStorage.setItem('isotope-last-session-raw', raw);
+    }
 
     window.dispatchEvent(new Event('isotope:auth-unblock'));
     window.dispatchEvent(new Event('isotope:sync_refresh'));
 
-    // Upgrade profile to ranker (dev/testing)
+    // Resolve the account behind the token. The fragment flow returns tokens
+    // only, and /__auth/bootstrap rejects a session with no user id — so this
+    // lookup is what actually completes a Google sign-in, not just a nicety.
     fetch(SUPA_URL + '/auth/v1/user', {
       headers: { 'apikey': SUPA_ANON, 'Authorization': 'Bearer ' + accessToken }
     }).then(function(r) { return r.json(); }).then(function(user) {
       if (user && user.id) {
+        session.user = user;
+        if (typeof window.__isoPersistSession === 'function') {
+          window.__isoPersistSession(session);
+        }
         fetch(SUPA_URL + '/rest/v1/users?id=eq.' + user.id, {
           method: 'PATCH',
           headers: {
@@ -5695,11 +6083,15 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
             access_ends_at: '2099-12-31T23:59:59.000Z'
           })
         }).catch(function() {});
+      } else {
+        console.warn('[OAuthCallback] token accepted but /auth/v1/user returned no id');
       }
-    }).catch(function() {});
+    }).catch(function(e) {
+      console.warn('[OAuthCallback] user lookup failed:', e && e.message);
+    });
 
     var safeRedirect = getSafeRedirect(window.location.pathname);
-    window.history.replaceState({}, '', safeRedirect);
+    try { window.history.replaceState({}, '', safeRedirect); } catch (e) {}
     window.location.href = safeRedirect;
   }
 
@@ -5762,28 +6154,71 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     }
   };
 
-  // Handle isotopeai://auth/callback (custom scheme)
-  if (window.location.protocol === 'isotopeai:' && window.location.hostname === 'auth' && window.location.pathname.startsWith('/callback')) {
-    var hash = window.location.hash.slice(1);
-    var search = window.location.search.slice(1);
-    var fullParams = hash || search;
-    if (fullParams) handleOAuthCallback(fullParams, true);
+  // ── OAuth return detection ──────────────────────────────────────────────────
+  // The browser redirects to isotopeai://auth/callback#access_token=...  Android
+  // hands that to MainActivity, which routes the WebView to "/auth/callback#<frag>".
+  // Inside Capacitor the page is served from https://localhost, so the previous
+  // checks (protocol === 'http:' && pathname.indexOf('/callback') === 0) never
+  // matched and the tokens were dropped on the floor — sign-in "worked" in the
+  // browser and the app stayed logged out. Match on path SUFFIX and any scheme.
+  function isCallbackPath(pathname) {
+    if (typeof pathname !== 'string') return false;
+    return pathname === '/callback' ||
+           pathname === '/auth/callback' ||
+           /\/callback\/?$/.test(pathname);
   }
 
-  // Handle http://localhost:6767/callback (Capacitor dev server)
-  if (window.location.protocol === 'http:' && window.location.hostname === 'localhost' && window.location.pathname.indexOf('/callback') === 0) {
-    var hash2 = window.location.hash.slice(1);
-    var search2 = window.location.search.slice(1);
-    var fullParams2 = hash2 || search2;
-    if (fullParams2) handleOAuthCallback(fullParams2, false);
+  function currentCallbackParams() {
+    var hash = (window.location.hash || '').replace(/^#/, '');
+    var search = (window.location.search || '').replace(/^\?/, '');
+    return hash || search;
   }
 
-  // Listen for hashchange on localhost
-  window.addEventListener('hashchange', function() {
-    if (window.location.hostname === 'localhost' && window.location.pathname.indexOf('/callback') === 0) {
-      var hash3 = window.location.hash.slice(1);
-      if (hash3) handleOAuthCallback(hash3, false);
+  function tryConsumeOAuthReturn(isCustomScheme) {
+    if (!isCallbackPath(window.location.pathname) &&
+        window.location.protocol !== 'isotopeai:') return false;
+    var params = currentCallbackParams();
+    if (!params) return false;
+    // Only act on payloads that actually carry auth material, so an ordinary
+    // visit to /auth/callback does not clear PKCE state.
+    if (!/access_token=|[?&]?code=|error=/.test(params)) return false;
+    handleOAuthCallback(params, !!isCustomScheme);
+    return true;
+  }
+
+  // Entry point for the native layer: MainActivity calls this with the raw
+  // deep-link URL so token handling does not depend on WebView routing at all.
+  // Returns true ONLY when the payload was actually consumed — MainActivity uses
+  // the return value to decide whether to retry, so reporting an optimistic
+  // `true` here would silently swallow a failed sign-in.
+  window.__isoHandleOAuthDeepLink = function (rawUrl) {
+    try {
+      if (!rawUrl) return false;
+      var url = String(rawUrl);
+      var frag = '';
+      var hashIdx = url.indexOf('#');
+      var qIdx = url.indexOf('?');
+      if (hashIdx !== -1) frag = url.slice(hashIdx + 1);
+      else if (qIdx !== -1) frag = url.slice(qIdx + 1);
+      if (!frag) return false;
+      if (!/access_token=|(^|[&?])code=|error=/.test(frag)) return false;
+      return handleOAuthCallback(frag, url.indexOf('isotopeai:') === 0) === true;
+    } catch (e) {
+      console.error('[OAuthCallback] deep-link handling failed:', e);
+      return false;
     }
-  });
+  };
+
+  // Cold start / immediate
+  if (window.location.protocol === 'isotopeai:') {
+    tryConsumeOAuthReturn(true);
+  } else {
+    tryConsumeOAuthReturn(false);
+  }
+
+  // Warm start: MainActivity pushes "/auth/callback#<frag>" via history.pushState
+  // (fires popstate, not hashchange) — listen for both.
+  window.addEventListener('hashchange', function() { tryConsumeOAuthReturn(false); });
+  window.addEventListener('popstate', function() { tryConsumeOAuthReturn(false); });
 })();
 // === End OAuth Callback Handlers ===

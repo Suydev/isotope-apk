@@ -227,7 +227,19 @@ if (!html.includes('__ISO_APP_VERSION__')) {
   html = html.replace(bridgeScriptTag, bridgeScriptTag + '\n    ' + versionScript);
   console.log('  ✓ App version injected as __ISO_APP_VERSION__ global');
 } else {
-  console.log('  ○ __ISO_APP_VERSION__ already present in index.html');
+  // Already present — rewrite it so a package.json version bump always lands in
+  // index.html. Without this the committed www/index.html silently keeps a stale
+  // version forever (it drifted to 3.4.6 while package.json was 3.5.3).
+  const before = html;
+  html = html.replace(
+    /(window\.__ISO_APP_VERSION__\s*=\s*)'[^']*'/,
+    `$1'${APP_VERSION}'`
+  );
+  console.log(
+    html === before
+      ? `  ○ __ISO_APP_VERSION__ already ${APP_VERSION}`
+      : `  ✓ __ISO_APP_VERSION__ rewritten to ${APP_VERSION}`
+  );
 }
 
 // 5b. Disable pwa-local.js (SW registration causes stale-asset loops in Capacitor)
