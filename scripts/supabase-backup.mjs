@@ -665,7 +665,7 @@ async function verify(args, env) {
     const key = `${t.schema}.${t.table}`;
     if (!liveKeys.has(key)) continue;
     const actual = liveCounts.get(key);
-    check(actual === t.count, `rows ${key}`, actual === undefined ? 'count query failed' : `${actual} != ${t.count}`);
+    check(actual === t.count, `rows ${key}`, actual === undefined ? 'count query failed' : `${actual} ${actual === t.count ? '==' : '!='} ${t.count}`);
   }
 
   // 3. auth.users count matches the dump
@@ -673,7 +673,7 @@ async function verify(args, env) {
   if (existsSync(authFile)) {
     const expectAuth = readFileSync(authFile, 'utf8').split('\n').filter(Boolean).length;
     const [r] = await sql.query('select count(*)::bigint as n from auth.users');
-    check(Number(r.n) === expectAuth, 'auth.users', `${r.n} != ${expectAuth}`);
+    check(Number(r.n) === expectAuth, 'auth.users', `${r.n} ${Number(r.n) === expectAuth ? '==' : '!='} ${expectAuth}`);
   }
 
   // 4. storage buckets + object counts (needs service key)
@@ -690,11 +690,21 @@ async function verify(args, env) {
       check(live && liveBuckets.get(b.id) === !!b.public, `bucket ${b.id}`,
         live ? `public=${liveBuckets.get(b.id)}` : 'MISSING on target');
     }
-    const countObjects = async (bucket) => {
+    // Must recurse into folder prefixes, exactly like the backup-side listAll().
+    // Supabase's list endpoint is NOT recursive: for a nested layout it returns
+    // pseudo-folder entries (no .id / .metadata) at the root, which this filter
+    // discards — so a bucket whose every object lives under `<uid>/…` counted as
+    // 0 and verification failed with "0 != 53" on a backup that was actually
+    // complete. That false FAIL is worse than no check: it trains you to ignore
+    // the verifier, or to pass --no-verify and lose the real checks too.
+    const countObjects = async (bucket, prefix = '') => {
       let n = 0;
       for (let off = 0; ; off += 1000) {
-        const page = await st.listObjects(bucket, '', off, 1000);
-        n += page.filter((o) => o.metadata && o.id).length;
+        const page = await st.listObjects(bucket, prefix, off, 1000);
+        for (const o of page) {
+          if (o.metadata && o.id) n += 1;
+          else if (o.name) n += await countObjects(bucket, `${prefix}${o.name}/`);
+        }
         if (page.length < 1000) break;
       }
       return n;
@@ -704,7 +714,7 @@ async function verify(args, env) {
       const expect = manifest.storage_files.filter((f) => f.bucket === b.id).length;
       let actual;
       try { actual = await countObjects(b.id); } catch (e) { check(false, `objects ${b.id}`, e.message.slice(0, 120)); continue; }
-      check(actual === expect, `objects ${b.id}`, `${actual} != ${expect}`);
+      check(actual === expect, `objects ${b.id}`, `${actual} ${actual === expect ? '==' : '!='} ${expect}`);
     }
   }
 

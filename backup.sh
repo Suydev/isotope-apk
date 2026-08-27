@@ -166,7 +166,14 @@ cmd_backup() {
   done
   if [[ -n "$keep" && ! "$keep" =~ ^[0-9]+$ ]]; then die "--keep must be a number"; fi
 
-  [[ -f "$ROOT/.env" ]] || die ".env not found (needs SUPABASE_URL, SUPABASE_ACCESS_TOKEN, ...)"
+  # load_env_keys() reads .backup_env FIRST (documented precedence, and what
+  # scripts/schema-dump.mjs + supabase-backup.mjs also do), so requiring .env
+  # specifically was wrong: a machine holding only .backup_env — the intended
+  # setup for backing up a project you do not otherwise run — was rejected.
+  # Accept either file, or keys passed entirely on the command line / env.
+  if [[ ! -f "$ROOT/.backup_env" && ! -f "$ROOT/.env" && ${#keyargs[@]} -eq 0 && -z "${SUPABASE_URL:-}" ]]; then
+    die "no credentials: create .backup_env or .env (SUPABASE_URL, SUPABASE_ACCESS_TOKEN, SUPABASE_SERVICE_ROLE_KEY), or pass --supabase-url/--pat/--service-key"
+  fi
   parse_keys "${keyargs[@]:-}"
   reset_env_keys
   load_env_keys

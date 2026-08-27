@@ -20,3 +20,11 @@ gate.log
 release-keys.properties
 android/app/release.keystore
 *.jks
+
+# Backup credentials + output. backup.sh reads .backup_env (keys for the project
+# being backed up) and writes timestamped tarballs to backups/. Both contain
+# production data or credentials and must never be committed.
+.backup_env
+backups/
+*.tar.gz
+*.tar.gz.sha256
