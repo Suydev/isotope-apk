@@ -1,6 +1,6 @@
 -- =============================================================================
 -- IsotopeAI — full portable schema dump (NO user data)
--- Generated: 2026-08-27 11:20:47 UTC
+-- Generated: 2026-08-28 13:51:23 UTC
 -- Project ref: ollsqiutzartjhiuzkbf
 -- Schemas: private, rpc_private, public
 --
@@ -31,8 +31,6 @@ GRANT USAGE ON SCHEMA "public" TO anon;
 GRANT USAGE ON SCHEMA "public" TO authenticated;
 GRANT USAGE ON SCHEMA "public" TO service_role;
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-CREATE EXTENSION IF NOT EXISTS "hypopg";
-CREATE EXTENSION IF NOT EXISTS "index_advisor";
 CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "plpgsql";
@@ -641,39 +639,6 @@ CREATE TABLE IF NOT EXISTS "public"."users" (
   "device_id" text,
   "access_source" text
 );
-CREATE OR REPLACE VIEW "public"."hypopg_hidden_indexes" AS
- SELECT h.indexid AS indexrelid,
-    i.relname AS index_name,
-    n.nspname AS schema_name,
-    t.relname AS table_name,
-    m.amname AS am_name,
-    false AS is_hypo
-   FROM (((((hypopg_hidden_indexes() h(indexid)
-     JOIN pg_index x ON ((x.indexrelid = h.indexid)))
-     JOIN pg_class i ON ((i.oid = h.indexid)))
-     JOIN pg_namespace n ON ((n.oid = i.relnamespace)))
-     JOIN pg_class t ON ((t.oid = x.indrelid)))
-     JOIN pg_am m ON ((m.oid = i.relam)))
-UNION ALL
- SELECT hl.indexrelid,
-    hl.index_name,
-    hl.schema_name,
-    hl.table_name,
-    hl.am_name,
-    true AS is_hypo
-   FROM (hypopg_hidden_indexes() hi(indexid)
-     JOIN hypopg_list_indexes hl ON ((hl.indexrelid = hi.indexid)))
-  ORDER BY 2;;
-CREATE OR REPLACE VIEW "public"."hypopg_list_indexes" AS
- SELECT h.indexrelid,
-    h.indexname AS index_name,
-    n.nspname AS schema_name,
-    COALESCE(c.relname, '<dropped>'::name) AS table_name,
-    am.amname AS am_name
-   FROM (((hypopg() h(indexname, indexrelid, indrelid, innatts, indisunique, indkey, indcollation, indclass, indoption, indexprs, indpred, amid)
-     LEFT JOIN pg_class c ON ((c.oid = h.indrelid)))
-     LEFT JOIN pg_namespace n ON ((n.oid = c.relnamespace)))
-     LEFT JOIN pg_am am ON ((am.oid = h.amid)));;
 ALTER TABLE ONLY "public"."backup_manifests" ADD CONSTRAINT "backup_manifests_pkey" PRIMARY KEY (id);
 ALTER TABLE ONLY "public"."buddy_invites" ADD CONSTRAINT "buddy_invites_pkey" PRIMARY KEY (id);
 ALTER TABLE ONLY "public"."community_device_tokens" ADD CONSTRAINT "community_device_tokens_pkey" PRIMARY KEY (id);
@@ -1233,6 +1198,7 @@ CREATE OR REPLACE FUNCTION "public"."_is_group_member"(gid uuid, uid uuid)
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
+ SET "search_path" TO 'public'
  AS $iso_fn$
 
 
@@ -1477,31 +1443,98 @@ END;
 $iso_fn$;
 CREATE OR REPLACE FUNCTION "public"."community_discover_groups"(p_query text DEFAULT ''::text, p_exam text DEFAULT NULL::text, p_target_year integer DEFAULT NULL::integer, p_subject text DEFAULT NULL::text, p_has_space boolean DEFAULT NULL::boolean, p_join_policy text DEFAULT NULL::text, p_limit integer DEFAULT 20, p_offset integer DEFAULT 0)
  RETURNS jsonb
- LANGUAGE plpgsql
- VOLATILE
+ LANGUAGE sql
+ STABLE
  SECURITY DEFINER
  SET "search_path" TO 'public'
  AS $iso_fn$
 
-DECLARE
-  v_sql text;
-BEGIN
-  v_sql := 'SELECT jsonb_agg(jsonb_build_object(
-    ''id'', id, ''name'', name, ''slug'', lower(regexp_replace(name, ''[^a-z0-9]+'', ''-'', ''g'')),
-    ''memberCount'', (SELECT COUNT(*) FROM public.group_members WHERE group_id = g.id),
-    ''activeNow'', 0, ''visualKey'', visual_key, ''exam'', exam, ''targetYear'', target_year
-  )) FROM public.groups g WHERE deleted_at IS NULL';
-  IF p_query IS NOT NULL AND p_query != '' THEN
-    v_sql := v_sql || ' AND (g.name ILIKE ''%' || replace(p_query, '''', '''''') || '%'' OR g.description ILIKE ''%' || replace(p_query, '''', '''''') || '%'')';
-  END IF;
-  IF p_exam IS NOT NULL THEN v_sql := v_sql || ' AND g.exam = ' || quote_literal(p_exam); END IF;
-  IF p_target_year IS NOT NULL THEN v_sql := v_sql || ' AND g.target_year = ' || p_target_year::text; END IF;
-  IF p_subject IS NOT NULL THEN v_sql := v_sql || ' AND ' || quote_literal(p_subject) || ' = ANY(g.subjects)'; END IF;
-  IF p_has_space THEN v_sql := v_sql || ' AND (SELECT COUNT(*) FROM public.group_members WHERE group_id = g.id) < 30'; END IF;
-  IF p_join_policy IS NOT NULL THEN v_sql := v_sql || ' AND g.join_policy = ' || quote_literal(p_join_policy); END IF;
-  v_sql := v_sql || ' ORDER BY g.created_at DESC LIMIT ' || p_limit::text || ' OFFSET ' || p_offset::text;
-  RETURN (SELECT jsonb_build_object('success', true, 'data', COALESCE((SELECT v_sql::jsonb), '[]'::jsonb)));
-END;
+  WITH page AS (
+    SELECT
+      g.id,
+      g.name,
+      -- Prefer the stored slug; derive one only when it is absent.
+      COALESCE(
+        NULLIF(g.slug, ''),
+        trim(both '-' from regexp_replace(lower(g.name), '[^a-z0-9]+', '-', 'g'))
+      )                                              AS slug,
+      g.description,
+      g.exam,
+      g.target_year,
+      COALESCE(g.subjects, ARRAY[]::text[])          AS subjects,
+      COALESCE(g.join_policy, 'request')             AS join_policy,
+      g.visibility,
+      COALESCE(g.visual_key, 0)                      AS visual_key,
+      COALESCE(g.max_members, 30)                    AS max_members,
+      -- member_count is maintained by trg_sync_member_count; recount only if
+      -- it is NULL so this stays O(1) per row in the normal case.
+      COALESCE(
+        g.member_count,
+        (SELECT count(*) FROM public.group_members gm WHERE gm.group_id = g.id)
+      )::int                                         AS member_count,
+      -- activeNow: members seen in the last 5 minutes. Was hardcoded 0.
+      (
+        SELECT count(*)
+        FROM public.group_members gm2
+        JOIN public.user_presence up ON up.user_id = gm2.user_id
+        WHERE gm2.group_id = g.id
+          AND COALESCE(up.last_beat_at, up.last_seen) > now() - interval '5 minutes'
+          AND COALESCE(up.state, up.status, '') NOT IN ('offline', 'idle')
+      )::int                                         AS active_now,
+      g.created_at
+    FROM public.groups g
+    WHERE g.deleted_at IS NULL
+      AND COALESCE(g.is_active, true) IS TRUE
+      -- Private groups must not surface in Discover.
+      AND COALESCE(g.visibility, 'public') <> 'private'
+      AND (
+        p_query IS NULL OR p_query = ''
+        OR g.name ILIKE '%' || p_query || '%'
+        OR COALESCE(g.description, '') ILIKE '%' || p_query || '%'
+      )
+      AND (p_exam IS NULL OR g.exam = p_exam)
+      AND (p_target_year IS NULL OR g.target_year = p_target_year)
+      AND (p_subject IS NULL OR p_subject = ANY(COALESCE(g.subjects, ARRAY[]::text[])))
+      AND (p_join_policy IS NULL OR COALESCE(g.join_policy, 'request') = p_join_policy)
+      AND (
+        p_has_space IS NOT TRUE
+        OR COALESCE(
+             g.member_count,
+             (SELECT count(*) FROM public.group_members gm3 WHERE gm3.group_id = g.id)
+           ) < COALESCE(g.max_members, 30)
+      )
+    -- LIMIT/OFFSET belong here, on ROWS, not on the aggregate below.
+    ORDER BY g.last_activity DESC NULLS LAST, g.created_at DESC
+    LIMIT  LEAST(GREATEST(COALESCE(p_limit, 20), 1), 50)
+    OFFSET GREATEST(COALESCE(p_offset, 0), 0)
+  )
+  SELECT jsonb_build_object(
+    'success', true,
+    'data', COALESCE(
+      (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id',          page.id,
+            'name',        page.name,
+            'slug',        page.slug,
+            'description', page.description,
+            'exam',        page.exam,
+            'targetYear',  page.target_year,
+            'subjects',    to_jsonb(page.subjects),
+            'joinPolicy',  page.join_policy,
+            'visibility',  page.visibility,
+            'visualKey',   page.visual_key,
+            'memberCount', page.member_count,
+            'maxMembers',  page.max_members,
+            'activeNow',   page.active_now
+          )
+          ORDER BY page.created_at DESC
+        )
+        FROM page
+      ),
+      '[]'::jsonb
+    )
+  );
 $iso_fn$;
 CREATE OR REPLACE FUNCTION "public"."community_get_group"(p_group_id uuid, p_period text DEFAULT 'week'::text)
  RETURNS jsonb
@@ -1612,6 +1645,7 @@ CREATE OR REPLACE FUNCTION "public"."community_get_overview"()
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
+ SET "search_path" TO 'public'
  AS $iso_fn$
 
   SELECT jsonb_build_object(
@@ -1716,6 +1750,7 @@ CREATE OR REPLACE FUNCTION "public"."community_is_enrolled"()
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
+ SET "search_path" TO 'public'
  AS $iso_fn$
 
   SELECT EXISTS (
@@ -1771,12 +1806,16 @@ CREATE OR REPLACE FUNCTION "public"."community_preview_invite"(p_token text)
  RETURNS jsonb
  LANGUAGE plpgsql
  STABLE
+ SECURITY DEFINER
  SET "search_path" TO 'public'
  AS $iso_fn$
 
 declare
   res jsonb;
 begin
+  -- Buddy invite. Requires definer rights: buddy_invites is RLS-enabled with no
+  -- policies, so an invoker-rights read here returns nothing and the whole
+  -- function falls through to report "invalid".
   select jsonb_build_object(
     'status', 'valid',
     'type', 'buddy',
@@ -1796,6 +1835,7 @@ begin
     return res;
   end if;
 
+  -- Group invite.
   select jsonb_build_object(
     'status', 'valid',
     'type', 'group',
@@ -1813,7 +1853,11 @@ begin
     and (inv.expires_at is null or inv.expires_at > now())
     and (inv.max_uses is null or inv.uses_count < inv.max_uses)
   limit 1;
-  if res is null then return jsonb_build_object('status', 'invalid'); end if;
+  -- Tail kept byte-faithful to the live definition (verified by normalised
+  -- diff) so this migration changes privileges ONLY, not behaviour.
+  if res is null then
+    return jsonb_build_object('status', 'invalid');
+  end if;
   return res;
 end
 $iso_fn$;
@@ -2403,6 +2447,7 @@ CREATE OR REPLACE FUNCTION "public"."get_group_analytics_from_snapshots"(p_group
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
+ SET "search_path" TO 'public'
  AS $iso_fn$
 
 
@@ -2421,6 +2466,7 @@ CREATE OR REPLACE FUNCTION "public"."get_group_leaderboard"(p_group_id uuid, p_l
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
+ SET "search_path" TO 'public'
  AS $iso_fn$
 
 
@@ -2443,6 +2489,7 @@ CREATE OR REPLACE FUNCTION "public"."get_invite_details"(p_code text)
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
+ SET "search_path" TO 'public'
  AS $iso_fn$
 
 
@@ -2598,286 +2645,21 @@ BEGIN
   RETURN NEW;
 END
 $iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg"(OUT indexname text, OUT indexrelid oid, OUT indrelid oid, OUT innatts integer, OUT indisunique boolean, OUT indkey int2vector, OUT indcollation oidvector, OUT indclass oidvector, OUT indoption oidvector, OUT indexprs pg_node_tree, OUT indpred pg_node_tree, OUT amid oid)
- RETURNS SETOF record
- LANGUAGE c
- VOLATILE
- AS $iso_fn$
-hypopg
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg_create_index"(sql_order text, OUT indexrelid oid, OUT indexname text)
- RETURNS SETOF record
- LANGUAGE c
- VOLATILE
- STRICT
- AS $iso_fn$
-hypopg_create_index
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg_drop_index"(indexid oid)
+CREATE OR REPLACE FUNCTION "public"."is_premium_user"()
  RETURNS boolean
- LANGUAGE c
- VOLATILE
- STRICT
- AS $iso_fn$
-hypopg_drop_index
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg_get_indexdef"(indexid oid)
- RETURNS text
- LANGUAGE c
- VOLATILE
- STRICT
- AS $iso_fn$
-hypopg_get_indexdef
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg_hidden_indexes"()
- RETURNS TABLE(indexid oid)
- LANGUAGE c
- VOLATILE
- STRICT
- AS $iso_fn$
-hypopg_hidden_indexes
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg_hide_index"(indexid oid)
- RETURNS boolean
- LANGUAGE c
- VOLATILE
- STRICT
- AS $iso_fn$
-hypopg_hide_index
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg_relation_size"(indexid oid)
- RETURNS bigint
- LANGUAGE c
- VOLATILE
- STRICT
- AS $iso_fn$
-hypopg_relation_size
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg_reset"()
- RETURNS void
- LANGUAGE c
- VOLATILE
- AS $iso_fn$
-hypopg_reset
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg_reset_index"()
- RETURNS void
- LANGUAGE c
- VOLATILE
- AS $iso_fn$
-hypopg_reset_index
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg_unhide_all_indexes"()
- RETURNS void
- LANGUAGE c
- VOLATILE
- AS $iso_fn$
-hypopg_unhide_all_indexes
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."hypopg_unhide_index"(indexid oid)
- RETURNS boolean
- LANGUAGE c
- VOLATILE
- STRICT
- AS $iso_fn$
-hypopg_unhide_index
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."index_advisor"(query text)
- RETURNS TABLE(startup_cost_before jsonb, startup_cost_after jsonb, total_cost_before jsonb, total_cost_after jsonb, index_statements text[], errors text[])
- LANGUAGE plpgsql
- VOLATILE
+ LANGUAGE sql
+ STABLE
+ SET "search_path" TO '""""""'
  AS $iso_fn$
 
-declare
-    n_args int;
-    prepared_statement_name text = 'index_advisor_working_statement';
-    hypopg_schema_name text = (select extnamespace::regnamespace::text from pg_extension where extname = 'hypopg');
-    explain_plan_statement text;
-    error_message text;
-    rec record;
-    plan_initial jsonb;
-    plan_final jsonb;
-    statements text[] = '{}';
-begin
-
-    -- Remove comment lines (its common that they contain semicolons)
-    query := trim(
-        regexp_replace(
-            regexp_replace(
-                regexp_replace(query,'\/\*.+\*\/', '', 'g'),
-            '--[^\r\n]*', ' ', 'g'),
-        '\s+', ' ', 'g')
-    );
-
-    -- Remove trailing semicolon
-    query := regexp_replace(query, ';\s*$', '');
-
-    begin
-        -- Disallow multiple statements
-        if query ilike '%;%' then
-            raise exception 'Query must not contain a semicolon';
-        end if;
-
-        -- Hack to support PostgREST because the prepared statement for args incorrectly defaults to text
-        query := replace(query, 'WITH pgrst_payload AS (SELECT $1 AS json_data)', 'WITH pgrst_payload AS (SELECT $1::json AS json_data)');
-
-        -- Create a prepared statement for the given query
-        deallocate all;
-        execute format('prepare %I as %s', prepared_statement_name, query);
-
-        -- Detect how many arguments are present in the prepared statement
-        n_args = (
-            select
-                coalesce(array_length(parameter_types, 1), 0)
-            from
-                pg_prepared_statements
-            where
-                name = prepared_statement_name
-            limit
-                1
-        );
-
-        -- Create a SQL statement that can be executed to collect the explain plan
-        explain_plan_statement = format(
-            'set local plan_cache_mode = force_generic_plan; explain (format json) execute %I%s',
-            --'explain (format json) execute %I%s',
-            prepared_statement_name,
-            case
-                when n_args = 0 then ''
-                else format(
-                    '(%s)', array_to_string(array_fill('null'::text, array[n_args]), ',')
-                )
-            end
-        );
-
-        -- Store the query plan before any new indexes
-        execute explain_plan_statement into plan_initial;
-
-        -- Create possible indexes
-        for rec in (
-            with extension_regclass as (
-                select
-                    distinct objid as oid
-                from
-                    pg_catalog.pg_depend
-                where
-                    deptype = 'e'
-            )
-            select
-                pc.relnamespace::regnamespace::text as schema_name,
-                pc.relname as table_name,
-                pa.attname as column_name,
-                format(
-                    'select %I.hypopg_create_index($i$create index on %I.%I(%I)$i$)',
-                    hypopg_schema_name,
-                    pc.relnamespace::regnamespace::text,
-                    pc.relname,
-                    pa.attname
-                ) hypopg_statement
-            from
-                pg_catalog.pg_class pc
-                join pg_catalog.pg_attribute pa
-                    on pc.oid = pa.attrelid
-                left join extension_regclass er
-                    on pc.oid = er.oid
-                left join pg_catalog.pg_index pi
-                    on pc.oid = pi.indrelid
-                    and (select array_agg(x) from unnest(pi.indkey) v(x)) = array[pa.attnum]
-                    and pi.indexprs is null -- ignore expression indexes
-                    and pi.indpred is null -- ignore partial indexes
-            where
-                pc.relnamespace::regnamespace::text not in ( -- ignore schema list
-                    'pg_catalog', 'pg_toast', 'information_schema'
-                )
-                and er.oid is null -- ignore entities owned by extensions
-                and pc.relkind in ('r', 'm') -- regular tables, and materialized views
-                and pc.relpersistence = 'p' -- permanent tables (not unlogged or temporary)
-                and pa.attnum > 0
-                and not pa.attisdropped
-                and pi.indrelid is null
-                and pa.atttypid in (20,16,1082,1184,1114,701,23,21,700,1083,2950,1700,25,18,1042,1043)
-            )
-            loop
-                -- Create the hypothetical index
-                execute rec.hypopg_statement;
-            end loop;
-
-        /*
-        for rec in select * from hypopg()
-            loop
-                raise notice '%', rec;
-            end loop;
-        */
-
-        -- Create a prepared statement for the given query
-        -- The original prepared statement MUST be dropped because its plan is cached
-        execute format('deallocate %I', prepared_statement_name);
-        execute format('prepare %I as %s', prepared_statement_name, query);
-
-        -- Store the query plan after new indexes
-        execute explain_plan_statement into plan_final;
-
-        --raise notice '%', plan_final;
-
-        -- Idenfity referenced indexes in new plan
-        execute format(
-            'select
-                coalesce(array_agg(hypopg_get_indexdef(indexrelid) order by indrelid, indkey::text), $i${}$i$::text[])
-            from
-                %I.hypopg()
-            where
-                %s ilike ($i$%%$i$ || indexname || $i$%%$i$)
-            ',
-            hypopg_schema_name,
-            quote_literal(plan_final)::text
-        ) into statements;
-
-        -- Reset all hypothetical indexes
-        perform hypopg_reset();
-
-        -- Reset prepared statements
-        deallocate all;
-
-        return query values (
-            (plan_initial -> 0 -> 'Plan' -> 'Startup Cost'),
-            (plan_final -> 0 -> 'Plan' -> 'Startup Cost'),
-            (plan_initial -> 0 -> 'Plan' -> 'Total Cost'),
-            (plan_final -> 0 -> 'Plan' -> 'Total Cost'),
-            statements::text[],
-            array[]::text[]
-        );
-        return;
-
-    exception when others then
-        get stacked diagnostics error_message = MESSAGE_TEXT;
-
-        return query values (
-            null::jsonb,
-            null::jsonb,
-            null::jsonb,
-            null::jsonb,
-            array[]::text[],
-            array[error_message]::text[]
-        );
-        return;
-    end;
-
-end;
+ SELECT true;
 $iso_fn$;
 CREATE OR REPLACE FUNCTION "public"."is_premium_user"(uid uuid)
  RETURNS boolean
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
- AS $iso_fn$
-
- SELECT true;
-$iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."is_premium_user"()
- RETURNS boolean
- LANGUAGE sql
- STABLE
- SET "search_path" TO '""""""'
+ SET "search_path" TO 'public'
  AS $iso_fn$
 
  SELECT true;
@@ -4222,54 +4004,6 @@ GRANT SELECT ON TABLE "public"."habits" TO service_role;
 GRANT TRIGGER ON TABLE "public"."habits" TO service_role;
 GRANT TRUNCATE ON TABLE "public"."habits" TO service_role;
 GRANT UPDATE ON TABLE "public"."habits" TO service_role;
-GRANT DELETE ON TABLE "public"."hypopg_hidden_indexes" TO anon;
-GRANT INSERT ON TABLE "public"."hypopg_hidden_indexes" TO anon;
-GRANT MAINTAIN ON TABLE "public"."hypopg_hidden_indexes" TO anon;
-GRANT REFERENCES ON TABLE "public"."hypopg_hidden_indexes" TO anon;
-GRANT SELECT ON TABLE "public"."hypopg_hidden_indexes" TO anon;
-GRANT TRIGGER ON TABLE "public"."hypopg_hidden_indexes" TO anon;
-GRANT TRUNCATE ON TABLE "public"."hypopg_hidden_indexes" TO anon;
-GRANT UPDATE ON TABLE "public"."hypopg_hidden_indexes" TO anon;
-GRANT DELETE ON TABLE "public"."hypopg_hidden_indexes" TO authenticated;
-GRANT INSERT ON TABLE "public"."hypopg_hidden_indexes" TO authenticated;
-GRANT MAINTAIN ON TABLE "public"."hypopg_hidden_indexes" TO authenticated;
-GRANT REFERENCES ON TABLE "public"."hypopg_hidden_indexes" TO authenticated;
-GRANT SELECT ON TABLE "public"."hypopg_hidden_indexes" TO authenticated;
-GRANT TRIGGER ON TABLE "public"."hypopg_hidden_indexes" TO authenticated;
-GRANT TRUNCATE ON TABLE "public"."hypopg_hidden_indexes" TO authenticated;
-GRANT UPDATE ON TABLE "public"."hypopg_hidden_indexes" TO authenticated;
-GRANT DELETE ON TABLE "public"."hypopg_hidden_indexes" TO service_role;
-GRANT INSERT ON TABLE "public"."hypopg_hidden_indexes" TO service_role;
-GRANT MAINTAIN ON TABLE "public"."hypopg_hidden_indexes" TO service_role;
-GRANT REFERENCES ON TABLE "public"."hypopg_hidden_indexes" TO service_role;
-GRANT SELECT ON TABLE "public"."hypopg_hidden_indexes" TO service_role;
-GRANT TRIGGER ON TABLE "public"."hypopg_hidden_indexes" TO service_role;
-GRANT TRUNCATE ON TABLE "public"."hypopg_hidden_indexes" TO service_role;
-GRANT UPDATE ON TABLE "public"."hypopg_hidden_indexes" TO service_role;
-GRANT DELETE ON TABLE "public"."hypopg_list_indexes" TO anon;
-GRANT INSERT ON TABLE "public"."hypopg_list_indexes" TO anon;
-GRANT MAINTAIN ON TABLE "public"."hypopg_list_indexes" TO anon;
-GRANT REFERENCES ON TABLE "public"."hypopg_list_indexes" TO anon;
-GRANT SELECT ON TABLE "public"."hypopg_list_indexes" TO anon;
-GRANT TRIGGER ON TABLE "public"."hypopg_list_indexes" TO anon;
-GRANT TRUNCATE ON TABLE "public"."hypopg_list_indexes" TO anon;
-GRANT UPDATE ON TABLE "public"."hypopg_list_indexes" TO anon;
-GRANT DELETE ON TABLE "public"."hypopg_list_indexes" TO authenticated;
-GRANT INSERT ON TABLE "public"."hypopg_list_indexes" TO authenticated;
-GRANT MAINTAIN ON TABLE "public"."hypopg_list_indexes" TO authenticated;
-GRANT REFERENCES ON TABLE "public"."hypopg_list_indexes" TO authenticated;
-GRANT SELECT ON TABLE "public"."hypopg_list_indexes" TO authenticated;
-GRANT TRIGGER ON TABLE "public"."hypopg_list_indexes" TO authenticated;
-GRANT TRUNCATE ON TABLE "public"."hypopg_list_indexes" TO authenticated;
-GRANT UPDATE ON TABLE "public"."hypopg_list_indexes" TO authenticated;
-GRANT DELETE ON TABLE "public"."hypopg_list_indexes" TO service_role;
-GRANT INSERT ON TABLE "public"."hypopg_list_indexes" TO service_role;
-GRANT MAINTAIN ON TABLE "public"."hypopg_list_indexes" TO service_role;
-GRANT REFERENCES ON TABLE "public"."hypopg_list_indexes" TO service_role;
-GRANT SELECT ON TABLE "public"."hypopg_list_indexes" TO service_role;
-GRANT TRIGGER ON TABLE "public"."hypopg_list_indexes" TO service_role;
-GRANT TRUNCATE ON TABLE "public"."hypopg_list_indexes" TO service_role;
-GRANT UPDATE ON TABLE "public"."hypopg_list_indexes" TO service_role;
 GRANT DELETE ON TABLE "public"."mock_tests" TO anon;
 GRANT INSERT ON TABLE "public"."mock_tests" TO anon;
 GRANT MAINTAIN ON TABLE "public"."mock_tests" TO anon;
@@ -4789,18 +4523,6 @@ GRANT EXECUTE ON FUNCTION "public"."get_membership_snapshot"(p_user_id uuid, tar
 GRANT EXECUTE ON FUNCTION "public"."get_my_group_ids"() TO anon;
 GRANT EXECUTE ON FUNCTION "public"."get_my_role"() TO anon;
 GRANT EXECUTE ON FUNCTION "public"."handle_new_user"() TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg"(OUT indexname text, OUT indexrelid oid, OUT indrelid oid, OUT innatts integer, OUT indisunique boolean, OUT indkey int2vector, OUT indcollation oidvector, OUT indclass oidvector, OUT indoption oidvector, OUT indexprs pg_node_tree, OUT indpred pg_node_tree, OUT amid oid) TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg_create_index"(sql_order text, OUT indexrelid oid, OUT indexname text) TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg_drop_index"(indexid oid) TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg_get_indexdef"(indexid oid) TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg_hidden_indexes"() TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg_hide_index"(indexid oid) TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg_relation_size"(indexid oid) TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg_reset"() TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg_reset_index"() TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg_unhide_all_indexes"() TO anon;
-GRANT EXECUTE ON FUNCTION "public"."hypopg_unhide_index"(indexid oid) TO anon;
-GRANT EXECUTE ON FUNCTION "public"."index_advisor"(query text) TO anon;
 GRANT EXECUTE ON FUNCTION "public"."is_premium_user"() TO anon;
 GRANT EXECUTE ON FUNCTION "public"."is_premium_user"(uid uuid) TO anon;
 GRANT EXECUTE ON FUNCTION "public"."join_community_event"(p_event_id uuid) TO anon;
