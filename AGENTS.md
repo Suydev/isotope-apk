@@ -155,9 +155,31 @@ Re-run the check after any capture:
 
 ## PiP decision (DEC)
 
-Native `FloatingTimerService` (overlay) + system PiP via MainActivity is the only PiP.
-Upstream's `pipapk` requires a localhost Node server — incompatible. The captured
-Focus bundle's `__pipBridge` HTTP relay is stripped.
+Native `FloatingTimerService` (overlay) is the primary PiP. Upstream's `pipapk`
+requires a localhost Node server — incompatible. The captured Focus bundle's
+`__pipBridge` HTTP relay is stripped.
+
+**Load order is the thing to understand here.** `android-floating-timer-bridge.js`
+loads synchronously from `index.html`; `Focus-B4gLsWoP.js` is a lazy import and
+ships its *own* canvas+video PiP shim guarded by
+`if('documentPictureInPicture' in window) return`. The bridge therefore always
+wins the property and Focus's shim never installs — so whatever the bridge puts
+on `window.documentPictureInPicture` **is** the PiP implementation.
+
+Consequences, learned the hard way (ISSUE-037):
+
+- Never resolve a stub window with no-op `append` / `createElement`. Focus builds
+  its whole PiP tree through those, so a stub silently swallows the entire UI and
+  reports success. If PiP cannot start, **reject** — Focus alerts on rejection.
+- The native path must return a real document
+  (`document.implementation.createHTMLDocument`), not an object literal.
+- Only divert `HTMLVideoElement.prototype.requestPictureInPicture` when the
+  native overlay actually starts; otherwise delegate to the browser, or Focus's
+  own video fallback breaks too.
+- Focus's shim is captured before the overwrite and used as the fallback.
+
+Native overlay requires **Display over other apps**; when it is missing the
+bridge triggers the system prompt rather than failing quietly.
 
 ## Build & release
 

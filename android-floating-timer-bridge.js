@@ -393,32 +393,100 @@
   // FIX: auto-discover controller on every trigger so PIP works even if Focus never called __isoOpenFloatingTimer.
   try {
     function ensureController() { if (!activeController) discoverController(); return activeController; }
+    // HTMLVideoElement.requestPictureInPicture is what Focus's own video-based
+    // shim calls internally. Hijacking it unconditionally broke that fallback:
+    // any controller at all made this resolve WITHOUT entering PiP, so the shim
+    // believed it had a PiP window while nothing was on screen.
+    //
+    // Only divert to the native overlay when it genuinely starts; otherwise let
+    // the real browser implementation run.
     if (typeof HTMLVideoElement !== 'undefined' && HTMLVideoElement.prototype.requestPictureInPicture) {
       var _origPiP = HTMLVideoElement.prototype.requestPictureInPicture;
       HTMLVideoElement.prototype.requestPictureInPicture = function () {
-        try{ var c=ensureController(); if(c) { try{ window.__isoOpenFloatingTimer(c); }catch(e){} return Promise.resolve(this); } }catch(e){}
-        try{ return _origPiP.apply(this, arguments); }catch(e){ return Promise.resolve(this); }
+        try {
+          if (nativeOverlayResult().ok) return Promise.resolve(this);
+        } catch (e) {}
+        return _origPiP.apply(this, arguments);
       };
     }
-    if (typeof window !== 'undefined' && window.documentPictureInPicture && typeof window.documentPictureInPicture.requestWindow === 'function') {
-      var _origDocPiP = window.documentPictureInPicture.requestWindow.bind(window.documentPictureInPicture);
-      window.documentPictureInPicture.requestWindow = function (opts) {
-        try{ var c=ensureController(); if(c) { try{ window.__isoOpenFloatingTimer(c); }catch(e){} return Promise.resolve({ document: { body: { appendChild:function(){}, append:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}, appendChild:function(){}, append:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} }, close: function(){}, addEventListener: function(){}, removeEventListener: function(){} }); } }catch(e){}
-        try{ return _origDocPiP(opts); }catch(e){ return Promise.resolve({ document: { body: { appendChild:function(){}, append:function(){}, style:{}, addEventListener:function(){} }, createElement:function(){return {style:{}, addEventListener:function(){}, appendChild:function(){}, append:function(){}}}, addEventListener:function(){}, removeEventListener:function(){} }, close: function(){}, addEventListener: function(){}, removeEventListener: function(){} }); }
+    // ── documentPictureInPicture: native overlay first, real PiP as fallback ──
+    //
+    // This bridge loads synchronously from index.html <head>; the Focus bundle is a
+    // LAZY import that only runs on /focus. Focus ships its own canvas+video PiP
+    // shim guarded by "if('documentPictureInPicture' in window) return", so whatever
+    // this file defines wins and Focus's shim never installs.
+    //
+    // That made PiP unrecoverable when the native overlay could not start: the old
+    // code returned a FAKE window whose body.append/createElement were no-ops, so
+    // Focus rendered its whole PiP tree into a black hole and reported success.
+    // Nothing appeared, and no error surfaced.
+    //
+    // Now: try the native overlay, and only claim success if it actually started.
+    // Otherwise fall through to Focus's video-based shim (captured below before we
+    // overwrite the property) so the user gets a real, if less pretty, PiP window.
+    var _focusShimDocPiP = (typeof window !== 'undefined' && window.documentPictureInPicture
+      && typeof window.documentPictureInPicture.requestWindow === 'function')
+      ? window.documentPictureInPicture.requestWindow.bind(window.documentPictureInPicture)
+      : null;
+
+    function nativeOverlayResult() {
+      // Mirrors what __isoOpenFloatingTimer reports, without duplicating its logic.
+      var c = ensureController();
+      if (!c) return { ok: false, reason: 'focus timer not ready' };
+      var st = getControllerState();
+      if (!isActiveTimerState(st)) return { ok: false, reason: 'no active session' };
+      var b = nativeBridge();
+      if (!b || typeof b.startFloatingTimer !== 'function') return { ok: false, reason: 'native bridge unavailable' };
+      if (typeof b.hasOverlayPermission === 'function' && !b.hasOverlayPermission()) {
+        try { if (typeof b.requestOverlayPermission === 'function') b.requestOverlayPermission(); } catch (e) {}
+        return { ok: false, reason: 'overlay permission required', permissionRequired: true };
+      }
+      try {
+        b.startFloatingTimer(JSON.stringify(st));
+        startStatePump();
+        if (typeof b.replayFloatingTimerActions === 'function') b.replayFloatingTimerActions();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, reason: e && e.message || 'startFloatingTimer threw' };
+      }
+    }
+
+    // A window object that satisfies Focus's usage (document.body.append,
+    // document.createElement, close, addEventListener) for the case where the
+    // NATIVE overlay is showing the timer, so Focus's DOM tree is genuinely not
+    // needed. Uses a real detached document so appends do not throw.
+    function nativeOverlayWindow() {
+      var doc = document.implementation.createHTMLDocument('iso-pip');
+      return {
+        document: doc,
+        close: function () {
+          try {
+            var b = nativeBridge();
+            if (b && typeof b.stopFloatingTimer === 'function') b.stopFloatingTimer();
+          } catch (e) {}
+          try { stopStatePump(); } catch (e) {}
+        },
+        addEventListener: function () {},
+        removeEventListener: function () {},
+        __isoNativeOverlay: true
       };
-    } else if (typeof window !== 'undefined' && !window.documentPictureInPicture) {
+    }
+
+    if (typeof window !== 'undefined') {
       window.documentPictureInPicture = {
-        requestWindow: function(opts){
-          var c=ensureController();
-          try{ if(c) window.__isoOpenFloatingTimer(c); }catch(e){}
-          try{
-            var b=nativeBridge();
-            if(b&&b.startFloatingTimer){
-              var st=getControllerState()||{timerState:"idle",mode:"pomodoro",displayedSeconds:1500};
-              try{ b.startFloatingTimer(JSON.stringify(st)); }catch(e){}
-            }
-          }catch(e){}
-          return Promise.resolve({ document:{body:{appendChild:function(){}, append:function(){}, style:{}, addEventListener:function(){}},createElement:function(){return {style:{},addEventListener:function(){},appendChild:function(){},append:function(){}}},addEventListener:function(){},removeEventListener:function(){}}, close:function(){}, addEventListener:function(){}, removeEventListener:function(){} });
+        prompt: function (m, d) { return window.prompt(m, d); },
+        requestWindow: function (opts) {
+          var res = nativeOverlayResult();
+          if (res.ok) return Promise.resolve(nativeOverlayWindow());
+          console.warn('[IsotopeAI PiP] native overlay unavailable (' + res.reason + ')' +
+            (_focusShimDocPiP ? ' — falling back to in-page video PiP' : ' — no fallback available'));
+          if (_focusShimDocPiP) {
+            try { return Promise.resolve(_focusShimDocPiP(opts)); }
+            catch (e) { return Promise.reject(e); }
+          }
+          // Reject rather than resolve a fake window: Focus alerts on rejection,
+          // which tells the user something, unlike a silent no-op.
+          return Promise.reject(new Error(res.reason || 'Picture-in-Picture unavailable'));
         }
       };
     }

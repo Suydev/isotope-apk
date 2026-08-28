@@ -2,6 +2,58 @@
 
 ---
 
+## ISSUE-037 — PiP button did nothing, silently
+**Severity:** HIGH — **FIXED IN CODE + UNIT TESTED 2026-08-27**
+**Status:** APK RUNTIME UNVERIFIED
+
+Tapping Picture-in-Picture in Focus appeared to work and produced no window and
+no error.
+
+**Root cause — load order + a lying stub.** `android-floating-timer-bridge.js`
+loads synchronously from `index.html` (line 85). `Focus-B4gLsWoP.js` is a *lazy*
+import that only evaluates on `/focus`, and it ships its own canvas+video PiP
+shim guarded by `if('documentPictureInPicture' in window) return`. So the bridge
+always wins the property and Focus's shim never installs — whatever the bridge
+provides *is* the PiP implementation.
+
+The bridge's `requestWindow()` resolved a **fake window** whose
+`document.body.append` and `document.createElement` were no-ops:
+
+```js
+return Promise.resolve({ document:{ body:{ append:function(){}, … } } });
+```
+
+Focus then built its entire PiP DOM tree into that black hole and reported
+success. Same defect in `HTMLVideoElement.prototype.requestPictureInPicture`: it
+resolved for *any* discovered controller without entering PiP, which also broke
+Focus's own video fallback — the shim believed it had a PiP window while nothing
+was on screen.
+
+**Fix (`android-floating-timer-bridge.js`):**
+- `requestWindow()` now attempts the native overlay and only claims success if
+  `startFloatingTimer` actually ran (permission granted, active session).
+- On the native path it returns a **real** detached document
+  (`document.implementation.createHTMLDocument`) so Focus's `append` /
+  `createElement` work, and `close()` calls `stopFloatingTimer`.
+- Focus's own video shim is captured *before* the property is overwritten and
+  used as a fallback when the native overlay cannot start.
+- With neither available it **rejects** — Focus already alerts on rejection, so
+  the user is told something instead of staring at nothing.
+- The video-PiP override only diverts when the native overlay genuinely starts;
+  otherwise it delegates to the real browser implementation.
+
+**Tests:** 6 new in `test/floating-timer-bridge.test.mjs` — installs the API,
+rejects when it cannot start, does not spawn an overlay for an idle timer,
+surfaces the overlay-permission prompt, returns a document that can actually be
+built into, and tears the overlay down on `close()`.
+
+**Note:** the test harness now unrefs the bridge's two `setInterval`s (1s state
+pump, 1.5s controller discovery). Without that the file kept the event loop
+alive and `node --test` failed the whole file with
+`Promise resolution is still pending` despite every assertion passing.
+
+---
+
 ## ISSUE-036 — Any tab crash leaves a permanent black screen
 **Severity:** CRITICAL — **FIXED IN CODE + UNIT TESTED 2026-08-27**
 **Status:** APK RUNTIME UNVERIFIED
