@@ -1427,30 +1427,41 @@ test('getSession survives a corrupt stored session without throwing', async () =
 test('deep response bodies do not blow the stack in the plan patcher', async () => {
   // Regression: isoDeepPatchPlan guarded CYCLES with a WeakSet, but a deep
   // ACYCLIC graph has a brand-new object at every node, so the set never hit and
-  // recursion ran until "RangeError: Maximum call stack size exceeded". Community
-  // payloads are deeply nested and every Supabase response passes through here,
-  // which is why Community specifically died.
-  let deep = {};
+  // recursion ran until 'RangeError: Maximum call stack size exceeded'. Community
+  // payloads (groups -> members -> profiles -> stats) are the deepest in the app,
+  // and every Supabase response passes through the patcher.
+  //
+  // Depth note: an earlier version of this test nested 12000 levels and built the
+  // response with JSON.stringify. That blew the stack inside the TEST HARNESS on
+  // CI's Node 22 before the bridge was ever called, while passing locally on
+  // Node 26's larger stack — a false pass that then became a false failure.
+  // 800 is deep enough to exceed the patcher's cap by 30x and shallow enough that
+  // JSON.stringify is nowhere near its own limit (~200k) on any supported Node.
+  const DEPTH = 800;
+  const deep = {};
   let cursor = deep;
-  for (let i = 0; i < 12000; i++) {
+  for (let i = 0; i < DEPTH; i++) {
     cursor.next = { plan_type: 'free' };
     cursor = cursor.next;
   }
   const harness = createBridgeHarness(async (url) => {
-    if (url.includes('/rest/v1/community_enrollments')) {
-      return jsonResponse(deep);
-    }
+    if (url.includes('/rest/v1/community_enrollments')) return jsonResponse(deep);
     return jsonResponse([]);
   });
   installSession(harness.localStorage);
 
-  // Must not throw. The subtree past the depth cap is returned untouched.
   const response = await harness.window.fetch(
     'https://ollsqiutzartjhiuzkbf.supabase.co/rest/v1/community_enrollments?select=*',
   );
   assert.equal(response.status, 200);
   const data = await response.json();
-  assert.ok(data, 'a deep payload must still come back, not throw');
+  assert.ok(data, 'a deep payload must come back, not throw');
+  // Above the cap the subtree is returned untouched — assert that explicitly so
+  // the test proves the cap engaged rather than merely that nothing threw.
+  let node = data;
+  for (let i = 0; i < 30 && node && node.next; i++) node = node.next;
+  assert.equal(node.plan_type, 'free',
+    'past the depth cap the payload must be passed through unmodified');
 });
 
 test('shallow plan fields are still patched to ranker', async () => {
