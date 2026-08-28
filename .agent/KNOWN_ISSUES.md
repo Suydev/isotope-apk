@@ -2,6 +2,76 @@
 
 ---
 
+## ISSUE-042 — Code-callback deep links reported as unconsumed
+**Severity:** CRITICAL — **FIXED IN CODE + UNIT TESTED 2026-08-28**
+**Status:** APK RUNTIME UNVERIFIED
+
+`__isoHandleOAuthDeepLink` ended with:
+
+```js
+return handleOAuthCallback(frag, isCustomScheme) === true;
+```
+
+`handleOAuthCallback` returns a **Promise** on the `?code=` exchange branch, and a
+promise is never `=== true`. So every authorization-code callback reported
+not-consumed: `MainActivity.deliverOAuthPayload` retried 12 times and then
+navigated to `/auth` — while the exchange was still running underneath.
+
+This project's Supabase issues `response_type=code` with no `code_challenge`
+(verified live), so `?code=` is the **normal** return path, not an edge case.
+
+**Fix:** detect a thenable and report accepted, letting the async branch own the
+redirect. Also hardened the exchange itself: it reads `text()` before parsing (an
+HTML gateway error was surfacing as a JSON parse failure instead of the real
+reason), reports the actual `error_description`, and tries both `pkce` and
+`authorization_code` grants — with no verifier present the correct grant is not
+knowable up front, so trying both removes a guess.
+
+---
+
+## ISSUE-041 — Google sign-in returned to the app but did not log in
+**Severity:** CRITICAL — **FIXED IN CODE + UNIT TESTED 2026-08-28**
+**Status:** APK RUNTIME UNVERIFIED
+
+Reported from device. The log told the whole story:
+
+```
+[12:19:49] FETCH     https://<ref>.supabase.co/auth/v1/user
+[12:19:49] FETCH_OK  https://<ref>.supabase.co/auth/v1/user -> 200
+                                                    ← then nothing
+```
+
+The token was accepted and `/auth/v1/user` answered 200. Then the log stopped.
+
+**Root cause.** In `storeSessionAndRedirect`:
+
+```js
+fetch(SUPA_URL + '/auth/v1/user', …)
+  .then(…)                             // persists session.user — ASYNC
+  …
+window.location.href = safeRedirect;   // navigates NOW, synchronously
+```
+
+The document tore down before `.then()` ran, so the session was persisted with
+tokens and **no `user`**. `/__auth/bootstrap` rejects exactly that with
+`no_user_id`, and the app bounced back to the login screen.
+
+This is the same failure mode as ISSUE-033 from the other side: that fix taught
+bootstrap to *recover* from a userless session, but left the race that *creates*
+one. The comment directly above the fetch even read "this lookup is what actually
+completes a Google sign-in" — and the next line navigated away from it.
+
+**Fix:** the redirect now waits for the lookup, with a 6s cap. Landing
+signed-out is recoverable; being stranded on the callback screen is not. The
+ranker PATCH is deliberately *not* awaited — it is a side effect and must not
+delay the user reaching the app.
+
+**Tests:** 4 — redirect waits and `user` is persisted; a code deep link reports
+consumed; the exchange retries the alternate grant; a failed lookup still lets
+the user through with tokens intact.
+
+---
+
 ## ISSUE-040 — Debug log viewer auto-opened over the app
 **Severity:** HIGH (UX) — **FIXED IN CODE + UNIT TESTED 2026-08-28**
 **Status:** APK RUNTIME UNVERIFIED

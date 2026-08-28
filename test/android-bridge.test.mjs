@@ -1513,3 +1513,119 @@ test('refresh notice only reacts to a genuinely empty root', () => {
   assert.match(bridgeSource, /bootFailed/,
     'boot-failure check should be a named, narrow predicate');
 });
+
+// ── OAuth completion: redirect must not race the profile lookup (ISSUE-041/042) ─
+
+test('OAuth redirect waits for the user lookup before navigating', async () => {
+  // Observed on device: sign-in returned to the app, /auth/v1/user answered 200,
+  // and the log stopped there. storeSessionAndRedirect fired the lookup and then
+  // set window.location.href on the NEXT LINE, synchronously — the document tore
+  // down before .then() persisted session.user, so bootstrap saw no_user_id and
+  // bounced the user back to the login screen.
+  const userId = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+  let userLookups = 0;
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/auth/v1/user')) {
+      userLookups += 1;
+      return jsonResponse({ id: userId, email: 'oauth@example.com' });
+    }
+    return jsonResponse([]);
+  });
+
+  const handled = harness.window.__isoHandleOAuthDeepLink(
+    'isotopeai://auth/callback#access_token=tok&refresh_token=ref&expires_in=3600&token_type=bearer',
+  );
+  assert.equal(handled, true, 'fragment payload must be accepted');
+
+  // Let the lookup settle.
+  await new Promise((resolve) => { setTimeout(resolve, 60); });
+
+  assert.equal(userLookups, 1, 'the account must be resolved exactly once');
+  const stored = JSON.parse(
+    harness.localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token'),
+  );
+  assert.ok(stored.user, 'session must carry `user` — bootstrap rejects it otherwise');
+  assert.equal(stored.user.id, userId);
+});
+
+test('an authorization-code deep link reports as consumed, not as a promise', async () => {
+  // handleOAuthCallback returns a PROMISE on the ?code= branch. The old handler
+  // compared `=== true`, so every code callback looked unconsumed: MainActivity
+  // retried 12x and then navigated to /auth while the exchange ran underneath.
+  // Supabase issues response_type=code for this project, so this is the normal
+  // path, not an edge case.
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/auth/v1/token')) {
+      return jsonResponse({
+        access_token: 'exchanged',
+        refresh_token: 'ref',
+        expires_in: 3600,
+        token_type: 'bearer',
+      });
+    }
+    if (url.includes('/auth/v1/user')) {
+      return jsonResponse({ id: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb' });
+    }
+    return jsonResponse([]);
+  });
+
+  const handled = harness.window.__isoHandleOAuthDeepLink(
+    'isotopeai://auth/callback#code=authcode123&state=xyz',
+  );
+  assert.equal(handled, true,
+    'a code payload must report consumed so MainActivity does not retry and bail to /auth');
+
+  await new Promise((resolve) => { setTimeout(resolve, 60); });
+  const stored = harness.localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token');
+  assert.ok(stored, 'the exchanged session must be persisted');
+  assert.equal(JSON.parse(stored).access_token, 'exchanged');
+});
+
+test('the code exchange retries the alternate grant before failing', async () => {
+  // Supabase accepts grant_type=pkce for codes it issued and authorization_code
+  // for plain OAuth codes. With no verifier present the correct grant is not
+  // knowable up front, so both are tried rather than guessed.
+  const grants = [];
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/auth/v1/token')) {
+      const grant = new URL(url).searchParams.get('grant_type');
+      grants.push(grant);
+      if (grants.length === 1) {
+        return jsonResponse({ error: 'invalid_grant' }, 400);
+      }
+      return jsonResponse({ access_token: 'second-try', expires_in: 3600 });
+    }
+    if (url.includes('/auth/v1/user')) return jsonResponse({ id: 'cccccccc-3333-4333-8333-cccccccccccc' });
+    return jsonResponse([]);
+  });
+
+  harness.window.__isoHandleOAuthDeepLink('isotopeai://auth/callback#code=abc');
+  await new Promise((resolve) => { setTimeout(resolve, 80); });
+
+  assert.equal(grants.length, 2, 'both grant types must be attempted');
+  assert.notEqual(grants[0], grants[1], 'the retry must use a different grant');
+  const stored = harness.localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token');
+  assert.equal(JSON.parse(stored).access_token, 'second-try');
+});
+
+test('a failed user lookup still lets the user through rather than hanging', async () => {
+  // Landing signed-out is recoverable; being stranded on the callback screen is
+  // not. The lookup is awaited but capped.
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/auth/v1/user')) return jsonResponse({ error: 'boom' }, 500);
+    return jsonResponse([]);
+  });
+
+  const handled = harness.window.__isoHandleOAuthDeepLink(
+    'isotopeai://auth/callback#access_token=tok&expires_in=3600',
+  );
+  assert.equal(handled, true);
+  await new Promise((resolve) => { setTimeout(resolve, 60); });
+
+  // Tokens are still persisted — only `user` is missing, and bootstrap can
+  // resolve that itself on the next boot.
+  const stored = JSON.parse(
+    harness.localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token'),
+  );
+  assert.equal(stored.access_token, 'tok');
+});

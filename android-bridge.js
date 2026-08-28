@@ -6195,31 +6195,62 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
         return true;
       }
 
-      // PKCE code exchange flow (for isotopeai://auth/callback?code=...)
+      // Authorization-code exchange (isotopeai://auth/callback?code=...).
+      //
+      // This project's Supabase issues response_type=code with NO code_challenge,
+      // so this is the NORMAL return path and code_verifier is usually absent.
+      // Supabase accepts grant_type=pkce for codes it issued; when a verifier is
+      // present that is the correct grant, otherwise fall back to the plain
+      // authorization_code grant. Trying both is cheap and removes a guess.
       if (code && !accessToken) {
         var codeVerifier = sessionStorage.getItem('pkce_code_verifier');
-        var exchangeBody = 'grant_type=authorization_code&code=' + encodeURIComponent(code) +
-          '&redirect_uri=' + encodeURIComponent(window.__ISO_OAUTH_REDIRECT__ || 'isotopeai://auth/callback') +
-          (codeVerifier ? '&code_verifier=' + encodeURIComponent(codeVerifier) : '');
-        return fetch(SUPA_URL + '/auth/v1/token', {
-          method: 'POST',
-          headers: {
-            'apikey': SUPA_ANON,
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          body: exchangeBody
-        }).then(function (r) { return r.json(); }).then(function (data) {
-          if (data.access_token) {
-            cleanupPKCE();
-            storeSessionAndRedirect(data.access_token, data.refresh_token, data.expires_in, data.token_type);
-          } else {
-            cleanupPKCE();
-            throw new Error(data.error || 'Token exchange failed');
+        var redirectUri = window.__ISO_OAUTH_REDIRECT__ || 'isotopeai://auth/callback';
+
+        var attemptExchange = function (grant) {
+          var body = 'grant_type=' + grant +
+            '&code=' + encodeURIComponent(code) +
+            '&redirect_uri=' + encodeURIComponent(redirectUri) +
+            (codeVerifier ? '&code_verifier=' + encodeURIComponent(codeVerifier) : '');
+          return fetch(SUPA_URL + '/auth/v1/token?grant_type=' + grant, {
+            method: 'POST',
+            headers: {
+              'apikey': SUPA_ANON,
+              'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: body,
+            credentials: 'omit'
+          }).then(function (r) {
+            // Read as text first: an HTML gateway error must not surface as a
+            // JSON parse failure standing in for the real reason.
+            return r.text().then(function (text) {
+              var data = null;
+              try { data = JSON.parse(text); } catch (e) {}
+              return { ok: r.ok, status: r.status, data: data, text: text };
+            });
+          });
+        };
+
+        var grants = codeVerifier ? ['pkce', 'authorization_code'] : ['authorization_code', 'pkce'];
+        return attemptExchange(grants[0]).then(function (first) {
+          if (first.data && first.data.access_token) return first;
+          console.warn('[OAuthCallback] ' + grants[0] + ' exchange failed (' + first.status +
+            '), retrying as ' + grants[1]);
+          return attemptExchange(grants[1]);
+        }).then(function (res) {
+          var data = res.data;
+          if (!data || !data.access_token) {
+            var why = (data && (data.error_description || data.msg || data.error)) ||
+                      ('HTTP ' + res.status);
+            throw new Error(why);
           }
+          cleanupPKCE();
+          storeSessionAndRedirect(data.access_token, data.refresh_token, data.expires_in, data.token_type);
+          return true;
         }).catch(function (e) {
           cleanupPKCE();
-          console.error('[OAuthCallback] PKCE exchange failed:', e);
+          console.error('[OAuthCallback] code exchange failed:', e && e.message);
           window.location.href = '/auth?error=exchange_failed';
+          return false;
         });
       }
 
@@ -6263,42 +6294,72 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     window.dispatchEvent(new Event('isotope:auth-unblock'));
     window.dispatchEvent(new Event('isotope:sync_refresh'));
 
-    // Resolve the account behind the token. The fragment flow returns tokens
-    // only, and /__auth/bootstrap rejects a session with no user id — so this
-    // lookup is what actually completes a Google sign-in, not just a nicety.
-    fetch(SUPA_URL + '/auth/v1/user', {
-      headers: { 'apikey': SUPA_ANON, 'Authorization': 'Bearer ' + accessToken }
-    }).then(function(r) { return r.json(); }).then(function(user) {
-      if (user && user.id) {
-        session.user = user;
-        if (typeof window.__isoPersistSession === 'function') {
-          window.__isoPersistSession(session);
-        }
-        fetch(SUPA_URL + '/rest/v1/users?id=eq.' + user.id, {
-          method: 'PATCH',
-          headers: {
-            'apikey': SUPA_ANON,
-            'Authorization': 'Bearer ' + accessToken,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
-          },
-          body: JSON.stringify({
-            plan_type: 'ranker',
-            billing_status: 'active',
-            plan_expires_at: '2099-12-31T23:59:59.000Z',
-            access_ends_at: '2099-12-31T23:59:59.000Z'
-          })
-        }).catch(function() {});
-      } else {
-        console.warn('[OAuthCallback] token accepted but /auth/v1/user returned no id');
-      }
-    }).catch(function(e) {
-      console.warn('[OAuthCallback] user lookup failed:', e && e.message);
-    });
+    // Resolve the account behind the token, THEN navigate.
+    //
+    // This lookup is what actually completes a Google sign-in: the OAuth
+    // fragment flow returns tokens only, and /__auth/bootstrap rejects a session
+    // with no user id (no_user_id). The previous version fired this fetch and
+    // then called window.location.href on the NEXT LINE — synchronously. The
+    // document tore down before .then() ran, so the session was persisted with
+    // tokens and no `user`, and the app bounced straight back to the login
+    // screen. Observed on device as:
+    //     FETCH     /auth/v1/user
+    //     FETCH_OK  /auth/v1/user -> 200      ← then nothing
+    // (ISSUE-041.)
+    //
+    // The redirect now waits for the lookup. A 6s cap means a slow or failing
+    // profile call cannot strand the user on the callback screen — landing
+    // signed-out is recoverable, hanging is not.
+    var navigated = false;
+    function finish(reason) {
+      if (navigated) return;
+      navigated = true;
+      if (reason) console.warn('[OAuthCallback] proceeding without profile:', reason);
+      var safeRedirect = getSafeRedirect(window.location.pathname);
+      try { window.history.replaceState({}, '', safeRedirect); } catch (e) {}
+      window.location.href = safeRedirect;
+    }
+    var failsafe = setTimeout(function () { finish('user lookup timed out'); }, 6000);
 
-    var safeRedirect = getSafeRedirect(window.location.pathname);
-    try { window.history.replaceState({}, '', safeRedirect); } catch (e) {}
-    window.location.href = safeRedirect;
+    fetch(SUPA_URL + '/auth/v1/user', {
+      headers: { 'apikey': SUPA_ANON, 'Authorization': 'Bearer ' + accessToken },
+      credentials: 'omit'
+    }).then(function (r) {
+      if (!r.ok) throw new Error('/auth/v1/user HTTP ' + r.status);
+      return r.json();
+    }).then(function (user) {
+      if (!user || !user.id) throw new Error('/auth/v1/user returned no id');
+      session.user = user;
+      // Persist BEFORE navigating — this is the whole point of the await.
+      if (typeof window.__isoPersistSession === 'function') {
+        window.__isoPersistSession(session);
+      }
+      try { window.__ISO_CURRENT_USER_ID__ = user.id; } catch (e) {}
+
+      // Ranker upgrade is deliberately NOT awaited: it is a side effect, and a
+      // slow PATCH must not delay the user reaching the app.
+      fetch(SUPA_URL + '/rest/v1/users?id=eq.' + user.id, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPA_ANON,
+          'Authorization': 'Bearer ' + accessToken,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({
+          plan_type: 'ranker',
+          billing_status: 'active',
+          plan_expires_at: '2099-12-31T23:59:59.000Z',
+          access_ends_at: '2099-12-31T23:59:59.000Z'
+        })
+      }).catch(function () {});
+
+      clearTimeout(failsafe);
+      finish(null);
+    }).catch(function (e) {
+      clearTimeout(failsafe);
+      finish(e && e.message || 'user lookup failed');
+    });
   }
 
   // Silent auth / prompt=none support — report the current session without UI.
@@ -6393,9 +6454,17 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
 
   // Entry point for the native layer: MainActivity calls this with the raw
   // deep-link URL so token handling does not depend on WebView routing at all.
-  // Returns true ONLY when the payload was actually consumed — MainActivity uses
-  // the return value to decide whether to retry, so reporting an optimistic
-  // `true` here would silently swallow a failed sign-in.
+  //
+  // Returns TRUE as soon as the payload is recognised and accepted — NOT once
+  // sign-in finishes. MainActivity treats a falsy result as "not consumed" and
+  // retries up to 12 times, then gives up to /auth. handleOAuthCallback returns
+  // a PROMISE on the ?code= exchange branch, and a promise is never === true, so
+  // the old strict comparison reported not-consumed for every authorization-code
+  // callback: MainActivity retried 12x and navigated to /auth while the exchange
+  // was still running underneath (ISSUE-042).
+  //
+  // Supabase issues response_type=code for this project, so ?code= is the NORMAL
+  // path, not an edge case.
   window.__isoHandleOAuthDeepLink = function (rawUrl) {
     try {
       if (!rawUrl) return false;
@@ -6407,7 +6476,16 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       else if (qIdx !== -1) frag = url.slice(qIdx + 1);
       if (!frag) return false;
       if (!/access_token=|(^|[&?])code=|error=/.test(frag)) return false;
-      return handleOAuthCallback(frag, url.indexOf('isotopeai:') === 0) === true;
+
+      var outcome = handleOAuthCallback(frag, url.indexOf('isotopeai:') === 0);
+      // Async branch (code exchange): accepted, and it owns the redirect.
+      if (outcome && typeof outcome.then === 'function') {
+        outcome.catch(function (e) {
+          console.error('[OAuthCallback] async exchange rejected:', e && e.message);
+        });
+        return true;
+      }
+      return outcome === true;
     } catch (e) {
       console.error('[OAuthCallback] deep-link handling failed:', e);
       return false;
