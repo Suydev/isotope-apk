@@ -11,6 +11,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -22,12 +23,14 @@ import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.TouchDelegate;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import org.json.JSONObject;
@@ -53,9 +56,15 @@ public class FloatingTimerService extends Service {
     // Brand / semantic colors — match the web app CSS variables
     private static final int BRAND_500   = Color.rgb(139,  92, 246); // violet-500
     private static final int BRAND_600   = Color.rgb(124,  58, 237); // violet-600
-    private static final int EMERALD_600 = Color.rgb(  5, 150, 105); // correct
-    private static final int ROSE_600    = Color.rgb(225,  29,  72); // incorrect
-    private static final int AMBER_600   = Color.rgb(217, 119,   6); // skip / paused
+    // Button fills carry WHITE 13sp labels, so they must clear WCAG AA 4.5:1 at
+    // that size. The -600 shades used previously did not: emerald-600 measured
+    // 3.77:1 and amber-600 3.19:1 against white — readable in a screenshot,
+    // marginal on a phone outdoors. Moved to -700, which measures 5.48:1 and
+    // 5.02:1 while staying on the same Tailwind ramp. rose-600 already passed
+    // (4.70:1) and is left alone so "incorrect" keeps its exact brand red.
+    private static final int EMERALD_600 = Color.rgb(  4, 120,  87); // emerald-700 · correct
+    private static final int ROSE_600    = Color.rgb(225,  29,  72); // rose-600 · incorrect
+    private static final int AMBER_600   = Color.rgb(180,  83,   9); // amber-700 · skip
     private static final int SKY_400     = Color.rgb( 56, 189, 248); // break
 
     private static final int NOTIFICATION_ID = 4107;
@@ -88,6 +97,8 @@ public class FloatingTimerService extends Service {
     private Button   incorrectButton;
     private Button   skippedButton;
     private Button   undoButton;
+    private Button   pauseButton;       // pause / resume — see ISSUE-038
+    private View     questionSeparator; // hairline above the question section
     private Button   targetButton;
     private TimerState state = TimerState.idle();
     private boolean foregroundStarted = false;
@@ -319,7 +330,9 @@ public class FloatingTimerService extends Service {
         // ── Card (outermost, no padding — progress bar must be edge-to-edge) ─
         cardView = new LinearLayout(this);
         cardView.setOrientation(LinearLayout.VERTICAL);
-        cardView.setOnTouchListener(this::handleDragTouch);
+        // Drag is attached to the HEADER row further down, not the whole card:
+        // the content area is now scrollable and handleDragTouch consumes
+        // ACTION_MOVE, which would otherwise make the card unscrollable.
 
         // ── Progress strip container (full width, 4dp tall) ──────────────────
         progressContainer = new FrameLayout(this);
@@ -366,8 +379,16 @@ public class FloatingTimerService extends Service {
             dispatchAction("close", -1);
             stopSelf();
         });
+        // Glyph-only buttons announce as "↗" / "×" to TalkBack, which is
+        // meaningless. Every control on this card carries a spoken label.
+        expandButton.setContentDescription("Open IsotopeAI");
+        closeButton.setContentDescription("Close floating timer");
         header.addView(expandButton);
         header.addView(closeButton);
+        // Drag handle. Lives on the header (title-bar affordance) rather than the
+        // whole card, so the scrollable content below stays scrollable — one
+        // primary gesture per region.
+        header.setOnTouchListener(this::handleDragTouch);
 
         // Focus type chip: emoji + label inside a pill
         focusTypeText = makeText(13, true);
@@ -461,6 +482,21 @@ public class FloatingTimerService extends Service {
         resultRow.addView(incorrectButton, bpM);
         resultRow.addView(skippedButton,   bpR);
 
+        // Pause / resume.
+        //
+        // MainActivity.isAllowedFloatingTimerAction has always accepted
+        // pause/resume/togglePause, and android-floating-timer-bridge.js validates
+        // and dispatches all three — but no control ever emitted them. The
+        // notification even reads "paused — tap to resume" while tapping it only
+        // reopened the app. A paused session was therefore unresumable from the
+        // overlay (ISSUE-038). `togglePause` is used so the JS side decides based
+        // on real store state rather than trusting our cached copy.
+        pauseButton = makePillButton("Pause");
+        pauseButton.setOnClickListener(v -> dispatchAction("togglePause", -1));
+        LinearLayout.LayoutParams pauseParams =
+            new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(36));
+        pauseParams.topMargin = dp(6);
+
         // Undo button
         undoButton = makePillButton("Undo last");
         undoButton.setOnClickListener(v -> dispatchAction("undo", -1));
@@ -468,6 +504,14 @@ public class FloatingTimerService extends Service {
             new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(36));
         undoParams.topMargin = dp(6);
 
+        // Hairline separator above the question block — element #6 of the PiP
+        // contract in isotope-code/pipapk.md, the only one the overlay lacked.
+        questionSeparator = new View(this);
+        LinearLayout.LayoutParams sepParams =
+            new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(1) / 2));
+        sepParams.bottomMargin = dp(10);
+
+        questionSection.addView(questionSeparator, sepParams);
         questionSection.addView(attemptRow);
         questionSection.addView(targetEditorRow);
         questionSection.addView(resultRow, rrParams);
@@ -478,10 +522,31 @@ public class FloatingTimerService extends Service {
         contentView.addView(focusTypeText, chipParams);
         contentView.addView(timerText, timerParams);
         contentView.addView(statusRow);
+        // Pause sits OUTSIDE questionSection: that section is hidden whenever
+        // question tracking is off, and pausing must stay reachable regardless.
+        contentView.addView(pauseButton, pauseParams);
         contentView.addView(questionSection, qsParams);
 
-        cardView.addView(contentView,
-            new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        // Content is wrapped in a ScrollView. A plain LinearLayout silently CLIPS
+        // anything past the card height, and the card is user-resizable down to
+        // 200dp while the full control stack needs ~405dp — so Undo (the last
+        // child) was reachable only at large sizes. Scrolling keeps every control
+        // reachable at any size instead of quietly dropping the bottom ones.
+        //
+        // NOTE: no drag listener here. handleDragTouch consumes ACTION_MOVE
+        // (returns true), so attaching it would kill scrolling outright — one
+        // primary gesture per region. Dragging lives on the header row, which is
+        // the usual "title bar" affordance for a floating window.
+        ScrollView contentScroll = new ScrollView(this);
+        contentScroll.setVerticalScrollBarEnabled(false);
+        contentScroll.setClipToPadding(false);
+        contentScroll.setFillViewport(true);
+        contentScroll.addView(contentView,
+            new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                                         FrameLayout.LayoutParams.WRAP_CONTENT));
+
+        cardView.addView(contentScroll,
+            new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         root.addView(cardView,
             new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
@@ -573,6 +638,20 @@ public class FloatingTimerService extends Service {
         styleButton(skippedButton,   AMBER_600,    Color.WHITE,  Color.TRANSPARENT);
         styleButton(undoButton,      Color.TRANSPARENT, mutedColor,
                     dark ? Color.argb(36, 255, 255, 255) : Color.argb(36, 24, 24, 27));
+        // Pause/resume shares the Undo pill treatment (transparent + hairline
+        // border) so the three destructive-ish controls read as one group and the
+        // coloured counters stay the visual focus.
+        if (pauseButton != null) {
+            styleButton(pauseButton, Color.TRANSPARENT, textColor,
+                        dark ? Color.argb(48, 255, 255, 255) : Color.argb(48, 24, 24, 27));
+        }
+
+        // Separator: matches the web PiP overlay's
+        // rgba(255,255,255,0.12) / rgba(24,24,27,0.12) hairline.
+        if (questionSeparator != null) {
+            questionSeparator.setBackgroundColor(
+                dark ? Color.argb(31, 255, 255, 255) : Color.argb(31, 24, 24, 27));
+        }
 
         renderDynamicFields();
     }
@@ -615,8 +694,26 @@ public class FloatingTimerService extends Service {
         correctButton.setText("✓  " + state.questionsCorrect);
         incorrectButton.setText("✕  " + state.questionsIncorrect);
         skippedButton.setText("↷  " + state.questionsSkipped);
+        // ✓ / ✕ / ↷ carry the meaning visually; a screen reader would read the
+        // raw glyph. Spoken labels are set here (not at build time) so the counts
+        // stay current.
+        correctButton.setContentDescription(
+            "Mark correct. " + state.questionsCorrect + " so far");
+        incorrectButton.setContentDescription(
+            "Mark incorrect. " + state.questionsIncorrect + " so far");
+        skippedButton.setContentDescription(
+            "Mark skipped. " + state.questionsSkipped + " so far");
         undoButton.setEnabled(state.undoAvailable);
         undoButton.setAlpha(state.undoAvailable ? 1f : 0.4f);
+
+        // Pause / resume label tracks real state. Hidden on break: the phase
+        // advances on its own, so a pause control there would be misleading.
+        if (pauseButton != null) {
+            boolean isPaused = "paused".equals(state.timerState);
+            boolean canToggle = "running".equals(state.timerState) || isPaused;
+            pauseButton.setText(isPaused ? "Resume" : "Pause");
+            pauseButton.setVisibility(canToggle ? View.VISIBLE : View.GONE);
+        }
 
         // Progress strip — fraction of time remaining
         if (progressFill != null) {
@@ -782,11 +879,37 @@ public class FloatingTimerService extends Service {
         button.setPadding(dp(8), dp(2), dp(8), dp(2));
         button.setOnClickListener(v -> action.run());
         // Background set in renderAll()
+        // 36x28dp is below the 48dp Material minimum, and these are the two
+        // smallest targets on the card sitting 4dp apart — the easiest pair to
+        // mis-tap, and "close" is destructive. TouchDelegate expands the tappable
+        // area to 48dp without changing layout or the visual density.
         LinearLayout.LayoutParams lp =
             new LinearLayout.LayoutParams(dp(36), dp(28));
         lp.setMargins(dp(4), 0, 0, 0);
         button.setLayoutParams(lp);
+        expandTouchTarget(button, dp(48));
         return button;
+    }
+
+    /**
+     * Grows a view's touch area to at least {@code minPx} square without changing
+     * its drawn size, using a TouchDelegate on the parent. Applied after layout
+     * because the view's bounds are not known until then.
+     */
+    private void expandTouchTarget(View view, int minPx) {
+        view.post(() -> {
+            try {
+                if (!(view.getParent() instanceof View)) return;
+                View parent = (View) view.getParent();
+                Rect r = new Rect();
+                view.getHitRect(r);
+                int growX = Math.max(0, (minPx - r.width()) / 2);
+                int growY = Math.max(0, (minPx - r.height()) / 2);
+                if (growX == 0 && growY == 0) return;
+                r.inset(-growX, -growY);
+                parent.setTouchDelegate(new TouchDelegate(r, view));
+            } catch (Exception ignored) {}
+        });
     }
 
     private Button makeResultButton(String text) {

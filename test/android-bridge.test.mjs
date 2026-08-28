@@ -1421,3 +1421,84 @@ test('getSession survives a corrupt stored session without throwing', async () =
   assert.doesNotThrow(() => harness.window.__isoGetValidJwt());
   assert.equal(harness.window.__isoGetValidJwt(), null);
 });
+
+// ── Community RangeError + user-facing recovery (ISSUE-039/040) ──────────────
+
+test('deep response bodies do not blow the stack in the plan patcher', async () => {
+  // Regression: isoDeepPatchPlan guarded CYCLES with a WeakSet, but a deep
+  // ACYCLIC graph has a brand-new object at every node, so the set never hit and
+  // recursion ran until "RangeError: Maximum call stack size exceeded". Community
+  // payloads are deeply nested and every Supabase response passes through here,
+  // which is why Community specifically died.
+  let deep = {};
+  let cursor = deep;
+  for (let i = 0; i < 12000; i++) {
+    cursor.next = { plan_type: 'free' };
+    cursor = cursor.next;
+  }
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/rest/v1/community_enrollments')) {
+      return jsonResponse(deep);
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage);
+
+  // Must not throw. The subtree past the depth cap is returned untouched.
+  const response = await harness.window.fetch(
+    'https://ollsqiutzartjhiuzkbf.supabase.co/rest/v1/community_enrollments?select=*',
+  );
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.ok(data, 'a deep payload must still come back, not throw');
+});
+
+test('shallow plan fields are still patched to ranker', async () => {
+  // The depth cap must not break the premium unlock it exists to apply.
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/rest/v1/users')) {
+      return jsonResponse([{ id: 'u1', plan_type: 'free', billing_status: 'none' }]);
+    }
+    return jsonResponse([]);
+  });
+  installSession(harness.localStorage);
+
+  const response = await harness.window.fetch(
+    'https://ollsqiutzartjhiuzkbf.supabase.co/rest/v1/users?select=*',
+  );
+  const rows = await response.json();
+  assert.equal(rows[0].plan_type, 'ranker');
+  assert.equal(rows[0].billing_status, 'active');
+});
+
+test('bridge exposes a plain refresh notice instead of the debug log viewer', () => {
+  const harness = createBridgeHarness(async () => jsonResponse([]));
+  assert.equal(typeof harness.window.__isoShowRefreshNotice, 'function',
+    'user-facing recovery UI must be available');
+});
+
+test('the debug log viewer never auto-opens', () => {
+  // It used to appear over the app whenever #root had <3 children or any single
+  // FETCH_ERR was logged — an offline blip showed users a raw log dump.
+  const bridgeSource = fs.readFileSync(BRIDGE_PATH, 'utf8');
+  assert.doesNotMatch(bridgeSource, /shouldAuto/,
+    'the loose auto-open heuristic must be gone');
+  assert.doesNotMatch(bridgeSource, /__isoShowLogViewer\(\);\s*return;/,
+    'nothing may auto-invoke the log viewer');
+  // Manual access is deliberately kept for debugging.
+  assert.match(bridgeSource, /taps>=3/, '3-tap opener should remain');
+  assert.match(bridgeSource, /window\.__isoShowLogViewer\s*=/, 'console helper should remain');
+});
+
+test('refresh notice only reacts to a genuinely empty root', () => {
+  // Strip line comments first: this file explains the old heuristic in prose,
+  // and asserting against the raw text would flag the explanation itself.
+  const bridgeCode = fs.readFileSync(BRIDGE_PATH, 'utf8')
+    .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+  const bridgeSource = fs.readFileSync(BRIDGE_PATH, 'utf8');
+  // "fewer than 3 children" fired on ordinary pages.
+  assert.doesNotMatch(bridgeCode, /children\.length\s*<\s*3/,
+    'must not treat a sparse tree as a boot failure');
+  assert.match(bridgeSource, /bootFailed/,
+    'boot-failure check should be a named, narrow predicate');
+});

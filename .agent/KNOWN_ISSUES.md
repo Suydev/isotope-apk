@@ -2,6 +2,86 @@
 
 ---
 
+## ISSUE-040 — Debug log viewer auto-opened over the app
+**Severity:** HIGH (UX) — **FIXED IN CODE + UNIT TESTED 2026-08-28**
+**Status:** APK RUNTIME UNVERIFIED
+
+A raw developer log dump appeared unprompted during normal use, and a crashed tab
+otherwise left a black screen.
+
+**Root cause.** The auto-open heuristic was far too loose:
+
+```js
+if(!r || r.children.length<3) return true;              // any sparse page
+if(window.__isoLogs.some(x => x.l==='FETCH_ERR' ...))    // one offline blip
+```
+
+`root.children.length < 3` matches any route rendering fewer than three
+top-level nodes, and a single failed request qualified. A student cannot act on a
+log dump — or on `RangeError: Maximum call stack size exceeded`.
+
+**Fix:** replaced with a narrow `bootFailed()` (empty `#root` only, and never
+while the splash is up or the notice is already showing), which shows a plain
+recovery card instead:
+
+> **Refresh required** — The app needs a refresh. A page bundle failed to load —
+> refresh once to pick up the latest app files.
+
+`window.__isoShowRefreshNotice()`. Design decisions, all verified rather than
+assumed:
+- Contrast measured, not eyeballed: title 16.97:1, body 11.99:1, hint 6.91:1,
+  button label 4.67:1. The button uses `#0a0a0b` on brand `#8b5cf6` because
+  **white on brand is only 4.23:1 and fails AA.**
+- Emerald/amber counter fills on the overlay were likewise moved from -600 to
+  -700 (3.77:1 → 5.48:1, 3.19:1 → 5.02:1).
+- 48px CTA, `touch-action:manipulation`, scale-0.97 press feedback under 100ms.
+- `role="alertdialog"` + `aria-labelledby`/`describedby`; focus moves to the CTA.
+- Safe-area padding top and bottom.
+- 220ms ease-out enter, transform/opacity only, disabled under
+  `prefers-reduced-motion`.
+- Inline SVG refresh glyph, not an emoji.
+- "Continue anyway" secondary escape, visually subordinate — the notice is
+  full-screen, so a failing refresh would otherwise trap the user.
+- Refresh calls `__isoClearCachesAndReload()` first, since a plain reload can
+  re-serve the exact bundle that failed. **That helper returns `false` and does
+  not navigate** when its own 3-reload guard trips, so the result is checked and
+  falls back to a hard reload, plus a 4s timeout in case it never settles —
+  otherwise the button sat on "Refreshing…" forever.
+
+The log viewer is still reachable on purpose: 3-tap, or `__isoShowLogViewer()`.
+
+**Tests:** 5 — deep-payload survival, shallow patch still applies, notice is
+exposed, viewer never auto-opens, and boot-failure detection is narrow. Note the
+last assertion strips `//` comments first: it initially failed by matching the
+comment *documenting* the old heuristic.
+
+---
+
+## ISSUE-039 — Community: RangeError: Maximum call stack size exceeded
+**Severity:** CRITICAL — **FIXED IN CODE + UNIT TESTED 2026-08-28**
+**Status:** APK RUNTIME UNVERIFIED
+
+Community crashed with `RangeError: Maximum call stack size exceeded`.
+
+**Root cause.** `isoDeepPatchPlan()` recurses through every Supabase JSON
+response to force `plan_type: 'ranker'`. Commit `ddcb799` added a `WeakSet`
+"circular guard" — but a `WeakSet` only detects **cycles**. A deep *acyclic*
+graph presents a brand-new object at every node, so the set never hits and
+recursion continues until the stack dies. Community payloads (groups → members →
+profiles → stats) are the deepest in the app, which is why it failed there
+specifically. Verified by reproduction:
+
+```
+circular          : OK (guarded)
+deep acyclic 12k  : RangeError — Maximum call stack size exceeded
+```
+
+**Fix:** added a depth cap of 24; past it the subtree is returned untouched.
+Nothing rendered needs plan fields 24 levels deep. Both the cycle guard and the
+shallow patching still work — asserted by test, not assumed.
+
+---
+
 ## ISSUE-037 — PiP button did nothing, silently
 **Severity:** HIGH — **FIXED IN CODE + UNIT TESTED 2026-08-27**
 **Status:** APK RUNTIME UNVERIFIED

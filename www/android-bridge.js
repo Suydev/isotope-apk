@@ -161,27 +161,42 @@
       setInterval(function(){ if(!document.getElementById('__isoLogBtn')) createBtn(); },3000);
     }catch(e){}
   })();
+  // ── Boot failure detection ──────────────────────────────────────────────────
+  // This used to auto-open the DEBUG LOG VIEWER at users. Its trigger was also
+  // far too loose — `root.children.length < 3` fires on any page that simply
+  // renders fewer than three top-level nodes, and any single FETCH_ERR (an
+  // offline blip) qualified. So a raw log dump appeared over the app during
+  // normal use, which is alarming and actionable by nobody.
+  //
+  // Now: only a genuinely empty #root counts as failure, and the user gets the
+  // plain "Refresh required" card. The log viewer stays available deliberately
+  // (3-tap, or __isoShowLogViewer() in the console) for debugging.
   (function(){
     try{
-      var shouldAuto=function(){
+      var bootFailed=function(){
         try{
+          if(document.getElementById('isotope-boot-splash')) return false; // still booting
+          if(document.getElementById('__isoRefreshNotice')) return false;  // already shown
           var r=document.getElementById('root');
-          if(!r || r.children.length<3) return true;
-          if(document.body && /REACT DID NOT MOUNT/.test(document.body.innerText||'')) return true;
-          if(window.__isoLogs.some(function(x){ return x.l==='JSERR' || x.l==='error' || x.l==='FETCH_ERR' || x.l==='PROMISE' || /Illegal invocation|ReferenceError|supaFetchHeaders/.test(x.m); })) return true;
-          var s=document.body?s=document.body.innerHTML:'';
-          if(/bridge:ok.*root:2el/.test(s)) return true;
-        }catch(e){}
-        return false;
+          // Empty tree only. Not "fewer than 3 children".
+          if(!r || !r.children || r.children.length>0) return false;
+          return true;
+        }catch(e){ return false; }
       };
       var autoChecks=0;
       var poll=function(){
-        try{ if(shouldAuto()){ window.__isoShowLogViewer(); return; } }catch(e){}
+        try{
+          if(bootFailed()){
+            console.error('[IsotopeAndroidRuntime] app did not mount — showing refresh notice');
+            if(typeof window.__isoShowRefreshNotice==='function') window.__isoShowRefreshNotice();
+            return;
+          }
+        }catch(e){}
         if(++autoChecks<15) setTimeout(poll,2000);
       };
-      document.addEventListener('DOMContentLoaded',function(){ setTimeout(poll,1500); });
-      window.addEventListener('load',function(){ setTimeout(poll,1500); });
-      setTimeout(poll,3000);
+      document.addEventListener('DOMContentLoaded',function(){ setTimeout(poll,2500); });
+      window.addEventListener('load',function(){ setTimeout(poll,2500); });
+      setTimeout(poll,4000);
     }catch(e){}
   })();
 
@@ -1056,9 +1071,181 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     var lastCrashRoute = null;
     var crashRecoveries = 0;
 
+    // ── Recovery notice ───────────────────────────────────────────────────────
+    // Shown instead of a black screen (or the debug log viewer) when automatic
+    // recovery is exhausted. Deliberately plain: no stack trace, no error class
+    // name — a student cannot act on "RangeError: Maximum call stack size
+    // exceeded", they can act on "tap Refresh".
+    //
+    // Built with DOM calls rather than innerHTML because #root is empty at this
+    // point and the app's stylesheet may not have applied.
+    function showRefreshNotice() {
+      try {
+        if (document.getElementById('__isoRefreshNotice')) return;
+        var host = document.createElement('div');
+        host.id = '__isoRefreshNotice';
+        // 2147483647 is the ceiling; this must sit above the app and any overlay.
+        host.setAttribute('role', 'alertdialog');
+        host.setAttribute('aria-modal', 'true');
+        host.setAttribute('aria-labelledby', '__isoRefreshTitle');
+        host.setAttribute('aria-describedby', '__isoRefreshBody');
+        host.style.cssText = [
+          'position:fixed', 'inset:0', 'z-index:2147483000',
+          'background:#0a0a0b',
+          'display:flex', 'align-items:center', 'justify-content:center',
+          // Keep clear of the notch and the gesture bar.
+          'padding:calc(env(safe-area-inset-top,0px) + 24px) 24px',
+          'padding-bottom:calc(env(safe-area-inset-bottom,0px) + 24px)',
+          'font-family:system-ui,-apple-system,sans-serif',
+          '-webkit-font-smoothing:antialiased'
+        ].join(';');
+
+        var card = document.createElement('div');
+        card.style.cssText = [
+          'width:100%', 'max-width:340px',
+          'background:#18181b', 'border:1px solid rgba(255,255,255,0.08)',
+          'border-radius:24px', 'padding:28px 24px', 'text-align:center',
+          // 150–300ms, ease-out, and only transform/opacity.
+          'animation:__isoRefreshIn 220ms cubic-bezier(0.16,1,0.3,1) both'
+        ].join(';');
+
+        var mark = document.createElement('div');
+        mark.setAttribute('aria-hidden', 'true');
+        mark.style.cssText = [
+          'width:48px', 'height:48px', 'margin:0 auto 18px',
+          'border-radius:16px', 'background:rgba(139,92,246,0.14)',
+          'display:flex', 'align-items:center', 'justify-content:center'
+        ].join(';');
+        // Inline SVG, not an emoji: renders identically on every device and
+        // inherits currentColor for theming.
+        mark.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" ' +
+          'stroke="#8b5cf6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>';
+
+        var title = document.createElement('h1');
+        title.id = '__isoRefreshTitle';
+        // 18px/700 — #fafafa on #18181b is 16.97:1.
+        title.textContent = 'Refresh required';
+        title.style.cssText = [
+          'margin:0 0 10px', 'font-size:18px', 'font-weight:700',
+          'line-height:1.3', 'color:#fafafa'
+        ].join(';');
+
+        var body = document.createElement('p');
+        body.id = '__isoRefreshBody';
+        // zinc-300 rather than zinc-400: 11.99:1, comfortably past 4.5:1.
+        body.textContent = 'The app needs a refresh. A page bundle failed to load — ' +
+          'refresh once to pick up the latest app files.';
+        body.style.cssText = [
+          'margin:0 0 22px', 'font-size:14px', 'line-height:1.6', 'color:#d4d4d8'
+        ].join(';');
+
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Refresh';
+        // Dark label on brand: 4.67:1 (white would be 4.23:1 and fail AA).
+        // 48px tall, full width — comfortably past the 44pt minimum.
+        button.style.cssText = [
+          'display:block', 'width:100%', 'min-height:48px',
+          'border:0', 'border-radius:14px', 'background:#8b5cf6',
+          'color:#0a0a0b', 'font-size:15px', 'font-weight:700',
+          'font-family:inherit', 'cursor:pointer',
+          'touch-action:manipulation',
+          'transition:transform 150ms ease-out, opacity 150ms ease-out'
+        ].join(';');
+        // Press feedback within 100ms, and scale only — no layout shift.
+        button.addEventListener('pointerdown', function () {
+          button.style.transform = 'scale(0.97)';
+        });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evt) {
+          button.addEventListener(evt, function () { button.style.transform = ''; });
+        });
+        var refreshing = false;
+        button.addEventListener('click', function () {
+          if (refreshing) return;          // don't let a double-tap double-reload
+          refreshing = true;
+          button.disabled = true;
+          button.style.opacity = '0.6';
+          button.textContent = 'Refreshing…';
+
+          var hardReload = function () {
+            try { window.location.replace('/dashboard'); }
+            catch (e) { window.location.reload(); }
+          };
+
+          // Clear the SW caches first, otherwise a reload can serve the very
+          // bundle that failed and land straight back here.
+          //
+          // __isoClearCachesAndReload resolves FALSE when it declines (its own
+          // 3-reload loop guard, or a recovery already in flight) and in that
+          // case it does NOT navigate — so without this the button would sit on
+          // "Refreshing…" forever. Fall back to a plain reload, and guard the
+          // whole thing with a timeout in case the promise never settles.
+          var handedOff = false;
+          try {
+            if (typeof window.__isoClearCachesAndReload === 'function') {
+              handedOff = true;
+              Promise.resolve(window.__isoClearCachesAndReload())
+                .then(function (ok) { if (!ok) hardReload(); })
+                .catch(hardReload);
+              setTimeout(function () {
+                if (document.getElementById('__isoRefreshNotice')) hardReload();
+              }, 4000);
+            }
+          } catch (e) { handedOff = false; }
+          if (!handedOff) hardReload();
+        });
+
+        var hint = document.createElement('p');
+        hint.textContent = 'If this keeps happening, reopen the app.';
+        hint.style.cssText = [
+          'margin:14px 0 0', 'font-size:12px', 'line-height:1.5', 'color:#a1a1aa'
+        ].join(';');
+
+        // Secondary escape hatch. The notice covers the whole screen, so without
+        // this the only way out is a refresh that may fail again. Visually
+        // subordinate to the primary CTA (text-only, muted) per one-primary-action.
+        var dismiss = document.createElement('button');
+        dismiss.type = 'button';
+        dismiss.textContent = 'Continue anyway';
+        dismiss.style.cssText = [
+          'display:block', 'width:100%', 'min-height:44px', 'margin-top:6px',
+          'border:0', 'background:transparent', 'color:#a1a1aa',
+          'font-size:13px', 'font-weight:600', 'font-family:inherit',
+          'cursor:pointer', 'touch-action:manipulation'
+        ].join(';');
+        dismiss.addEventListener('click', function () {
+          try { host.remove(); } catch (e) {}
+        });
+
+        var keyframes = document.createElement('style');
+        keyframes.textContent =
+          '@keyframes __isoRefreshIn{from{opacity:0;transform:translateY(8px) scale(0.98)}' +
+          'to{opacity:1;transform:none}}' +
+          '@media (prefers-reduced-motion: reduce){' +
+          '#__isoRefreshNotice>div{animation:none!important}' +
+          '#__isoRefreshNotice button{transition:none!important}}';
+
+        card.appendChild(mark);
+        card.appendChild(title);
+        card.appendChild(body);
+        card.appendChild(button);
+        card.appendChild(dismiss);
+        card.appendChild(hint);
+        host.appendChild(keyframes);
+        host.appendChild(card);
+        (document.body || document.documentElement).appendChild(host);
+        try { button.focus(); } catch (e) {}
+      } catch (e) {
+        console.error('[IsotopeAndroidRuntime] could not show refresh notice:', e);
+      }
+    }
+    try { window.__isoShowRefreshNotice = showRefreshNotice; } catch (e) {}
+
     function recoverFromTabCrash(reason) {
       try {
         if (document.getElementById && document.getElementById('isotope-boot-splash')) return;
+        if (document.getElementById && document.getElementById('__isoRefreshNotice')) return;
         var root = document.getElementById && document.getElementById('root');
         if (!root || !root.children || root.children.length > 0) return;
 
@@ -1068,8 +1255,10 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
           ' on ' + here + ' (recovery ' + crashRecoveries + ')');
 
         // Cap recoveries so a crash on /dashboard itself cannot spin forever.
+        // Past the cap, ask the user rather than leaving a black screen.
         if (crashRecoveries > 3) {
-          console.error('[IsotopeAndroidRuntime] giving up automatic recovery');
+          console.error('[IsotopeAndroidRuntime] automatic recovery exhausted — showing refresh notice');
+          showRefreshNotice();
           return;
         }
 
@@ -1099,7 +1288,11 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
         if (!reloadAttempted) {
           reloadAttempted = true;
           window.location.href = '/dashboard';
+          return;
         }
+        // Navigation and one reload have both already been spent — the user is
+        // otherwise left facing an empty screen.
+        showRefreshNotice();
       } catch (e) {}
     }
 
@@ -4527,14 +4720,22 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
            || 'question' in o || 'content' in o || 'message' in o);
   }
 
-  function isoDeepPatchPlan(o, seen) {
+  function isoDeepPatchPlan(o, seen, depth) {
     if (!o || typeof o !== 'object') return o;
+    // Depth cap. The WeakSet below only stops CYCLES — a deep but acyclic graph
+    // has a brand-new object at every node, so the set never hits and recursion
+    // ran until the stack died. That is the "Community RangeError: Maximum call
+    // stack size exceeded" (ISSUE-039): the community payloads are deeply nested
+    // and every response passes through here. Nothing the app renders needs plan
+    // fields 24 levels down, so past the cap the subtree is returned untouched.
+    depth = depth || 0;
+    if (depth > 24) return o;
     try {
       if (!seen) seen = new WeakSet();
       if (seen.has(o)) return o;
       seen.add(o);
     } catch(e) {}
-    if (Array.isArray(o)) return o.map(function(x){ return isoDeepPatchPlan(x, seen); });
+    if (Array.isArray(o)) return o.map(function(x){ return isoDeepPatchPlan(x, seen, depth + 1); });
     var r = Object.assign({}, o);
     if (isoIsPlanObject(r)) {
       if ('plan_type' in r) r.plan_type = 'ranker';
@@ -4546,7 +4747,7 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       if ('cancel_at_period_end' in r) r.cancel_at_period_end = false;
     }
     for (var k in r) {
-      if (r[k] && typeof r[k] === 'object') r[k] = isoDeepPatchPlan(r[k], seen);
+      if (r[k] && typeof r[k] === 'object') r[k] = isoDeepPatchPlan(r[k], seen, depth + 1);
     }
     return r;
   }
