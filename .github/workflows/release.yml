@@ -140,12 +140,16 @@ jobs:
       - name: 🔧 Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
-       # ── Release signing ────────────────────────────────────────────────────
+      # ── Release signing ────────────────────────────────────────────────────
       # Release signs with the committed debug.keystore (sideload build, not Play
       # Store). If ANDROID_KEYSTORE_BASE64 + password secrets are set, those are
       # used instead. No failure if secrets are absent — debug fallback works.
+      #
+      # No `if:` guard: this workflow now only runs on tags and dispatch, so the
+      # old condition was always true. (It also had a stray leading space on the
+      # comment line above, which is legal YAML but was masking how odd the block
+      # looked.)
       - name: 🔑 Configure release signing (optional custom keystore)
-        if: "github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'"
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -246,7 +250,6 @@ jobs:
       # note is supposed to save you from. Generate real notes from the commit
       # range since the previous tag instead.
       - name: 📋 Generate changelog from commits
-        id: changelog
         run: |
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
@@ -297,8 +300,9 @@ jobs:
           APK_SIZE: ${{ steps.apk.outputs.size }}
         run: |
           set -euo pipefail
-          # Notes are assembled with cat, not `${{ }}` interpolation into a heredoc:
-          # multi-line changelog output cannot be safely inlined that way.
+          # Notes are assembled with printf from a file, not by interpolating a
+          # workflow expression into a heredoc: multi-line changelog output
+          # cannot be carried safely that way.
           {
             printf '## IsotopeAI Android %s\n\n' "$TAG"
             cat /tmp/changelog_notes.txt
