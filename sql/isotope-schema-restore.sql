@@ -1,6 +1,6 @@
 -- =============================================================================
 -- IsotopeAI — full portable schema dump (NO user data)
--- Generated: 2026-08-28 13:51:23 UTC
+-- Generated: 2026-08-28 14:52:43 UTC
 -- Project ref: ollsqiutzartjhiuzkbf
 -- Schemas: private, rpc_private, public
 --
@@ -639,111 +639,519 @@ CREATE TABLE IF NOT EXISTS "public"."users" (
   "device_id" text,
   "access_source" text
 );
-ALTER TABLE ONLY "public"."backup_manifests" ADD CONSTRAINT "backup_manifests_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."buddy_invites" ADD CONSTRAINT "buddy_invites_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."community_device_tokens" ADD CONSTRAINT "community_device_tokens_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."community_enrollments" ADD CONSTRAINT "community_enrollments_pkey" PRIMARY KEY (user_id);
-ALTER TABLE ONLY "public"."community_event_attendees" ADD CONSTRAINT "community_event_attendees_pkey" PRIMARY KEY (event_id, user_id);
-ALTER TABLE ONLY "public"."community_events" ADD CONSTRAINT "community_events_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."community_friends" ADD CONSTRAINT "community_friends_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."community_join_requests" ADD CONSTRAINT "community_join_requests_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."community_reports" ADD CONSTRAINT "community_reports_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."community_start_alerts" ADD CONSTRAINT "community_start_alerts_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."daily_logs" ADD CONSTRAINT "daily_logs_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."daily_user_stats" ADD CONSTRAINT "daily_user_stats_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."exams" ADD CONSTRAINT "exams_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."focus_sessions" ADD CONSTRAINT "focus_sessions_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."group_announcements" ADD CONSTRAINT "group_announcements_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."group_challenge_participants" ADD CONSTRAINT "group_challenge_participants_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."group_challenges" ADD CONSTRAINT "group_challenges_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."group_chat_messages" ADD CONSTRAINT "group_chat_messages_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."group_invites" ADD CONSTRAINT "group_invites_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."group_members" ADD CONSTRAINT "group_members_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."group_milestones" ADD CONSTRAINT "group_milestones_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."groups" ADD CONSTRAINT "groups_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."habits" ADD CONSTRAINT "habits_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."mock_tests" ADD CONSTRAINT "mock_tests_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."notifications" ADD CONSTRAINT "notifications_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."store_items" ADD CONSTRAINT "store_items_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."study_sessions_log" ADD CONSTRAINT "study_sessions_log_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."subjects" ADD CONSTRAINT "subjects_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."sync_items" ADD CONSTRAINT "sync_items_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."tasks" ADD CONSTRAINT "tasks_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."tests" ADD CONSTRAINT "tests_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."user_display_profiles" ADD CONSTRAINT "user_display_profiles_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."user_inventory" ADD CONSTRAINT "user_inventory_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."user_onboarding" ADD CONSTRAINT "user_onboarding_pkey" PRIMARY KEY (user_id);
-ALTER TABLE ONLY "public"."user_points" ADD CONSTRAINT "user_points_pkey" PRIMARY KEY (user_id);
-ALTER TABLE ONLY "public"."user_presence" ADD CONSTRAINT "user_presence_pkey" PRIMARY KEY (user_id);
-ALTER TABLE ONLY "public"."user_profiles" ADD CONSTRAINT "user_profiles_pkey" PRIMARY KEY (user_id);
-ALTER TABLE ONLY "public"."user_roles" ADD CONSTRAINT "user_roles_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."user_settings" ADD CONSTRAINT "user_settings_pkey" PRIMARY KEY (user_id);
-ALTER TABLE ONLY "public"."user_stats_summary" ADD CONSTRAINT "user_stats_summary_pkey" PRIMARY KEY (user_id);
-ALTER TABLE ONLY "public"."user_tours" ADD CONSTRAINT "user_tours_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."users" ADD CONSTRAINT "users_pkey" PRIMARY KEY (id);
-ALTER TABLE ONLY "public"."buddy_invites" ADD CONSTRAINT "buddy_invites_inviter_id_fkey" FOREIGN KEY (inviter_id) REFERENCES users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."community_event_attendees" ADD CONSTRAINT "community_event_attendees_event_id_fkey" FOREIGN KEY (event_id) REFERENCES community_events(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."community_event_attendees" ADD CONSTRAINT "community_event_attendees_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."community_events" ADD CONSTRAINT "community_events_creator_id_fkey" FOREIGN KEY (creator_id) REFERENCES auth.users(id) ON DELETE SET NULL;
-ALTER TABLE ONLY "public"."community_events" ADD CONSTRAINT "community_events_host_user_id_fkey" FOREIGN KEY (host_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
-ALTER TABLE ONLY "public"."daily_logs" ADD CONSTRAINT "daily_logs_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."daily_user_stats" ADD CONSTRAINT "daily_user_stats_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."exams" ADD CONSTRAINT "exams_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."focus_sessions" ADD CONSTRAINT "focus_sessions_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."group_announcements" ADD CONSTRAINT "group_announcements_author_id_fkey" FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE ONLY "public"."group_announcements" ADD CONSTRAINT "group_announcements_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."group_challenge_participants" ADD CONSTRAINT "group_challenge_participants_challenge_id_fkey" FOREIGN KEY (challenge_id) REFERENCES group_challenges(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."group_challenge_participants" ADD CONSTRAINT "group_challenge_participants_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."group_challenges" ADD CONSTRAINT "group_challenges_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE ONLY "public"."group_challenges" ADD CONSTRAINT "group_challenges_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."group_chat_messages" ADD CONSTRAINT "group_chat_messages_author_id_fkey" FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE ONLY "public"."group_chat_messages" ADD CONSTRAINT "group_chat_messages_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."group_chat_messages" ADD CONSTRAINT "group_chat_messages_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
-ALTER TABLE ONLY "public"."group_invites" ADD CONSTRAINT "group_invites_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
-ALTER TABLE ONLY "public"."group_invites" ADD CONSTRAINT "group_invites_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."group_members" ADD CONSTRAINT "group_members_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."group_members" ADD CONSTRAINT "group_members_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."group_milestones" ADD CONSTRAINT "group_milestones_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."groups" ADD CONSTRAINT "groups_owner_id_fkey" FOREIGN KEY (owner_id) REFERENCES auth.users(id);
-ALTER TABLE ONLY "public"."habits" ADD CONSTRAINT "habits_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."mock_tests" ADD CONSTRAINT "mock_tests_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."notifications" ADD CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."study_sessions_log" ADD CONSTRAINT "study_sessions_log_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."subjects" ADD CONSTRAINT "subjects_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."sync_items" ADD CONSTRAINT "sync_items_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."tasks" ADD CONSTRAINT "tasks_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."tests" ADD CONSTRAINT "tests_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."user_display_profiles" ADD CONSTRAINT "user_display_profiles_id_fkey" FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."user_onboarding" ADD CONSTRAINT "user_onboarding_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."user_points" ADD CONSTRAINT "user_points_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."user_presence" ADD CONSTRAINT "user_presence_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."user_profiles" ADD CONSTRAINT "user_profiles_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."user_roles" ADD CONSTRAINT "user_roles_granted_by_fkey" FOREIGN KEY (granted_by) REFERENCES auth.users(id) ON DELETE SET NULL;
-ALTER TABLE ONLY "public"."user_roles" ADD CONSTRAINT "user_roles_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."user_settings" ADD CONSTRAINT "user_settings_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."user_stats_summary" ADD CONSTRAINT "user_stats_summary_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."user_tours" ADD CONSTRAINT "user_tours_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."users" ADD CONSTRAINT "users_id_fkey" FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
-ALTER TABLE ONLY "public"."buddy_invites" ADD CONSTRAINT "buddy_invites_token_key" UNIQUE (token);
-ALTER TABLE ONLY "public"."community_device_tokens" ADD CONSTRAINT "community_device_tokens_user_id_token_key" UNIQUE (user_id, token);
-ALTER TABLE ONLY "public"."community_join_requests" ADD CONSTRAINT "community_join_requests_group_id_user_id_key" UNIQUE (group_id, user_id);
-ALTER TABLE ONLY "public"."community_start_alerts" ADD CONSTRAINT "community_start_alerts_user_id_target_type_target_id_key" UNIQUE (user_id, target_type, target_id);
-ALTER TABLE ONLY "public"."daily_user_stats" ADD CONSTRAINT "daily_user_stats_user_id_date_key" UNIQUE (user_id, date);
-ALTER TABLE ONLY "public"."group_challenge_participants" ADD CONSTRAINT "gcp_challenge_user_key" UNIQUE (challenge_id, user_id);
-ALTER TABLE ONLY "public"."group_challenge_participants" ADD CONSTRAINT "group_challenge_participants_challenge_id_user_id_key" UNIQUE (challenge_id, user_id);
-ALTER TABLE ONLY "public"."group_invites" ADD CONSTRAINT "group_invites_invite_code_key" UNIQUE (invite_code);
-ALTER TABLE ONLY "public"."group_invites" ADD CONSTRAINT "group_invites_token_key" UNIQUE (token);
-ALTER TABLE ONLY "public"."group_members" ADD CONSTRAINT "group_members_group_id_user_id_key" UNIQUE (group_id, user_id);
-ALTER TABLE ONLY "public"."groups" ADD CONSTRAINT "groups_slug_key" UNIQUE (slug);
-ALTER TABLE ONLY "public"."groups" ADD CONSTRAINT "groups_slug_unique" UNIQUE (slug);
-ALTER TABLE ONLY "public"."sync_items" ADD CONSTRAINT "sync_items_user_entity_id_unique" UNIQUE (user_id, entity, entity_id);
-ALTER TABLE ONLY "public"."user_inventory" ADD CONSTRAINT "user_inventory_user_id_item_id_key" UNIQUE (user_id, item_id);
-ALTER TABLE ONLY "public"."user_roles" ADD CONSTRAINT "user_roles_user_id_role_key" UNIQUE (user_id, role);
-ALTER TABLE ONLY "public"."user_tours" ADD CONSTRAINT "user_tours_user_id_tour_key_key" UNIQUE (user_id, tour_key);
-ALTER TABLE ONLY "public"."backup_manifests" ADD CONSTRAINT "backup_manifests_path_user_prefix" CHECK ((split_part(path, '/'::text, 1) = (user_id)::text));
-CREATE UNIQUE INDEX backup_manifests_bucket_path_idx ON public.backup_manifests USING btree (bucket, path);
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'backup_manifests_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."backup_manifests" ADD CONSTRAINT "backup_manifests_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'buddy_invites_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."buddy_invites" ADD CONSTRAINT "buddy_invites_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_device_tokens_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_device_tokens" ADD CONSTRAINT "community_device_tokens_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_enrollments_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_enrollments" ADD CONSTRAINT "community_enrollments_pkey" PRIMARY KEY (user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_event_attendees_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_event_attendees" ADD CONSTRAINT "community_event_attendees_pkey" PRIMARY KEY (event_id, user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_events_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_events" ADD CONSTRAINT "community_events_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_friends_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_friends" ADD CONSTRAINT "community_friends_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_join_requests_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_join_requests" ADD CONSTRAINT "community_join_requests_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_reports_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_reports" ADD CONSTRAINT "community_reports_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_start_alerts_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_start_alerts" ADD CONSTRAINT "community_start_alerts_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'daily_logs_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."daily_logs" ADD CONSTRAINT "daily_logs_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'daily_user_stats_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."daily_user_stats" ADD CONSTRAINT "daily_user_stats_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'exams_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."exams" ADD CONSTRAINT "exams_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'focus_sessions_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."focus_sessions" ADD CONSTRAINT "focus_sessions_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_announcements_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_announcements" ADD CONSTRAINT "group_announcements_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_challenge_participants_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_challenge_participants" ADD CONSTRAINT "group_challenge_participants_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_challenges_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_challenges" ADD CONSTRAINT "group_challenges_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_chat_messages_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_chat_messages" ADD CONSTRAINT "group_chat_messages_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_invites_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_invites" ADD CONSTRAINT "group_invites_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_members_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_members" ADD CONSTRAINT "group_members_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_milestones_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_milestones" ADD CONSTRAINT "group_milestones_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'groups_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."groups" ADD CONSTRAINT "groups_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'habits_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."habits" ADD CONSTRAINT "habits_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'mock_tests_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."mock_tests" ADD CONSTRAINT "mock_tests_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'notifications_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."notifications" ADD CONSTRAINT "notifications_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'store_items_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."store_items" ADD CONSTRAINT "store_items_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'study_sessions_log_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."study_sessions_log" ADD CONSTRAINT "study_sessions_log_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'subjects_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."subjects" ADD CONSTRAINT "subjects_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sync_items_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."sync_items" ADD CONSTRAINT "sync_items_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tasks_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."tasks" ADD CONSTRAINT "tasks_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tests_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."tests" ADD CONSTRAINT "tests_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_display_profiles_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_display_profiles" ADD CONSTRAINT "user_display_profiles_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_inventory_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_inventory" ADD CONSTRAINT "user_inventory_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_onboarding_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_onboarding" ADD CONSTRAINT "user_onboarding_pkey" PRIMARY KEY (user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_points_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_points" ADD CONSTRAINT "user_points_pkey" PRIMARY KEY (user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_presence_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_presence" ADD CONSTRAINT "user_presence_pkey" PRIMARY KEY (user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_profiles_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_profiles" ADD CONSTRAINT "user_profiles_pkey" PRIMARY KEY (user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_roles_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_roles" ADD CONSTRAINT "user_roles_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_settings_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_settings" ADD CONSTRAINT "user_settings_pkey" PRIMARY KEY (user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_stats_summary_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_stats_summary" ADD CONSTRAINT "user_stats_summary_pkey" PRIMARY KEY (user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_tours_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_tours" ADD CONSTRAINT "user_tours_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_pkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."users" ADD CONSTRAINT "users_pkey" PRIMARY KEY (id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'buddy_invites_inviter_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."buddy_invites" ADD CONSTRAINT "buddy_invites_inviter_id_fkey" FOREIGN KEY (inviter_id) REFERENCES users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_event_attendees_event_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_event_attendees" ADD CONSTRAINT "community_event_attendees_event_id_fkey" FOREIGN KEY (event_id) REFERENCES community_events(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_event_attendees_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_event_attendees" ADD CONSTRAINT "community_event_attendees_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_events_creator_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_events" ADD CONSTRAINT "community_events_creator_id_fkey" FOREIGN KEY (creator_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_events_host_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_events" ADD CONSTRAINT "community_events_host_user_id_fkey" FOREIGN KEY (host_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'daily_logs_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."daily_logs" ADD CONSTRAINT "daily_logs_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'daily_user_stats_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."daily_user_stats" ADD CONSTRAINT "daily_user_stats_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'exams_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."exams" ADD CONSTRAINT "exams_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'focus_sessions_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."focus_sessions" ADD CONSTRAINT "focus_sessions_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_announcements_author_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_announcements" ADD CONSTRAINT "group_announcements_author_id_fkey" FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_announcements_group_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_announcements" ADD CONSTRAINT "group_announcements_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_challenge_participants_challenge_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_challenge_participants" ADD CONSTRAINT "group_challenge_participants_challenge_id_fkey" FOREIGN KEY (challenge_id) REFERENCES group_challenges(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_challenge_participants_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_challenge_participants" ADD CONSTRAINT "group_challenge_participants_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_challenges_created_by_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_challenges" ADD CONSTRAINT "group_challenges_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_challenges_group_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_challenges" ADD CONSTRAINT "group_challenges_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_chat_messages_author_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_chat_messages" ADD CONSTRAINT "group_chat_messages_author_id_fkey" FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_chat_messages_group_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_chat_messages" ADD CONSTRAINT "group_chat_messages_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_chat_messages_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_chat_messages" ADD CONSTRAINT "group_chat_messages_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL NOT VALID;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_invites_created_by_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_invites" ADD CONSTRAINT "group_invites_created_by_fkey" FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_invites_group_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_invites" ADD CONSTRAINT "group_invites_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_members_group_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_members" ADD CONSTRAINT "group_members_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_members_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_members" ADD CONSTRAINT "group_members_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_milestones_group_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_milestones" ADD CONSTRAINT "group_milestones_group_id_fkey" FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'groups_owner_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."groups" ADD CONSTRAINT "groups_owner_id_fkey" FOREIGN KEY (owner_id) REFERENCES auth.users(id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'habits_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."habits" ADD CONSTRAINT "habits_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'mock_tests_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."mock_tests" ADD CONSTRAINT "mock_tests_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'notifications_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."notifications" ADD CONSTRAINT "notifications_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'study_sessions_log_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."study_sessions_log" ADD CONSTRAINT "study_sessions_log_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'subjects_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."subjects" ADD CONSTRAINT "subjects_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sync_items_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."sync_items" ADD CONSTRAINT "sync_items_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tasks_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."tasks" ADD CONSTRAINT "tasks_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tests_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."tests" ADD CONSTRAINT "tests_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_display_profiles_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_display_profiles" ADD CONSTRAINT "user_display_profiles_id_fkey" FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_onboarding_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_onboarding" ADD CONSTRAINT "user_onboarding_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_points_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_points" ADD CONSTRAINT "user_points_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_presence_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_presence" ADD CONSTRAINT "user_presence_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_profiles_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_profiles" ADD CONSTRAINT "user_profiles_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_roles_granted_by_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_roles" ADD CONSTRAINT "user_roles_granted_by_fkey" FOREIGN KEY (granted_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_roles_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_roles" ADD CONSTRAINT "user_roles_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_settings_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_settings" ADD CONSTRAINT "user_settings_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_stats_summary_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_stats_summary" ADD CONSTRAINT "user_stats_summary_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_tours_user_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_tours" ADD CONSTRAINT "user_tours_user_id_fkey" FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_id_fkey' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."users" ADD CONSTRAINT "users_id_fkey" FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE;
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'buddy_invites_token_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."buddy_invites" ADD CONSTRAINT "buddy_invites_token_key" UNIQUE (token);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_device_tokens_user_id_token_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_device_tokens" ADD CONSTRAINT "community_device_tokens_user_id_token_key" UNIQUE (user_id, token);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_join_requests_group_id_user_id_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_join_requests" ADD CONSTRAINT "community_join_requests_group_id_user_id_key" UNIQUE (group_id, user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'community_start_alerts_user_id_target_type_target_id_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."community_start_alerts" ADD CONSTRAINT "community_start_alerts_user_id_target_type_target_id_key" UNIQUE (user_id, target_type, target_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'daily_user_stats_user_id_date_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."daily_user_stats" ADD CONSTRAINT "daily_user_stats_user_id_date_key" UNIQUE (user_id, date);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gcp_challenge_user_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_challenge_participants" ADD CONSTRAINT "gcp_challenge_user_key" UNIQUE (challenge_id, user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_challenge_participants_challenge_id_user_id_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_challenge_participants" ADD CONSTRAINT "group_challenge_participants_challenge_id_user_id_key" UNIQUE (challenge_id, user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_invites_invite_code_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_invites" ADD CONSTRAINT "group_invites_invite_code_key" UNIQUE (invite_code);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_invites_token_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_invites" ADD CONSTRAINT "group_invites_token_key" UNIQUE (token);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'group_members_group_id_user_id_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."group_members" ADD CONSTRAINT "group_members_group_id_user_id_key" UNIQUE (group_id, user_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'groups_slug_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."groups" ADD CONSTRAINT "groups_slug_key" UNIQUE (slug);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'groups_slug_unique' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."groups" ADD CONSTRAINT "groups_slug_unique" UNIQUE (slug);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sync_items_user_entity_id_unique' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."sync_items" ADD CONSTRAINT "sync_items_user_entity_id_unique" UNIQUE (user_id, entity, entity_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_inventory_user_id_item_id_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_inventory" ADD CONSTRAINT "user_inventory_user_id_item_id_key" UNIQUE (user_id, item_id);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_roles_user_id_role_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_roles" ADD CONSTRAINT "user_roles_user_id_role_key" UNIQUE (user_id, role);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_tours_user_id_tour_key_key' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."user_tours" ADD CONSTRAINT "user_tours_user_id_tour_key_key" UNIQUE (user_id, tour_key);
+  END IF;
+END $iso_c$;
+DO $iso_c$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'backup_manifests_path_user_prefix' AND connamespace = 'public'::regnamespace) THEN
+    ALTER TABLE ONLY "public"."backup_manifests" ADD CONSTRAINT "backup_manifests_path_user_prefix" CHECK ((split_part(path, '/'::text, 1) = (user_id)::text));
+  END IF;
+END $iso_c$;
+CREATE UNIQUE INDEX IF NOT EXISTS backup_manifests_bucket_path_idx ON public.backup_manifests USING btree (bucket, path);
 CREATE INDEX IF NOT EXISTS backup_manifests_user_score_idx ON public.backup_manifests USING btree (user_id, selected_as_best DESC, score DESC, updated_at DESC);
-CREATE UNIQUE INDEX groups_slug_active_unique ON public.groups USING btree (slug) WHERE ((deleted_at IS NULL) AND (slug IS NOT NULL));
+CREATE UNIQUE INDEX IF NOT EXISTS groups_slug_active_unique ON public.groups USING btree (slug) WHERE ((deleted_at IS NULL) AND (slug IS NOT NULL));
 CREATE INDEX IF NOT EXISTS idx_ce_active_time ON public.community_events USING btree (is_active, start_time);
 CREATE INDEX IF NOT EXISTS idx_ce_featured ON public.community_events USING btree (is_featured) WHERE (is_featured = true);
 CREATE INDEX IF NOT EXISTS idx_cea_event ON public.community_event_attendees USING btree (event_id);
@@ -780,7 +1188,7 @@ CREATE INDEX IF NOT EXISTS idx_groups_is_public ON public.groups USING btree (is
 CREATE INDEX IF NOT EXISTS idx_groups_owner ON public.groups USING btree (owner_id);
 CREATE INDEX IF NOT EXISTS idx_groups_public ON public.groups USING btree (is_public) WHERE (is_public = true);
 CREATE INDEX IF NOT EXISTS idx_groups_slug ON public.groups USING btree (slug) WHERE (slug IS NOT NULL);
-CREATE UNIQUE INDEX idx_groups_slug_unique ON public.groups USING btree (slug) WHERE (slug IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_slug_unique ON public.groups USING btree (slug) WHERE (slug IS NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_notif_unread ON public.notifications USING btree (user_id, read_at) WHERE (read_at IS NULL);
 CREATE INDEX IF NOT EXISTS idx_notif_user_time ON public.notifications USING btree (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_points_lifetime ON public.user_points USING btree (lifetime_points DESC);
@@ -805,8 +1213,8 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_role ON public.user_roles USING btree 
 CREATE INDEX IF NOT EXISTS idx_users_plan_type ON public.users USING btree (plan_type);
 CREATE INDEX IF NOT EXISTS idx_users_username ON public.users USING btree (username);
 CREATE INDEX IF NOT EXISTS sync_items_status_idx ON public.sync_items USING btree (user_id, status);
-CREATE UNIQUE INDEX uq_community_friends_pair ON public.community_friends USING btree (LEAST(user_id, friend_id), GREATEST(user_id, friend_id));
-CREATE UNIQUE INDEX ux_profiles_handle ON public.user_profiles USING btree (lower(handle)) WHERE (handle IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_community_friends_pair ON public.community_friends USING btree (LEAST(user_id, friend_id), GREATEST(user_id, friend_id));
+CREATE UNIQUE INDEX IF NOT EXISTS ux_profiles_handle ON public.user_profiles USING btree (lower(handle)) WHERE (handle IS NOT NULL);
 CREATE OR REPLACE FUNCTION "private"."can_manage_group"(p_group_id uuid, p_user_id uuid)
  RETURNS boolean
  LANGUAGE sql

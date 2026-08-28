@@ -182,6 +182,23 @@ for (const s of SCHEMAS) {
 }
 add('');
 
+// Postgres has no `ADD CONSTRAINT IF NOT EXISTS`, so a bare
+// ALTER TABLE ... ADD CONSTRAINT aborts this whole transactional file on a
+// re-run — and the header advertises the dump as safe to run repeatedly. Each
+// constraint is emitted inside a guard that checks pg_constraint by name first.
+function addConstraint(schema, table, name, definition) {
+  const lines = [
+    'DO $iso_c$ BEGIN',
+    '  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = ' +
+      quoteLiteral(name) + ' AND connamespace = ' + quoteLiteral(schema) + '::regnamespace) THEN',
+    '    ALTER TABLE ONLY ' + sc(schema) + '.' + quoteIdent(table) +
+      ' ADD CONSTRAINT ' + quoteIdent(name) + ' ' + definition + ';',
+    '  END IF;',
+    'END $iso_c$;',
+  ];
+  add(lines.join('\n'));
+}
+
 // 6. primary keys
 for (const s of SCHEMAS) {
   rows = await query(`
@@ -192,7 +209,7 @@ for (const s of SCHEMAS) {
   where tc.constraint_type = 'PRIMARY KEY' and tc.table_schema = '${s.replace(/'/g, "''")}'
   group by tc.table_name, tc.constraint_name order by tc.table_name;`);
   for (const r of rows) {
-    add(`ALTER TABLE ONLY ${sc(s)}.${quoteIdent(r.table_name)} ADD CONSTRAINT ${quoteIdent(r.constraint_name)} PRIMARY KEY (${r.cols});`);
+    addConstraint(s, r.table_name, r.constraint_name, `PRIMARY KEY (${r.cols})`);
     counts.pks++;
   }
 }
@@ -205,7 +222,7 @@ for (const s of SCHEMAS) {
   from pg_constraint where connamespace = '${s.replace(/'/g, "''")}'::regnamespace and contype = 'f'
   order by conname;`);
   for (const r of rows) {
-    add(`ALTER TABLE ONLY ${sc(s)}.${quoteIdent(r.tbl.split('.').pop())} ADD CONSTRAINT ${quoteIdent(r.conname)} ${r.def};`);
+    addConstraint(s, r.tbl.split('.').pop(), r.conname, r.def);
     counts.fks++;
   }
   rows = await query(`
@@ -213,7 +230,7 @@ for (const s of SCHEMAS) {
   from pg_constraint where connamespace = '${s.replace(/'/g, "''")}'::regnamespace and contype = 'u'
   order by conname;`);
   for (const r of rows) {
-    add(`ALTER TABLE ONLY ${sc(s)}.${quoteIdent(r.tbl.split('.').pop())} ADD CONSTRAINT ${quoteIdent(r.conname)} ${r.def};`);
+    addConstraint(s, r.tbl.split('.').pop(), r.conname, r.def);
     counts.unique++;
   }
   rows = await query(`
@@ -221,7 +238,7 @@ for (const s of SCHEMAS) {
   from pg_constraint where connamespace = '${s.replace(/'/g, "''")}'::regnamespace and contype = 'c'
   order by conname;`);
   for (const r of rows) {
-    add(`ALTER TABLE ONLY ${sc(s)}.${quoteIdent(r.tbl.split('.').pop())} ADD CONSTRAINT ${quoteIdent(r.conname)} ${r.def};`);
+    addConstraint(s, r.tbl.split('.').pop(), r.conname, r.def);
     counts.checks++;
   }
 }
@@ -238,7 +255,11 @@ for (const s of SCHEMAS) {
     and not exists (select 1 from pg_constraint con where con.conindid = i.indexrelid)
   order by name;`);
   for (const r of rows) {
-    add(r.def.replace(/^CREATE INDEX/, 'CREATE INDEX IF NOT EXISTS') + ';');
+    // pg_get_indexdef emits CREATE INDEX or CREATE UNIQUE INDEX; only the
+    // former was guarded, so prod's 5 unique indexes (groups_slug_active_unique,
+    // uq_community_friends_pair, ...) broke a re-run of a file that claims to be
+    // idempotent.
+    add(r.def.replace(/^CREATE (UNIQUE )?INDEX /, function (m, u) { return 'CREATE ' + (u || '') + 'INDEX IF NOT EXISTS '; }) + ';');
     counts.indexes++;
   }
 }
@@ -387,7 +408,14 @@ BEGIN;
 const footer = `COMMIT;
 `;
 const final = header + out.join('\n') + '\n' + footer;
-const target = join(ROOT, 'sql', 'isotope-schema-restore.sql');
+// Default output is sql/isotope-schema-restore.sql. SCHEMA_OUT redirects it so
+// the same generator can also write isotope-code/isotope-complete.sql, rather
+// than maintaining a second copy of this script that drifts.
+const target = process.env.SCHEMA_OUT
+  ? (process.env.SCHEMA_OUT.startsWith('/')
+      ? process.env.SCHEMA_OUT
+      : join(ROOT, process.env.SCHEMA_OUT))
+  : join(ROOT, 'sql', 'isotope-schema-restore.sql');
 writeFileSync(target, final, 'utf8');
 
 console.log('Wrote ' + target + ' (' + (final.length / 1024).toFixed(1) + ' KB)');
