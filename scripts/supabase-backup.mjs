@@ -320,6 +320,14 @@ async function backup(args, env) {
     fk_order: [],
     buckets: [],
     storage_files: [],
+    // Routine/trigger/policy inventories. Verify previously checked only row
+    // counts, so a restore that applied every table but almost no functions
+    // still reported "91/91 checks passed" — which is exactly what happened when
+    // the BEGIN-stripping regex ate the `begin` from every plpgsql body. Counting
+    // these makes that class of failure visible instead of silent.
+    routines: [],
+    triggers: [],
+    policies: [],
     notes: [],
   };
 
@@ -384,6 +392,34 @@ async function backup(args, env) {
   const authRows = await sql.query(`select ${authDump.map((c) => `"${c.column_name}"`).join(', ')} from auth.users`);
   writeFileSync(join(args.out, 'db', 'auth.users.jsonl'), authRows.map((r) => JSON.stringify(r)).join('\n') + (authRows.length ? '\n' : ''));
   console.log(`[backup] auth.users: ${authRows.length} users`);
+
+  // Routine / trigger / policy inventory. Recorded so verify can prove the
+  // restored project actually has the code, not just the tables.
+  const schemaList = schemas.map((s) => `'${s.replace(/'/g, "''")}'`).join(', ');
+  manifest.routines = (await sql.query(`
+    select n.nspname as schema, p.proname as name,
+           pg_get_function_identity_arguments(p.oid) as args
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in (${schemaList}) and p.prokind in ('f','p')
+      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'i')
+    order by 1, 2, 3`)).map((r) => `${r.schema}.${r.name}(${r.args})`);
+  manifest.triggers = (await sql.query(`
+    select n.nspname as schema, c.relname as tbl, t.tgname as name
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname in (${schemaList}) and not t.tgisinternal
+    order by 1, 2, 3`)).map((r) => `${r.schema}.${r.tbl}.${r.name}`);
+  manifest.policies = (await sql.query(`
+    select n.nspname as schema, c.relname as tbl, pol.polname as name
+    from pg_policy pol
+    join pg_class c on c.oid = pol.polrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname in (${schemaList})
+    order by 1, 2, 3`)).map((r) => `${r.schema}.${r.tbl}.${r.name}`);
+  console.log(`[backup] code: ${manifest.routines.length} routines, ` +
+    `${manifest.triggers.length} triggers, ${manifest.policies.length} policies`);
 
   // storage buckets + objects
   if (!args['no-storage']) {
@@ -460,24 +496,70 @@ async function restore(args, env) {
   //    constraint errors on retry. Strip BEGIN/COMMIT since we're not in a transaction.
   const schemaFile = join(args.src, 'schema.sql');
   if (existsSync(schemaFile)) {
-    let sqlText = readFileSync(schemaFile, 'utf8');
-    // Strip transaction wrappers — management API doesn't support multi-statement transactions
-    sqlText = sqlText.replace(/^\s*BEGIN\s*;?\s*\n/gim, '').replace(/^\s*COMMIT\s*;?\s*\n/gim, '');
-    const stmts = splitStatements(sqlText);
-    console.log(`[restore] applying schema (${stmts.length} statements, one at a time)…`);
+    const sqlText = readFileSync(schemaFile, 'utf8');
+    // Split FIRST, then drop the transaction wrappers as whole statements.
+    //
+    // This used to run
+    //     sqlText.replace(/^\s*BEGIN\s*;?\s*\n/gim, '')
+    // over the raw file. With the `m` flag `^` matches the start of EVERY line,
+    // so it deleted the `begin` keyword from inside every plpgsql function body
+    // as well as the file's own BEGIN; wrapper. Every function with a
+    // `declare … begin … end` block then failed with
+    //     syntax error at or near "if" / "INSERT" / "IF TG_OP"
+    // and the restore silently produced a database with tables but almost no
+    // RPCs. Removing wrappers at statement granularity cannot touch a body.
+    const stmts = splitStatements(sqlText)
+      .filter((s) => s && !/^(BEGIN|COMMIT|START\s+TRANSACTION|END)\s*;?$/i.test(s.trim()));
+
+    // Applied in BATCHES, in order.
+    //
+    // One statement per HTTP request meant 1772 round-trips — 30-60 minutes on a
+    // mobile connection. Measured against the management API: a single statement
+    // costs ~2200ms, fifty in one request ~845ms. Batching turns the whole schema
+    // into ~36 requests, well under a minute.
+    //
+    // Order is PRESERVED and batches are sequential: the dump is
+    // dependency-ordered (tables -> constraints -> functions -> triggers ->
+    // policies), so running parts concurrently would attempt a foreign key
+    // against a table another part had not created yet.
+    //
+    // On a batch failure the batch is REPLAYED one statement at a time, so a
+    // real error is still reported with its exact statement. That replay is safe
+    // because every emitted statement is idempotent (IF NOT EXISTS, guarded
+    // ADD CONSTRAINT, DROP POLICY IF EXISTS), so re-running a partially applied
+    // batch cannot corrupt anything.
+    const BATCH = 50;
+    const IDEMPOTENT = /already exists|does not exist|duplicate|skipping|multiple primary keys|is not a|must be owner/i;
+    console.log(`[restore] applying schema (${stmts.length} statements in batches of ${BATCH})…`);
     let ok = 0, skipped = 0, failed = 0;
-    for (const stmt of stmts) {
+    const failures = [];
+
+    const applyOne = async (stmt) => {
       try { await sql.query(stmt); ok++; }
       catch (e) {
         const msg = e.message || '';
-        // "already exists" / "does not exist" / "multiple primary keys" are expected idempotency errors — safe to skip
-        if (/already exists|does not exist|duplicate|skipping|multiple primary keys/i.test(msg)) { skipped++; continue; }
+        if (IDEMPOTENT.test(msg)) { skipped++; return; }
         failed++;
-        if (failed <= 20) console.log(`  schema FAILED: ${msg.slice(0, 250)}`);
+        if (failures.length < 20) failures.push({ stmt: stmt.slice(0, 160), msg: msg.slice(0, 220) });
       }
-      if ((ok + failed) % 100 === 0) process.stdout.write(`  ${ok + failed}/${stmts.length}…\r`);
+    };
+
+    for (let i = 0; i < stmts.length; i += BATCH) {
+      const chunk = stmts.slice(i, i + BATCH);
+      try {
+        await sql.query(chunk.join(';\n') + ';');
+        ok += chunk.length;
+      } catch (e) {
+        // Batch failed: find out precisely which statement, and why.
+        for (const stmt of chunk) await applyOne(stmt);
+      }
+      process.stdout.write(`  ${Math.min(i + BATCH, stmts.length)}/${stmts.length}…\r`);
     }
     console.log(`[restore] schema: ${ok} applied, ${skipped} skipped (idempotent), ${failed} failed`);
+    for (const f of failures) {
+      console.log(`  schema FAILED: ${f.msg}`);
+      console.log(`             at: ${f.stmt.replace(/\s+/g, ' ')}`);
+    }
   } else {
     console.log('[restore] no schema.sql — assuming target already has schema');
   }
@@ -489,18 +571,33 @@ async function restore(args, env) {
     const cols = manifest.auth_columns;
     console.log(`[restore] auth.users: ${rows.length} users`);
     let ok = 0, failed = 0;
-    for (const r of rows) {
+    const colList = cols.map((c) => `"${c.name}"`).join(', ');
+    const valuesFor = (r) => `(${cols.map((c) => lit(r[c.name], c.cast)).join(', ')})`;
+
+    // Batched, same reasoning as the schema: one request per user was 43 round
+    // trips. On batch failure, fall back to per-row so a single bad user cannot
+    // hide the other 42 — and so its error is still reported by email.
+    const AUTH_BATCH = 25;
+    for (let i = 0; i < rows.length; i += AUTH_BATCH) {
+      const chunk = rows.slice(i, i + AUTH_BATCH);
       try {
-        await sql.query(`insert into auth.users (${cols.map((c) => `"${c.name}"`).join(', ')}) values (${cols.map((c) => lit(r[c.name], c.cast)).join(', ')}) on conflict (id) do nothing`);
-        ok++;
-      } catch (e) {
-        // ON CONFLICT might fail if PK constraint name differs — try plain insert
+        await sql.query(`insert into auth.users (${colList}) values ${chunk.map(valuesFor).join(', ')} on conflict (id) do nothing`);
+        ok += chunk.length;
+        continue;
+      } catch (e) { /* fall through to per-row */ }
+      for (const r of chunk) {
         try {
-          await sql.query(`insert into auth.users (${cols.map((c) => `"${c.name}"`).join(', ')}) values (${cols.map((c) => lit(r[c.name], c.cast)).join(', ')})`);
+          await sql.query(`insert into auth.users (${colList}) values ${valuesFor(r)} on conflict (id) do nothing`);
           ok++;
-        } catch (e2) {
-          failed++;
-          if (failed <= 10) console.log(`  auth user ${r.email || r.id} FAILED: ${e2.message.slice(0, 200)}`);
+        } catch (e) {
+          // ON CONFLICT can fail if the PK constraint name differs on the target
+          try {
+            await sql.query(`insert into auth.users (${colList}) values ${valuesFor(r)}`);
+            ok++;
+          } catch (e2) {
+            failed++;
+            if (failed <= 10) console.log(`  auth user ${r.email || r.id} FAILED: ${e2.message.slice(0, 200)}`);
+          }
         }
       }
     }
@@ -716,6 +813,52 @@ async function verify(args, env) {
       try { actual = await countObjects(b.id); } catch (e) { check(false, `objects ${b.id}`, e.message.slice(0, 120)); continue; }
       check(actual === expect, `objects ${b.id}`, `${actual} ${actual === expect ? '==' : '!='} ${expect}`);
     }
+  }
+
+  // ── routines / triggers / policies ────────────────────────────────────────
+  // The gap that let a broken restore report 91/91: only row counts were
+  // checked, so a target with every table and almost no functions passed. A
+  // database with no RPCs cannot run the app, and that must fail verification.
+  const codeSchemas = (manifest.schemas || ['public'])
+    .map((s) => `'${s.replace(/'/g, "''")}'`).join(', ');
+  if (Array.isArray(manifest.routines) && manifest.routines.length) {
+    const live = new Set((await sql.query(`
+      select n.nspname as schema, p.proname as name,
+             pg_get_function_identity_arguments(p.oid) as args
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname in (${codeSchemas}) and p.prokind in ('f','p')
+        and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'i')
+    `)).map((r) => `${r.schema}.${r.name}(${r.args})`));
+    const missing = manifest.routines.filter((k) => !live.has(k));
+    check(missing.length === 0, `routines ${live.size}/${manifest.routines.length}`,
+      missing.length ? `MISSING ${missing.length}: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ' …' : ''}` : 'all present');
+  } else {
+    console.log('  WARN routines — backup predates routine inventory, cannot verify code');
+  }
+  if (Array.isArray(manifest.triggers) && manifest.triggers.length) {
+    const live = new Set((await sql.query(`
+      select n.nspname as schema, c.relname as tbl, t.tgname as name
+      from pg_trigger t
+      join pg_class c on c.oid = t.tgrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname in (${codeSchemas}) and not t.tgisinternal
+    `)).map((r) => `${r.schema}.${r.tbl}.${r.name}`));
+    const missing = manifest.triggers.filter((k) => !live.has(k));
+    check(missing.length === 0, `triggers ${live.size}/${manifest.triggers.length}`,
+      missing.length ? `MISSING ${missing.length}: ${missing.slice(0, 5).join(', ')}` : 'all present');
+  }
+  if (Array.isArray(manifest.policies) && manifest.policies.length) {
+    const live = new Set((await sql.query(`
+      select n.nspname as schema, c.relname as tbl, pol.polname as name
+      from pg_policy pol
+      join pg_class c on c.oid = pol.polrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname in (${codeSchemas})
+    `)).map((r) => `${r.schema}.${r.tbl}.${r.name}`));
+    const missing = manifest.policies.filter((k) => !live.has(k));
+    check(missing.length === 0, `policies ${live.size}/${manifest.policies.length}`,
+      missing.length ? `MISSING ${missing.length}: ${missing.slice(0, 5).join(', ')}` : 'all present');
   }
 
   const status = fail ? 'FAIL' : 'PASS';

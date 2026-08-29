@@ -255,18 +255,54 @@ cmd_backup() {
 # ── restore ─────────────────────────────────────────────────────────────────
 cmd_restore() {
   need_node
-  [[ $# -ge 1 ]] || die "usage: restore <backup.tar.gz> [keys…]"
+  [[ $# -ge 1 ]] || die "usage: restore <backup.tar.gz> --supabase-url=<target> [keys…]"
   local tarball="$1"; shift
   parse_keys "$@"
+
+  # The restore TARGET must be stated explicitly. Previously this fell through
+  # to load_env_keys, which reads .backup_env then .env — files that normally
+  # hold PRODUCTION credentials. So `./backup.sh restore dump.tar.gz` with no
+  # --supabase-url silently wrote 42 auth users and every table into live prod.
+  # A restore is the one command that must never guess where it is pointing.
+  [[ -n "${CLI_URL:-}" ]] || die "restore requires an explicit --supabase-url=<target project url>
+       (refusing to infer the target from .backup_env/.env — that is production)"
+
+  local target_url="$SUPABASE_URL"
   reset_env_keys
 
   [[ -f "$tarball" ]] || die "backup tarball not found: $tarball"
 
-  # keys: CLI > .backup_env > .env (inherited env is discarded — see reset_env_keys)
+  # Remaining keys may come from .backup_env/.env, but the URL stays as given.
   load_env_keys
-  [[ -n "${SUPABASE_URL:-}" ]] || die "missing --supabase-url=<target project url>"
+  SUPABASE_URL="$target_url"
   [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]] || die "missing --pat=<management api token>"
   resolve_service_key
+
+  # Loud confirmation of where the data is about to land, and a warning if the
+  # target happens to be the project this checkout normally talks to.
+  #
+  # Read with a plain while-read loop, not a grep|head|cut|tr pipeline: under
+  # `set -o pipefail` the early-exiting `head -1` makes grep die on SIGPIPE, so
+  # the whole pipeline returns non-zero and `set -e` aborts the restore before it
+  # starts. That is exactly how this guard silently killed the command.
+  say "RESTORE TARGET: $SUPABASE_URL"
+  local local_url="" cfg line
+  for cfg in "$ROOT/.backup_env" "$ROOT/.env"; do
+    [[ -f "$cfg" ]] || continue
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" == SUPABASE_URL=* ]]; then
+        local_url="${line#SUPABASE_URL=}"
+        local_url="${local_url%$'\r'}"
+        local_url="${local_url//\"/}"
+        local_url="${local_url//\'/}"
+        break
+      fi
+    done < "$cfg"
+    [[ -n "$local_url" ]] && break
+  done
+  if [[ -n "$local_url" && "$local_url" == "$SUPABASE_URL" ]]; then
+    warn "target is the SAME project this checkout uses — restoring onto your own database"
+  fi
 
   local work
   work="$(mktemp -d "$(mktmpdir)/isotope-restore.XXXXXX")"

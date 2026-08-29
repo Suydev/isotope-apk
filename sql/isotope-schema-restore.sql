@@ -1,6 +1,6 @@
 -- =============================================================================
 -- IsotopeAI — full portable schema dump (NO user data)
--- Generated: 2026-08-28 14:52:43 UTC
+-- Generated: 2026-08-29 10:10:35 UTC
 -- Project ref: ollsqiutzartjhiuzkbf
 -- Schemas: private, rpc_private, public
 --
@@ -1220,7 +1220,7 @@ CREATE OR REPLACE FUNCTION "private"."can_manage_group"(p_group_id uuid, p_user_
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -1244,7 +1244,7 @@ CREATE OR REPLACE FUNCTION "private"."is_group_member"(p_group_id uuid, p_user_i
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -1260,7 +1260,7 @@ CREATE OR REPLACE FUNCTION "rpc_private"."accept_invite"(p_code text)
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -1326,7 +1326,7 @@ CREATE OR REPLACE FUNCTION "rpc_private"."get_invite_details"(p_code text)
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -1354,7 +1354,7 @@ CREATE OR REPLACE FUNCTION "rpc_private"."join_community_event"(p_event_id uuid)
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -1395,7 +1395,7 @@ CREATE OR REPLACE FUNCTION "rpc_private"."leave_community_event"(p_event_id uuid
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -1426,7 +1426,7 @@ CREATE OR REPLACE FUNCTION "rpc_private"."purchase_store_item"(p_user_id uuid, p
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -1485,7 +1485,7 @@ CREATE OR REPLACE FUNCTION "public"."_auto_add_group_owner"()
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -1501,7 +1501,7 @@ CREATE OR REPLACE FUNCTION "public"."_auto_add_super_admin"()
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -1680,7 +1680,7 @@ CREATE OR REPLACE FUNCTION "public"."check_user_role"(p_user_id uuid, p_role tex
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -1691,7 +1691,7 @@ CREATE OR REPLACE FUNCTION "public"."cleanup_old_notifications"()
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -2752,7 +2752,7 @@ CREATE OR REPLACE FUNCTION "public"."expire_stale_presence"()
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -2997,7 +2997,7 @@ CREATE OR REPLACE FUNCTION "public"."get_my_group_ids"()
  LANGUAGE sql
  STABLE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
  SELECT ARRAY(SELECT group_id FROM public.group_members WHERE user_id = (SELECT auth.uid()));
@@ -3006,7 +3006,7 @@ CREATE OR REPLACE FUNCTION "public"."get_my_role"()
  RETURNS text
  LANGUAGE sql
  STABLE
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -3057,7 +3057,7 @@ CREATE OR REPLACE FUNCTION "public"."is_premium_user"()
  RETURNS boolean
  LANGUAGE sql
  STABLE
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
  SELECT true;
@@ -3208,7 +3208,7 @@ CREATE OR REPLACE FUNCTION "public"."purchase_store_item"(p_user_id uuid, p_item
  RETURNS jsonb
  LANGUAGE sql
  VOLATILE
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -3219,7 +3219,7 @@ CREATE OR REPLACE FUNCTION "public"."rls_auto_enable"()
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -3250,7 +3250,7 @@ CREATE OR REPLACE FUNCTION "public"."set_group_slug_from_name"()
  RETURNS trigger
  LANGUAGE plpgsql
  VOLATILE
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -3268,7 +3268,7 @@ CREATE OR REPLACE FUNCTION "public"."set_user_tours_updated_at"()
  RETURNS trigger
  LANGUAGE plpgsql
  VOLATILE
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -3279,7 +3279,7 @@ CREATE OR REPLACE FUNCTION "public"."sync_group_member_count"()
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -3296,7 +3296,7 @@ CREATE OR REPLACE FUNCTION "public"."sync_group_visibility"()
  RETURNS trigger
  LANGUAGE plpgsql
  VOLATILE
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -3316,7 +3316,7 @@ CREATE OR REPLACE FUNCTION "public"."sync_user_display_profile"()
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -3340,7 +3340,7 @@ CREATE OR REPLACE FUNCTION "public"."sync_user_onboarding_from_profile"()
  LANGUAGE plpgsql
  VOLATILE
  SECURITY DEFINER
- SET "search_path" TO '""""""'
+ SET "search_path" TO ''
  AS $iso_fn$
 
 
@@ -4947,4 +4947,39 @@ GRANT EXECUTE ON FUNCTION "public"."sync_user_display_profile"() TO anon;
 GRANT EXECUTE ON FUNCTION "public"."sync_user_onboarding_from_profile"() TO anon;
 GRANT EXECUTE ON FUNCTION "public"."update_community_event"(p_id uuid, p_title text, p_event_type text, p_description text, p_host text, p_start_time timestamp with time zone, p_end_time timestamp with time zone, p_image_gradient text, p_image_url text, p_tags text[], p_max_attendees integer, p_is_featured boolean, p_is_active boolean) TO anon;
 GRANT EXECUTE ON FUNCTION "public"."update_group_member_role"(p_group_id uuid, p_target_uid uuid, p_new_role text) TO anon;
+-- storage buckets (id, visibility, size cap, allowed types)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  VALUES ('avatars', 'avatars', true, 2097152, ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif']::text[])
+  ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public,
+    file_size_limit = EXCLUDED.file_size_limit,
+    allowed_mime_types = EXCLUDED.allowed_mime_types;
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  VALUES ('notes', 'notes', false, 10485760, NULL)
+  ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public,
+    file_size_limit = EXCLUDED.file_size_limit,
+    allowed_mime_types = EXCLUDED.allowed_mime_types;
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  VALUES ('user-content', 'user-content', false, 52428800, NULL)
+  ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public,
+    file_size_limit = EXCLUDED.file_size_limit,
+    allowed_mime_types = EXCLUDED.allowed_mime_types;
+-- storage access policies
+DROP POLICY IF EXISTS "avatars owner delete" ON storage."objects";
+CREATE POLICY "avatars owner delete" ON storage."objects" FOR DELETE TO public USING (((bucket_id = 'avatars'::text) AND (auth.role() = 'authenticated'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
+DROP POLICY IF EXISTS "avatars owner update" ON storage."objects";
+CREATE POLICY "avatars owner update" ON storage."objects" FOR UPDATE TO public USING (((bucket_id = 'avatars'::text) AND (auth.role() = 'authenticated'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
+DROP POLICY IF EXISTS "avatars owner write" ON storage."objects";
+CREATE POLICY "avatars owner write" ON storage."objects" FOR INSERT TO public WITH CHECK (((bucket_id = 'avatars'::text) AND (auth.role() = 'authenticated'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
+DROP POLICY IF EXISTS "avatars public read" ON storage."objects";
+CREATE POLICY "avatars public read" ON storage."objects" FOR SELECT TO public USING ((bucket_id = 'avatars'::text));
+DROP POLICY IF EXISTS "notes owner all" ON storage."objects";
+CREATE POLICY "notes owner all" ON storage."objects" FOR ALL TO public USING (((bucket_id = 'notes'::text) AND (auth.role() = 'authenticated'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text))) WITH CHECK (((bucket_id = 'notes'::text) AND (auth.role() = 'authenticated'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
+DROP POLICY IF EXISTS "user-content owner delete" ON storage."objects";
+CREATE POLICY "user-content owner delete" ON storage."objects" FOR DELETE TO public USING (((bucket_id = 'user-content'::text) AND (auth.role() = 'authenticated'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
+DROP POLICY IF EXISTS "user-content owner read" ON storage."objects";
+CREATE POLICY "user-content owner read" ON storage."objects" FOR SELECT TO public USING (((bucket_id = 'user-content'::text) AND (auth.role() = 'authenticated'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
+DROP POLICY IF EXISTS "user-content owner update" ON storage."objects";
+CREATE POLICY "user-content owner update" ON storage."objects" FOR UPDATE TO public USING (((bucket_id = 'user-content'::text) AND (auth.role() = 'authenticated'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
+DROP POLICY IF EXISTS "user-content owner write" ON storage."objects";
+CREATE POLICY "user-content owner write" ON storage."objects" FOR INSERT TO public WITH CHECK (((bucket_id = 'user-content'::text) AND (auth.role() = 'authenticated'::text) AND ((storage.foldername(name))[1] = (auth.uid())::text)));
 COMMIT;
