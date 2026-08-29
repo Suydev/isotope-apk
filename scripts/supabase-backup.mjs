@@ -8,13 +8,31 @@
 // restore: node scripts/supabase-backup.mjs restore --src DIR
 //            --supabase-url URL --anon-key K --service-key K --pat TOKEN
 //            [--no-storage]
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = dirname(fileURLToPath(import.meta.url)) === process.cwd()
   ? process.cwd()
   : join(dirname(fileURLToPath(import.meta.url)), '..');
+
+// ── Structured progress ──────────────────────────────────────────────────────
+// The web console reads THESE events, never the human-readable log. Parsing prose
+// produces a UI that breaks whenever a message is reworded, and the log is also
+// where errors are truncated for readability — the wrong source for a progress bar.
+//
+// Writes are append-only single lines so a reader tailing the file can never see a
+// half-written record: it stops at the last newline. Silent no-op when
+// ISO_PROGRESS_FILE is unset, so nothing changes for plain CLI use.
+const PROGRESS_FILE = process.env.ISO_PROGRESS_FILE || null;
+function emit(event) {
+  if (!PROGRESS_FILE) return;
+  try {
+    appendFileSync(PROGRESS_FILE, JSON.stringify({ t: Date.now(), ...event }) + '\n');
+  } catch {
+    // Progress reporting must never be able to fail the job it is reporting on.
+  }
+}
 
 const EXCLUDE_SCHEMAS = new Set([
   'pg_catalog', 'information_schema', 'pg_toast', 'auth', 'storage', 'vault',
@@ -334,6 +352,8 @@ async function backup(args, env) {
   // data tables (exclude auth — handled separately)
   const tables = (await tableList(sql)).filter((t) => t.schema !== 'auth');
   console.log(`[backup] tables: ${tables.length}`);
+  emit({ phase: 'dump', state: 'running', done: 0, total: tables.length, failed: 0 });
+  let dumped = 0, dumpFailed = 0;
   const allCols = await sql.query(`select table_schema, table_name, column_name,
       is_nullable, is_generated, data_type, udt_schema, udt_name
     from information_schema.columns
@@ -364,6 +384,9 @@ async function backup(args, env) {
     } catch (e) {
       manifest.notes.push(`table ${t.schema}.${t.table}: select failed — ${e.message.slice(0, 150)}`);
       console.log(`[backup] SKIP ${t.schema}.${t.table}: ${e.message.slice(0, 120)}`);
+      dumpFailed++;
+      emit({ phase: 'dump', level: 'error', msg: `${t.schema}.${t.table}: ${e.message.slice(0, 160)}` });
+      emit({ phase: 'dump', done: ++dumped, total: tables.length, failed: dumpFailed });
       continue;
     }
     writeFileSync(file, rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''));
@@ -371,7 +394,9 @@ async function backup(args, env) {
     byKey.set(`${t.schema}.${t.table}`, info);
     manifest.tables.push(info);
     console.log(`[backup] ${t.schema}.${t.table}: ${rows.length} rows`);
+    emit({ phase: 'dump', done: ++dumped, total: tables.length, failed: dumpFailed, table: `${t.schema}.${t.table}`, rows: rows.length });
   }
+  emit({ phase: 'dump', state: 'done', done: dumped, total: tables.length, failed: dumpFailed });
 
   // FK order (auth.users counted as a source that never depends on us)
   const fks = await foreignKeys(sql, [...schemas, 'auth']);
@@ -452,6 +477,8 @@ async function backup(args, env) {
           continue;
         }
         console.log(`[backup] bucket ${b.id}: ${files.length} objects`);
+        emit({ phase: 'fetch', state: 'running', bucket: b.id, total: files.length, done: 0 });
+        let got = 0;
         for (const rel of files) {
           const file = join(args.out, 'storage', b.id, ...rel.split('/'));
           try {
@@ -459,9 +486,11 @@ async function backup(args, env) {
             mkdirSync(dirname(file), { recursive: true });
             writeFileSync(file, buf);
             manifest.storage_files.push({ bucket: b.id, path: rel, size: buf.length, sha256: await sha256(buf) });
+            emit({ phase: 'fetch', bucket: b.id, done: ++got, total: files.length });
           } catch (e) {
             manifest.notes.push(`storage ${b.id}/${rel}: download failed — ${e.message.slice(0, 150)}`);
             console.log(`[backup] FAIL ${b.id}/${rel}: ${e.message.slice(0, 120)}`);
+            emit({ phase: 'fetch', level: 'error', msg: `${b.id}/${rel}: ${e.message.slice(0, 160)}` });
           }
         }
       }
@@ -470,6 +499,7 @@ async function backup(args, env) {
 
   writeFileSync(join(args.out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   console.log(`[backup] DONE: ${manifest.tables.length} tables, ${authRows.length} auth users, ${manifest.storage_files.length} storage files`);
+  emit({ phase: 'backup', state: 'done', tables: manifest.tables.length, users: authRows.length, files: manifest.storage_files.length });
   if (manifest.notes.length) console.log('[backup] notes:\n  ' + manifest.notes.join('\n  '));
 }
 
@@ -531,6 +561,7 @@ async function restore(args, env) {
     const BATCH = 50;
     const IDEMPOTENT = /already exists|does not exist|duplicate|skipping|multiple primary keys|is not a|must be owner/i;
     console.log(`[restore] applying schema (${stmts.length} statements in batches of ${BATCH})…`);
+    emit({ phase: 'schema', state: 'running', done: 0, total: stmts.length, failed: 0, skipped: 0 });
     let ok = 0, skipped = 0, failed = 0;
     const failures = [];
 
@@ -541,6 +572,7 @@ async function restore(args, env) {
         if (IDEMPOTENT.test(msg)) { skipped++; return; }
         failed++;
         if (failures.length < 20) failures.push({ stmt: stmt.slice(0, 160), msg: msg.slice(0, 220) });
+        emit({ phase: 'schema', level: 'error', msg: msg.slice(0, 220), stmt: stmt.slice(0, 160) });
       }
     };
 
@@ -554,8 +586,10 @@ async function restore(args, env) {
         for (const stmt of chunk) await applyOne(stmt);
       }
       process.stdout.write(`  ${Math.min(i + BATCH, stmts.length)}/${stmts.length}…\r`);
+      emit({ phase: 'schema', done: Math.min(i + BATCH, stmts.length), total: stmts.length, ok, failed, skipped });
     }
     console.log(`[restore] schema: ${ok} applied, ${skipped} skipped (idempotent), ${failed} failed`);
+    emit({ phase: 'schema', state: 'done', done: stmts.length, total: stmts.length, ok, failed, skipped });
     for (const f of failures) {
       console.log(`  schema FAILED: ${f.msg}`);
       console.log(`             at: ${f.stmt.replace(/\s+/g, ' ')}`);
@@ -570,6 +604,7 @@ async function restore(args, env) {
     const rows = readFileSync(authFile, 'utf8').split('\n').filter(Boolean).map(JSON.parse);
     const cols = manifest.auth_columns;
     console.log(`[restore] auth.users: ${rows.length} users`);
+    emit({ phase: 'auth', state: 'running', done: 0, total: rows.length, failed: 0 });
     let ok = 0, failed = 0;
     const colList = cols.map((c) => `"${c.name}"`).join(', ');
     const valuesFor = (r) => `(${cols.map((c) => lit(r[c.name], c.cast)).join(', ')})`;
@@ -596,12 +631,14 @@ async function restore(args, env) {
             ok++;
           } catch (e2) {
             failed++;
+            emit({ phase: 'auth', level: 'error', msg: `${r.email || r.id}: ${e2.message.slice(0, 180)}` });
             if (failed <= 10) console.log(`  auth user ${r.email || r.id} FAILED: ${e2.message.slice(0, 200)}`);
           }
         }
       }
     }
     console.log(`[restore] auth.users: ${ok} ok, ${failed} failed`);
+    emit({ phase: 'auth', state: 'done', done: rows.length, total: rows.length, ok, failed });
   }
 
   // 3. data tables in FK order (guard against degenerate manifests from older
@@ -613,6 +650,8 @@ async function restore(args, env) {
     order = [...order, ...missing];
     console.log(`[restore] manifest fk_order incomplete — appended ${missing.length} missing table(s)`);
   }
+  emit({ phase: 'data', state: 'running', done: 0, total: order.length, failed: 0 });
+  let tablesDone = 0, tablesFailed = 0;
   for (const key of order) {
     const info = manifest.tables.find((t) => `${t.schema}.${t.table}` === key);
     if (!info) continue;
@@ -641,7 +680,12 @@ async function restore(args, env) {
       }
     }
     console.log(`[restore] ${key}: ${ok} ok, ${failed} failed`);
+    tablesDone++;
+    if (failed) tablesFailed++;
+    if (failed) emit({ phase: 'data', level: 'error', msg: `${key}: ${failed} row(s) failed` });
+    emit({ phase: 'data', done: tablesDone, total: order.length, failed: tablesFailed, table: key, rows: ok });
   }
+  emit({ phase: 'data', state: 'done', done: order.length, total: order.length, failed: tablesFailed });
 
   // 4. advance sequences
   for (const info of manifest.tables) {
@@ -675,6 +719,7 @@ async function restore(args, env) {
         } catch (e) { console.log(`[restore] bucket ${b.id}: ${e.message.slice(0, 150)}`); }
       }
       let ok = 0, failed = 0;
+      emit({ phase: 'storage', state: 'running', done: 0, total: manifest.storage_files.length, failed: 0 });
       const retries = (fn, n = 3) => fn().catch(async (e) => {
         if (n <= 1 || !/fetch failed|ECONNRESET|ETIMEDOUT|socket/i.test(e.message || '')) throw e;
         await new Promise((r) => { setTimeout(r, 1500); });
@@ -691,13 +736,20 @@ async function restore(args, env) {
           }
           await retries(() => st.upload(f.bucket, f.path, buf, true));
           ok++;
-        } catch (e) { failed++; console.log(`  upload FAILED ${f.bucket}/${f.path}: ${e.message.slice(0, 150)}`); }
+        } catch (e) {
+          failed++;
+          emit({ phase: 'storage', level: 'error', msg: `${f.bucket}/${f.path}: ${e.message.slice(0, 160)}` });
+          console.log(`  upload FAILED ${f.bucket}/${f.path}: ${e.message.slice(0, 150)}`);
+        }
+        emit({ phase: 'storage', done: ok + failed, total: manifest.storage_files.length, ok, failed });
       }
       console.log(`[restore] storage: ${ok} ok, ${failed} failed`);
+      emit({ phase: 'storage', state: 'done', done: ok + failed, total: manifest.storage_files.length, ok, failed });
     }
   }
 
   console.log(`[restore] DONE (${project})`);
+  emit({ phase: 'restore', state: 'done', msg: `restore finished on ${project}` });
 }
 
 function chunkRows(rows, n) {
@@ -731,6 +783,8 @@ async function verify(args, env) {
   const check = (ok, label, detail = '') => {
     checked++;
     if (!ok) fail++;
+    emit({ phase: 'verify', done: checked, failed: fail, label, ok });
+    if (!ok) emit({ phase: 'verify', level: 'error', msg: `${label} — ${detail}` });
     console.log(`  ${ok ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
   };
 
@@ -863,6 +917,7 @@ async function verify(args, env) {
 
   const status = fail ? 'FAIL' : 'PASS';
   console.log(`[verify] RESULT: ${status} (${checked - fail}/${checked} checks passed)`);
+  emit({ phase: 'verify', state: 'done', done: checked, total: checked, failed: fail, result: status });
   return fail === 0;
 }
 
