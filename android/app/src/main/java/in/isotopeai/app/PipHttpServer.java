@@ -13,6 +13,11 @@ import java.net.Socket;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -37,6 +42,27 @@ public final class PipHttpServer {
     public static void resetOAuthReturn() {
         oauthReturnConsumed = false;
     }
+    /**
+     * Bounded worker pool for connections.
+     *
+     * Sized above the expected number of concurrent SSE streams, because each
+     * event stream occupies its worker until the client disconnects — a pool
+     * sized for request/response would stall as soon as two streams were open.
+     * Daemon threads so they never hold the process alive.
+     *
+     * SynchronousQueue with a max: a task is either handed to a thread now or
+     * rejected. Queueing connections would let a flood build an unbounded backlog
+     * instead of failing fast, which is the behaviour a bounded pool exists for.
+     */
+    private static final ExecutorService workers = new ThreadPoolExecutor(
+        2, 24, 30L, TimeUnit.SECONDS,
+        new SynchronousQueue<>(),
+        r -> {
+            Thread t = new Thread(r, "iso-http-worker");
+            t.setDaemon(true);
+            return t;
+        });
+
     private static final java.util.List<ServerSocket> sockets = new java.util.ArrayList<>();
     private static final java.util.List<Thread> threads = new java.util.ArrayList<>();
     private static final Set<OutputStream> pipEventClients = Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -88,7 +114,21 @@ public final class PipHttpServer {
             synchronized (sockets) { sockets.add(ss); }
             while (running.get()) {
                 final Socket sock = ss.accept();
-                new Thread(() -> handle(sock)).start();
+                // A raw `new Thread(...)` per connection was unbounded: any app on
+                // the device can open 127.0.0.1:3000 in a loop and spawn threads
+                // until the process dies. A cached pool reuses idle threads and
+                // the cap makes the failure mode "connections queue" instead of
+                // "the app is killed".
+                //
+                // The bound has to exceed the number of long-lived SSE clients,
+                // because each holds its thread for the life of the connection —
+                // a pool sized for request/response would deadlock the moment two
+                // event streams were open.
+                try {
+                    workers.execute(() -> handle(sock));
+                } catch (RejectedExecutionException tooBusy) {
+                    try { sock.close(); } catch (Exception ignored) {}
+                }
             }
         } catch (Exception e) {
             if (running.get()) Log.w(TAG, "[PipHttp] server error on port " + port + ": " + e.getMessage());
@@ -114,8 +154,31 @@ public final class PipHttpServer {
                     try { contentLength = Integer.parseInt(h[1].trim()); } catch (Exception ignored) {}
                 }
             }
-            StringBuilder body = new StringBuilder();
-            for (int i = 0; i < contentLength; i++) body.append((char) in.read());
+            // Content-Length is attacker-controlled. This listens on loopback, but
+            // ANY app on the device can reach 127.0.0.1:3000 — "local" is not
+            // "trusted" on Android.
+            //
+            // Two bugs the previous loop had:
+            //   for (int i = 0; i < contentLength; i++) body.append((char) in.read());
+            //
+            //   1. No cap. A request claiming Content-Length: 100000000 with no
+            //      body ran 100M iterations building a StringBuilder. setSoTimeout
+            //      does not bound it, because read() only throws once it actually
+            //      blocks — at EOF it returns immediately.
+            //   2. in.read() returns -1 at EOF, and (char) -1 is 0xFFFF, so a
+            //      truncated body appended U+FFFF characters instead of stopping.
+            //
+            // The cap is generous next to the largest real payload (a timer state
+            // snapshot is well under 4 KB) and small enough to be harmless.
+            final int MAX_BODY = 64 * 1024;
+            if (contentLength < 0) contentLength = 0;
+            if (contentLength > MAX_BODY) contentLength = MAX_BODY;
+            StringBuilder body = new StringBuilder(Math.min(contentLength, 8192));
+            for (int i = 0; i < contentLength; i++) {
+                int c = in.read();
+                if (c < 0) break;   // EOF: the client sent less than it claimed
+                body.append((char) c);
+            }
 
             if ("OPTIONS".equals(method)) {
                 writeOptions(sock);

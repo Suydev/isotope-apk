@@ -70,6 +70,22 @@ const REQUIRED_ANCHORS = [
     'invite RPCs send p_token (NOT p_code — that is the orphaned useInvites path)'],
   ['Community-CEnEgsrd.js', '(h.group.subjects||[])',
     'null-safety crash guard — without it Community black-screens'],
+  // A buddy row with no presence record is a real state, and this bundle
+  // dereferences presence.state / .subject / .task at 22 sites. Unguarded, the
+  // first such buddy throws inside render and unmounts the tree — a black screen
+  // on the Community tab with no recovery prompt. See ISSUE-047.
+  ['Community-CEnEgsrd.js', 'presence?.state',
+    'presence is optional-chained — a buddy with no presence row must not crash render'],
+  ['Community-CEnEgsrd.js', 'presence?.state||"hidden"',
+    'an absent presence state renders as "Status not shared", not a blank pill'],
+  // Ambient audio must be LOCAL. Upstream fetches three WAVs from
+  // raw.githubusercontent.com, which is 44 MB over the network and simply fails
+  // offline — on a study app whose premise is that it works without a connection.
+  // The APK bakes what isotope-code's server.mjs patches at serve time.
+  ['Focus-B4gLsWoP.js', '/audio/ambient/',
+    'ambient tracks are served from the bundled files, not fetched from GitHub'],
+  ['Focus-B4gLsWoP.js', 'window.__isoAmbient(c.url)',
+    'the Audio constructor goes through the Opus/AAC picker — Safari has no Ogg-Opus'],
   ['Auth-D0Y8CB1f.js', '__isoLogin',
     'login routed through the bridge'],
   ['Auth-D0Y8CB1f.js', '__isoUp',
@@ -80,6 +96,13 @@ const REQUIRED_ANCHORS = [
 const FORBIDDEN_ANCHORS = [
   ['index-D1Y5F8Lk.js', 'ingest.us.sentry.io',
     'Sentry must stay disabled in the APK'],
+  // The inverse of the guard above: a re-capture from upstream would reintroduce
+  // the raw dereference, and the guard's presence elsewhere in the file would not
+  // reveal it. Pin the unguarded form as forbidden.
+  ['Community-CEnEgsrd.js', '.presence.state',
+    'raw presence.state dereference — must stay optional-chained (ISSUE-047)'],
+  ['Focus-B4gLsWoP.js', 'raw.githubusercontent.com',
+    'no remote audio fetch — the APK must not depend on GitHub being reachable'],
   ['Focus-B4gLsWoP.js', 'window.__pipBridge=',
     'the dead HTTP PiP relay must stay stripped (native PiP is used instead)'],
 ];

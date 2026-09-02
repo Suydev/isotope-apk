@@ -329,6 +329,38 @@ for (const s of SCHEMAS) {
 }
 add('');
 
+// 12b. triggers on auth.users — the signup hook.
+//
+// `auth` is in EXCLUDE_SCHEMAS and must stay there: its tables are
+// Supabase-managed and dumping them would fight the platform. But the trigger
+// that seeds the app's own tables lives there, and excluding the schema excluded
+// it too. Restores therefore produced a database with all 42 tables, all 14
+// public triggers, 94/94 verification checks passing — and no ability to accept a
+// signup, because nothing copied auth.users -> public.users. Measured on prod:
+// 43 auth users, 11 public.users rows.
+//
+// Only triggers whose function lives in a dumped schema are emitted, so this
+// cannot try to recreate a Supabase-internal hook.
+{
+  const userSchemas = SCHEMAS.map((s) => `'${s.replace(/'/g, "''")}'`).join(', ');
+  rows = await query(`
+  select t.tgname, pg_get_triggerdef(t.oid) as def, c.relname as tbl
+  from pg_trigger t
+  join pg_class c  on c.oid = t.tgrelid
+  join pg_namespace n on n.oid = c.relnamespace
+  join pg_proc p   on p.oid = t.tgfoid
+  join pg_namespace fn on fn.oid = p.pronamespace
+  where n.nspname = 'auth' and not t.tgisinternal
+    and fn.nspname in (${userSchemas})
+  order by c.relname, t.tgname;`);
+  for (const r of rows) {
+    add(`DROP TRIGGER IF EXISTS ${quoteIdent(r.tgname)} ON "auth".${quoteIdent(r.tbl)};`);
+    add(r.def + ';');
+    counts.triggers++;
+  }
+  if (rows.length) add('');
+}
+
 // 13. RLS enablement
 for (const s of SCHEMAS) {
   rows = await query(`

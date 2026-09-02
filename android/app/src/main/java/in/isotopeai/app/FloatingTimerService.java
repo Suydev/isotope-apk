@@ -69,6 +69,11 @@ public class FloatingTimerService extends Service {
 
     private static final int NOTIFICATION_ID = 4107;
     private static final String CHANNEL_ID   = "isotope-floating-timer";
+    // Session-complete alert. Separate channel so the user can silence the
+    // ongoing timer notification without losing the one that tells them they are
+    // finished — the two have opposite importance.
+    private static final int COMPLETE_NOTIFICATION_ID = 2001;
+    private static final String COMPLETE_CHANNEL_ID   = "isotope-focus-complete";
     private static final String PREF_X       = "overlay_x";
     private static final String PREF_Y       = "overlay_y";
     private static final String PREF_WIDTH   = "overlay_width";
@@ -130,6 +135,13 @@ public class FloatingTimerService extends Service {
      * Native completion notification: when a running countdown reaches zero we
      * post a high-importance notification ourselves — reliable even when the
      * WebView is backgrounded/killed (JS timers die, this service survives).
+     *
+     * minSdkVersion is 24, and both NotificationChannel and the
+     * Notification.Builder(Context, String) constructor are API 26. Without the
+     * guard below this threw NoClassDefFoundError on API 24/25 — and since that
+     * extends Error, not Exception, the surrounding catch did NOT stop it: the
+     * tick runnable died at the exact moment a session completed. Every other
+     * channel site in this file is guarded; this one was missed.
      */
     private void maybeNotifyCompletion() {
         if (state == null || !"running".equals(state.timerState) || "stopwatch".equals(state.mode)) return;
@@ -139,18 +151,41 @@ public class FloatingTimerService extends Service {
         completionNotified = true;
         try {
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            android.app.NotificationChannel done = new android.app.NotificationChannel(
-                "isotope-focus-complete", "Focus Completed", NotificationManager.IMPORTANCE_HIGH);
-            done.enableVibration(true);
-            nm.createNotificationChannel(done);
-            android.app.Notification n = new android.app.Notification.Builder(this, "isotope-focus-complete")
-                .setSmallIcon(getApplicationInfo().icon)
-                .setContentTitle("Focus session complete 🎉")
-                .setContentText(state.focusTypeLabel + " — " + state.formatTotal() + " done. Take a breath.")
-                .setAutoCancel(true)
-                .build();
-            nm.notify(2001, n);
-        } catch (Exception ignored) {}
+            if (nm == null) return;
+            String title = "Focus session complete";
+            String body = (state.focusTypeLabel == null || state.focusTypeLabel.isEmpty()
+                ? "Session" : state.focusTypeLabel)
+                + " — " + state.formatTotal() + " done. Take a breath.";
+            android.app.Notification n;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                android.app.NotificationChannel done = new android.app.NotificationChannel(
+                    COMPLETE_CHANNEL_ID, "Focus Completed", NotificationManager.IMPORTANCE_HIGH);
+                done.enableVibration(true);
+                nm.createNotificationChannel(done);
+                n = new android.app.Notification.Builder(this, COMPLETE_CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle(title)
+                    .setContentText(body)
+                    .setAutoCancel(true)
+                    .build();
+            } else {
+                // Pre-O has no channels; importance and vibration are set on the
+                // notification itself.
+                n = new android.app.Notification.Builder(this)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setContentTitle(title)
+                    .setContentText(body)
+                    .setAutoCancel(true)
+                    .setPriority(android.app.Notification.PRIORITY_HIGH)
+                    .setDefaults(android.app.Notification.DEFAULT_VIBRATE)
+                    .build();
+            }
+            nm.notify(COMPLETE_NOTIFICATION_ID, n);
+        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
+            // Defensive: an Error here must not kill the tick runnable, which is
+            // what keeps the countdown and the notification alive.
+        }
     }
 
     // ─────────────────────────── Lifecycle ───────────────────────────────────
@@ -305,12 +340,32 @@ public class FloatingTimerService extends Service {
         layoutParams.gravity = Gravity.TOP | Gravity.START;
         layoutParams.x = prefs.getInt(PREF_X, dp(18));
         layoutParams.y = prefs.getInt(PREF_Y, dp(72));
+        // A position saved on a different screen size, in a different orientation,
+        // or by a build that did not clamp, can be entirely off-screen. Clamp what
+        // came out of preferences before trusting it.
+        layoutParams.x = clampOverlayX(layoutParams.x);
+        layoutParams.y = clampOverlayY(layoutParams.y);
         try {
             windowManager.addView(rootView, layoutParams);
         } catch (Exception e) {
             rootView = null;
             stopSelf();
         }
+    }
+
+    /**
+     * Rotation changes the screen dimensions every clamp is computed against, so
+     * persisted geometry has to be re-checked. The service gets its own callback:
+     * MainActivity's does not fire for a service, and the overlay outlives the
+     * activity by design.
+     */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // Post rather than run inline: at this point getResources() can still
+        // report the pre-rotation metrics, which would clamp against the old
+        // screen and defeat the purpose.
+        handler.post(this::reclampOverlayGeometry);
     }
 
     private void removeOverlay() {
@@ -752,8 +807,8 @@ public class FloatingTimerService extends Service {
                 int dy = Math.round(event.getRawY() - touchStartY);
                 if (Math.abs(dx) > dp(3) || Math.abs(dy) > dp(3)) {
                     dragging = true;
-                    layoutParams.x = windowStartX + dx;
-                    layoutParams.y = Math.max(0, windowStartY + dy);
+                    layoutParams.x = clampOverlayX(windowStartX + dx);
+                    layoutParams.y = clampOverlayY(windowStartY + dy);
                     try { windowManager.updateViewLayout(rootView, layoutParams); }
                     catch (Exception ignored) {}
                 }
@@ -979,6 +1034,79 @@ public class FloatingTimerService extends Service {
         // Never exceed 70% of screen height so content remains visible behind overlay
         int max = Math.max(dp(240), (int)(screenH * 0.70f));
         return Math.max(dp(200), Math.min(max, value));
+    }
+
+    /**
+     * Keeps a draggable edge of the overlay on screen.
+     *
+     * The drag handler previously wrote `layoutParams.x = windowStartX + dx` with
+     * no clamp, and `FLAG_LAYOUT_NO_LIMITS` means the window manager does not
+     * clamp either. On a 1080px-wide screen an x of -900 leaves ZERO pixels
+     * visible — and the position is persisted on ACTION_UP, so it survives a
+     * restart. The only way to move the overlay is by dragging its header, which
+     * is now off-screen: unrecoverable short of clearing app data.
+     *
+     * A margin is kept rather than merely forbidding fully-offscreen: half the
+     * card hanging past the edge is still a bad place to leave it, and there has
+     * to be enough of the header left to grab. EDGE_KEEP_DP is sized for a
+     * comfortable touch target, not a sliver.
+     */
+    private static final int EDGE_KEEP_DP = 56;
+
+    private int clampOverlayX(int value) {
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int width = layoutParams != null && layoutParams.width > 0
+            ? layoutParams.width : dp(300);
+        int keep = dp(EDGE_KEEP_DP);
+        // Left bound lets the card hang off the left edge, but never so far that
+        // less than `keep` of it remains. Right bound is the mirror.
+        int min = keep - width;
+        int max = screenW - keep;
+        if (max < min) return min;   // absurdly narrow screen: pin to the left rule
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private int clampOverlayY(int value) {
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        int height = layoutParams != null && layoutParams.height > 0
+            ? layoutParams.height : dp(340);
+        int keep = dp(EDGE_KEEP_DP);
+        // Top is floored at 0 — dragging under the status bar hides the header,
+        // which is the grab handle. The bottom keeps `keep` on screen.
+        int max = screenH - keep;
+        if (max < 0) return 0;
+        return Math.max(0, Math.min(max, value));
+    }
+
+    /**
+     * Re-clamps a persisted position and size against the CURRENT screen.
+     *
+     * Called on rotation and when the overlay is (re)created. Geometry is saved in
+     * pixels, so a position that was fine in portrait can be entirely off-screen
+     * in landscape, and a width clamped to 440dp portrait exceeds the 36% cap in
+     * landscape. Without this, rotating the device could strand the overlay in
+     * exactly the way clampOverlayX exists to prevent.
+     */
+    private void reclampOverlayGeometry() {
+        if (layoutParams == null || rootView == null || windowManager == null) return;
+        int w = clampOverlayWidth(layoutParams.width);
+        int h = clampOverlayHeight(layoutParams.height);
+        boolean changed = (w != layoutParams.width) || (h != layoutParams.height);
+        layoutParams.width = w;
+        layoutParams.height = h;
+        int x = clampOverlayX(layoutParams.x);
+        int y = clampOverlayY(layoutParams.y);
+        changed = changed || (x != layoutParams.x) || (y != layoutParams.y);
+        layoutParams.x = x;
+        layoutParams.y = y;
+        if (!changed) return;
+        try { windowManager.updateViewLayout(rootView, layoutParams); }
+        catch (Exception ignored) {}
+        getSharedPreferences(MainActivity.PREFS_FLOATING_TIMER, MODE_PRIVATE)
+            .edit()
+            .putInt(PREF_X, x).putInt(PREF_Y, y)
+            .putInt(PREF_WIDTH, w).putInt(PREF_HEIGHT, h)
+            .apply();
     }
 
     // ─────────────────────────── TimerState ──────────────────────────────────

@@ -32,6 +32,6 @@
     "allowMixedContent": true,
     "captureInput": true,
     "webContentsDebuggingEnabled": true,
-    "appendUserAgent": "IsotopeAI-Android/3.5.3"
+    "appendUserAgent": "IsotopeAI-Android/3.5.4"
   }
 }

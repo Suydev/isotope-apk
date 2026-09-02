@@ -16,7 +16,7 @@
   'use strict';
 
   // ── Constants ───────────────────────────────────────────────────────────────
-  var APP_VERSION = '3.5.3';
+  var APP_VERSION = '3.5.4';
   var SUPA_URL       = 'https://ollsqiutzartjhiuzkbf.supabase.co';
   var SUPA_ANON_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M';
   // NOTE: the literal `var ref = '<projectRef>'` form is required — scripts/prepare-www.js
@@ -1022,6 +1022,57 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
   (function setupAndroidRenderRecovery() {
     var reloadAttempted = false;
 
+    // Reload budget that SURVIVES a reload.
+    //
+    // Every guard in this IIFE — reloadAttempted, crashRecoveries,
+    // lastCrashRoute — is a plain `var`, so a reload resets it to its initial
+    // value. Each fresh document therefore believed it had never reloaded and
+    // was entitled to one more, which is how a single persistent failure
+    // (bootstrap returning 503 because a request 401'd) turned into a reload
+    // loop rather than one reload. boot-recovery.js already caps ITS reloads in
+    // sessionStorage for exactly this reason; this is the same idea for the
+    // in-page recovery path.
+    //
+    // sessionStorage, not localStorage: the budget should reset when the app is
+    // genuinely restarted, not persist across launches.
+    var RELOAD_BUDGET_KEY = '__iso_render_reloads';
+    var RELOAD_BUDGET = 2;
+
+    function reloadsUsed() {
+      try { return parseInt(window.sessionStorage.getItem(RELOAD_BUDGET_KEY) || '0', 10) || 0; }
+      catch (e) { return 0; }
+    }
+
+    /** True if a reload is permitted, and consumes one unit of budget. */
+    function claimReload() {
+      if (reloadAttempted) return false;
+      var used = reloadsUsed();
+      if (used >= RELOAD_BUDGET) {
+        console.error('[IsotopeAndroidRuntime] reload budget spent (' + used +
+          '/' + RELOAD_BUDGET + ') — not reloading again');
+        return false;
+      }
+      try { window.sessionStorage.setItem(RELOAD_BUDGET_KEY, String(used + 1)); } catch (e) {}
+      reloadAttempted = true;
+      return true;
+    }
+
+    // Cleared once the app actually renders, so a normal session does not carry a
+    // spent budget around and refuse a legitimate recovery hours later.
+    function clearReloadBudget() {
+      try { window.sessionStorage.removeItem(RELOAD_BUDGET_KEY); } catch (e) {}
+    }
+    try {
+      window.addEventListener('load', function () {
+        setTimeout(function () {
+          try {
+            var root = document.getElementById && document.getElementById('root');
+            if (root && root.children && root.children.length > 0) clearReloadBudget();
+          } catch (e) {}
+        }, 5000);
+      });
+    } catch (e) {}
+
     function forceRepaint(source) {
       try {
         var root = document.documentElement;
@@ -1050,9 +1101,12 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
           if (document.getElementById && document.getElementById('isotope-boot-splash')) return;
           var root = document.getElementById && document.getElementById('root');
           var blank = root && root.children && root.children.length === 0;
-          if (blank && !reloadAttempted) {
-            reloadAttempted = true;
+          if (blank && claimReload()) {
             window.location.reload();
+          } else if (blank && reloadsUsed() >= RELOAD_BUDGET) {
+            // Out of budget and still blank: a notice the user can act on beats
+            // a black screen, and beats reloading forever.
+            showRefreshNotice();
           }
         } catch (e) {}
       }, 2500);
@@ -1070,6 +1124,21 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     // reload is used only once, as a second-stage fallback.
     var lastCrashRoute = null;
     var crashRecoveries = 0;
+    // crashRecoveries is also per-document. A crash that survives a reload would
+    // otherwise get a fresh allowance of 3 recoveries in every new document, so
+    // the cap is tracked in sessionStorage as well.
+    var CRASH_BUDGET_KEY = '__iso_crash_recoveries';
+    var CRASH_BUDGET = 3;
+    function crashesUsed() {
+      try { return parseInt(window.sessionStorage.getItem(CRASH_BUDGET_KEY) || '0', 10) || 0; }
+      catch (e) { return 0; }
+    }
+    function noteCrash() {
+      crashRecoveries++;
+      var total = crashesUsed() + 1;
+      try { window.sessionStorage.setItem(CRASH_BUDGET_KEY, String(total)); } catch (e) {}
+      return total;
+    }
 
     // ── Recovery notice ───────────────────────────────────────────────────────
     // Shown instead of a black screen (or the debug log viewer) when automatic
@@ -1250,13 +1319,16 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
         if (!root || !root.children || root.children.length > 0) return;
 
         var here = window.location.pathname || '/';
-        crashRecoveries++;
+        var totalCrashes = noteCrash();
         console.error('[IsotopeAndroidRuntime] blank #root after ' + reason +
-          ' on ' + here + ' (recovery ' + crashRecoveries + ')');
+          ' on ' + here + ' (recovery ' + crashRecoveries +
+          ', ' + totalCrashes + ' this session)');
 
         // Cap recoveries so a crash on /dashboard itself cannot spin forever.
-        // Past the cap, ask the user rather than leaving a black screen.
-        if (crashRecoveries > 3) {
+        // Past the cap, ask the user rather than leaving a black screen. The
+        // session total is what actually bounds the loop: crashRecoveries alone
+        // resets to 0 in every reloaded document.
+        if (crashRecoveries > CRASH_BUDGET || totalCrashes > CRASH_BUDGET) {
           console.error('[IsotopeAndroidRuntime] automatic recovery exhausted — showing refresh notice');
           showRefreshNotice();
           return;
@@ -1276,8 +1348,7 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
           setTimeout(function () {
             try {
               var r2 = document.getElementById && document.getElementById('root');
-              if (r2 && r2.children && r2.children.length === 0 && !reloadAttempted) {
-                reloadAttempted = true;
+              if (r2 && r2.children && r2.children.length === 0 && claimReload()) {
                 window.location.href = '/dashboard';
               }
             } catch (e) {}
@@ -1285,12 +1356,11 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
           return;
         }
 
-        if (!reloadAttempted) {
-          reloadAttempted = true;
+        if (claimReload()) {
           window.location.href = '/dashboard';
           return;
         }
-        // Navigation and one reload have both already been spent — the user is
+        // Navigation and the reload budget have both been spent — the user is
         // otherwise left facing an empty screen.
         showRefreshNotice();
       } catch (e) {}
@@ -1605,18 +1675,57 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
   try { window.supaFetchHeaders = supaFetchHeaders; } catch(e) {}
 
   // ── Helper: supabase fetch ──────────────────────────────────────────────────
+  //
+  // 401 is retried ONCE after a token refresh. rpcPost has always done this; the
+  // plain REST path did not, and that asymmetry is what made Google sign-in look
+  // like it failed. Observed on device (ISSUE-044):
+  //
+  //     FETCH_OK  /rest/v1/user_onboarding    -> 401
+  //     FETCH_OK  /rest/v1/study_sessions_log -> 401
+  //     FETCH_OK  /rest/v1/user_profiles      -> 200
+  //     FETCH_OK  /rest/v1/user_stats_summary -> 200
+  //
+  // A mix of 401 and 200 for the SAME user in the SAME burst is not a grants or
+  // RLS problem — anon and service both read all seven of those tables fine. It
+  // is one access token expiring mid-flight: whichever requests happen to be in
+  // the air when it crosses `exp` come back 401.
+  //
+  // handleBootstrap treats a failed user_onboarding as `bootstrap_db_unavailable`
+  // (503), the app treats that as signed-out, and /auth remounts. Combined with
+  // the crash-recovery reload path below, that is the "very high frequency of
+  // automatic reloading" — each reload re-fires the same seven requests with the
+  // same stale token.
   function supaFetch(path, opts) {
-    var headers = supaFetchHeaders(opts);
-    var fetchOpts = Object.assign({}, opts, { headers: headers, credentials: 'omit' });
+    var fetchOpts = Object.assign({}, opts, { credentials: 'omit' });
+    var attach = function () {
+      fetchOpts.headers = supaFetchHeaders(opts);
+    };
+    attach();
     if (!fetchOpts.signal && typeof AbortController !== 'undefined') {
       var controller = new AbortController();
       fetchOpts.signal = controller.signal;
       setTimeout(function(){ try{ controller.abort(); }catch(e){} }, 10000);
     }
-    return fetch(SUPA_URL + path, fetchOpts).then(function(r){
+    var send = function () {
+      return fetch(SUPA_URL + path, fetchOpts);
+    };
+    return send().then(function(r){
       if((r.status===503 || r.status===429) && !fetchOpts._retried){
         fetchOpts._retried=true;
-        return new Promise(function(res){ setTimeout(function(){ fetch(SUPA_URL + path, fetchOpts).then(res).catch(function(e){ res(Promise.reject(e)); }); }, r.status===429?1200:600); });
+        return new Promise(function(res){ setTimeout(function(){ send().then(res).catch(function(e){ res(Promise.reject(e)); }); }, r.status===429?1200:600); });
+      }
+      // Only a real user token can be refreshed. When getAccessToken() returned
+      // null, supaFetchHeaders sent the anon key as the bearer, and a 401 there
+      // means "not signed in" — refreshing would be a no-op loop.
+      if (r.status === 401 && !fetchOpts._authRetried && typeof getAccessToken === 'function' && getAccessToken()) {
+        fetchOpts._authRetried = true;
+        return refreshStoredSessionIfNeeded().then(function (next) {
+          if (!next || !next.access_token) return r;
+          // Re-read the headers so the refreshed token is picked up. Reusing the
+          // captured `headers` object would replay the token that just 401'd.
+          attach();
+          return send();
+        }).catch(function () { return r; });
       }
       return r;
     }).catch(function(e){
@@ -2973,9 +3082,14 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
 
     var since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
     var fromDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    var profilePromise = supaJson('/rest/v1/user_profiles?select=profile_data,updated_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' });
-    var userPromise = supaJson('/rest/v1/users?select=username,name,avatar_url,coins,gems,plan_type,email&id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' });
-    var onboardingPromise = supaJson('/rest/v1/user_onboarding?select=completed,completed_at,data&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' });
+    // The four optional queries below already catch into an {ok:false} shape.
+    // These three did not, so a thrown fetch rejected the whole Promise.all and
+    // skipped the 503 branch entirely — producing an unhandled rejection, which
+    // setupAndroidRenderRecovery then interprets as a crash and reloads.
+    var soft = function (e) { return { ok: false, status: 0, body: { error: e && e.message } }; };
+    var profilePromise = supaJson('/rest/v1/user_profiles?select=profile_data,updated_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' }).catch(soft);
+    var userPromise = supaJson('/rest/v1/users?select=username,name,avatar_url,coins,gems,plan_type,email&id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' }).catch(soft);
+    var onboardingPromise = supaJson('/rest/v1/user_onboarding?select=completed,completed_at,data&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' }).catch(soft);
     var settingsPromise = supaJson('/rest/v1/user_settings?select=settings,updated_at&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' }).catch(function (e) { return { ok: false, status: 0, body: { error: e.message } }; });
     var statsPromise = supaJson('/rest/v1/user_stats_summary?select=*&user_id=eq.' + encodeURIComponent(userId) + '&limit=1', { method: 'GET' }).catch(function (e) { return { ok: false, status: 0, body: { error: e.message } }; });
     var dailyPromise = supaJson('/rest/v1/daily_user_stats?select=date,seconds_studied&user_id=eq.' + encodeURIComponent(userId) + '&date=gte.' + encodeURIComponent(fromDate) + '&order=date.desc&limit=120', { method: 'GET' }).catch(function (e) { return { ok: false, status: 0, body: { error: e.message } }; });
@@ -2992,7 +3106,23 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
         var profileRes = results[0];
         var userRes = results[1];
         var onboardingRes = results[2];
-        if (!profileRes.ok || !userRes.ok || !onboardingRes.ok) {
+        // user_onboarding is NOT load-bearing for "is this user signed in".
+        //
+        // It used to be: any one of these three failing returned 503, the app
+        // read that as signed-out, and remounted /auth — so a single 401 on
+        // user_onboarding logged out a user whose session was perfectly valid.
+        // That is the Google-sign-in symptom (ISSUE-044): tokens land, profile
+        // and stats return 200, onboarding returns 401, and the app bounces.
+        //
+        // A missing onboarding row is a normal state for a brand-new Google
+        // account anyway — the trigger writes it, but not before the first
+        // bootstrap on a fresh signup — so treating its absence as fatal was
+        // wrong even without the 401.
+        //
+        // The session itself is what determines signed-in, and it has already
+        // been validated by resolveBootstrapSession(). Only the two rows the app
+        // genuinely cannot render without stay fatal.
+        if (!profileRes.ok || !userRes.ok) {
           return jsonResponse({
             ok: false,
             error: 'bootstrap_db_unavailable',
@@ -3002,9 +3132,13 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
             onboarding_completed: undefined
           }, 503);
         }
+        if (!onboardingRes.ok) {
+          console.warn('[ISO-BRIDGE] user_onboarding unreadable (HTTP ' +
+            onboardingRes.status + ') — continuing; onboarding state inferred');
+        }
         var profileRow = firstRow(profileRes);
         var userRow = firstRow(userRes) || (session.user || {});
-        var onboardingRow = firstRow(onboardingRes);
+        var onboardingRow = onboardingRes.ok ? firstRow(onboardingRes) : null;
         var settingsRow = firstRow(results[3]);
         var statsSummary = firstRow(results[4]);
         var dailyRows = Array.isArray(results[5].body) ? results[5].body : [];

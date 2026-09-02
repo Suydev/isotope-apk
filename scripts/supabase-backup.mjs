@@ -7,7 +7,12 @@
 // backup:  node scripts/supabase-backup.mjs backup --out DIR [--no-storage]
 // restore: node scripts/supabase-backup.mjs restore --src DIR
 //            --supabase-url URL --anon-key K --service-key K --pat TOKEN
-//            [--no-storage]
+//            [--no-storage] [--schema-only]
+//
+//   --schema-only  structure without people: skips auth users, table rows and
+//                  storage FILES. Buckets and their policies still arrive, since
+//                  those come from schema.sql. Use for standing up a new empty
+//                  project; omit it for disaster recovery.
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -39,6 +44,38 @@ const EXCLUDE_SCHEMAS = new Set([
   'extensions', 'supabase_migrations', 'realtime', '_realtime', 'net',
   'pgbouncer', 'supabase_functions', 'cron', 'graphql', 'graphql_public',
 ]);
+
+// ── Buckets the app requires, declared here rather than inferred ─────────────
+//
+// A backup can only dump buckets that EXIST, so a bucket the code uploads to and
+// the database lacks is invisible to a tool whose reference point is the
+// database. That is not hypothetical: `group-icons` and `study-material` were
+// referenced by the shipped bridge (android-bridge.js:2479, :2512, :5306-5307)
+// and absent from the project, so every group-icon and study-material upload
+// returned
+//     400 {"statusCode":"404","error":"Bucket not found","code":"NoSuchBucket"}
+// while backup and verify both reported 3/3 buckets fine.
+//
+// Declaring the required set means a RESTORE creates all five even when the
+// source project was missing some, and `verify` fails when one is absent. The
+// database is no longer the only source of truth about what the app needs.
+//
+// Limits and mime lists match supabase/023_wire_missing_storage_buckets.sql;
+// if you change one, change both.
+//
+// `notes` is deliberately absent. It had a 10 MB limit, zero objects, and zero
+// references — no upload path in the bridge, no reachable web bundle. It is not
+// listed as required, but a backup that CONTAINS it will still restore it, because
+// restore takes the union of the manifest and this set: an existing project's data
+// is never dropped just because the app no longer needs the bucket.
+const REQUIRED_BUCKETS = {
+  'user-content':   { public: false, file_size_limit: 52428800 },
+  'avatars':        { public: true,  file_size_limit: 2097152,
+                      allowed_mime_types: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] },
+  'group-icons':    { public: true,  file_size_limit: 10485760,
+                      allowed_mime_types: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] },
+  'study-material': { public: false, file_size_limit: 104857600 },
+};
 
 function loadEnv() {
   const env = { ...process.env };
@@ -96,6 +133,27 @@ function castFor(col) {
 function lit(v, cast) {
   if (v === null || v === undefined) return 'NULL';
   if (typeof v === 'number' || typeof v === 'boolean') return `${String(v)}::${cast}`;
+  // Postgres ARRAY columns need `{a,b}`, not JSON `["a","b"]`.
+  //
+  // The management API returns a text[] as a real JS array, and JSON.stringify
+  // turned it into `["Physics"]`, which Postgres rejects with
+  //     22P02 malformed array literal: "["Physics"]"
+  // So five of eleven `groups` rows never restored — and because group_members
+  // and group_chat_messages FK to groups, that cascaded into 13 more row failures
+  // that looked like an ordering problem even after the ordering was fixed.
+  //
+  // Emitted as an ARRAY[…] constructor rather than a hand-built `{…}` string:
+  // element quoting inside an array literal has its own escaping rules for
+  // commas, braces, backslashes and NULL-vs-"NULL", and a constructor lets
+  // Postgres apply them instead of reimplementing them here.
+  if (Array.isArray(v) && /\[\]$/.test(String(cast || ''))) {
+    if (!v.length) return `ARRAY[]::${cast}`;
+    const elemCast = String(cast).replace(/\[\]$/, '');
+    const elems = v.map((e) => (e === null || e === undefined
+      ? 'NULL'
+      : `'${(typeof e === 'string' ? e : JSON.stringify(e)).replace(/'/g, "''")}'`));
+    return `ARRAY[${elems.join(', ')}]::${cast}`;
+  }
   const s = typeof v === 'string' ? v : JSON.stringify(v);
   return `'${s.replace(/'/g, "''")}'::${cast}`;
 }
@@ -274,27 +332,36 @@ async function tableList(sql) {
 
 async function foreignKeys(sql, schemas) {
   const inList = `(${schemas.map((s) => `'${s.replace(/'/g, "''")}'`).join(',')})`;
-  return sql.query(`select c.conrelid::regclass::text as tbl, c.confrelid::regclass::text as ftbl
+  // Schema and table are selected SEPARATELY, never via ::regclass::text.
+  //
+  // regclass output is search_path-dependent: for a table in `public` (which is
+  // always on the path) it renders the BARE name, `groups`, not `public.groups`.
+  // decodeRegclass then split that on the wrong dot and returned `group.s`, which
+  // matched no table, so topoSort dropped almost every edge and fk_order came out
+  // in plain alphabetical order. That put group_chat_messages (17) and
+  // group_members (19) ahead of groups (21), and the restore failed 22 rows on
+  // `violates foreign key constraint … group_id_fkey` — a data-phase symptom whose
+  // cause was one string in the backup phase.
+  return sql.query(`select
+      rn.nspname as schema,      r.relname  as tbl,
+      fn.nspname as fschema,     f.relname  as ftbl
     from pg_constraint c
-    join pg_class r on r.oid = c.conrelid
-    join pg_namespace n on n.oid = r.relnamespace
-    where c.contype = 'f' and n.nspname in ${inList}`);
+    join pg_class r      on r.oid  = c.conrelid
+    join pg_namespace rn on rn.oid = r.relnamespace
+    join pg_class f      on f.oid  = c.confrelid
+    join pg_namespace fn on fn.oid = f.relnamespace
+    where c.contype = 'f' and rn.nspname in ${inList}`);
 }
 
 function topoSort(tables, fks) {
   const keyOf = (t) => t.key || `${t.schema}.${t.table}`;
-  const qualify = (x) => {
-    const m = String(x).match(/^"?([^".]+)"?\.?"?([^".]+)"?$/);
-    if (m && m[2]) return `${m[1]}.${m[2]}`;
-    const bare = String(x).replace(/"/g, '');
-    return deps.has(`public.${bare}`) ? `public.${bare}` : bare;
-  };
   const deps = new Map(tables.map((t) => [keyOf(t), []]));
   for (const fk of fks) {
-    const from = qualify(decodeRegclass(fk.tbl)), to = qualify(decodeRegclass(fk.ftbl));
+    const from = fk.from, to = fk.to;
     if (deps.has(from) && deps.has(to) && from !== to) deps.get(from).push(to);
   }
   const done = new Set(), order = [];
+
   const visit = (k, stack) => {
     if (done.has(k)) return;
     if (stack.has(k)) return;
@@ -307,11 +374,6 @@ function topoSort(tables, fks) {
   for (const t of tables) visit(keyOf(t), new Set());
   const byKey = new Map(tables.map((t) => [keyOf(t), t]));
   return order.map((k) => byKey.get(k));
-}
-
-function decodeRegclass(s) {
-  const m = String(s).match(/^"?([^".]+)"?\.?"?([^".]+)"?$/);
-  return m ? `${m[1].replace(/"/g, '')}.${m[2].replace(/"/g, '')}` : String(s);
 }
 
 // ── BACKUP ──────────────────────────────────────────────────────────────────
@@ -400,15 +462,37 @@ async function backup(args, env) {
 
   // FK order (auth.users counted as a source that never depends on us)
   const fks = await foreignKeys(sql, [...schemas, 'auth']);
-  for (const fk of fks) {
-    const from = decodeRegclass(fk.tbl), to = decodeRegclass(fk.ftbl);
-    const t = byKey.get(from);
-    if (t) t.fk_to.push(to);
+  const edges = fks.map((fk) => ({
+    from: `${fk.schema}.${fk.tbl}`,
+    to: `${fk.fschema}.${fk.ftbl}`,
+  }));
+  for (const e of edges) {
+    const t = byKey.get(e.from);
+    if (t) t.fk_to.push(e.to);
   }
-  manifest.fk_order = topoSort(
-    manifest.tables,
-    manifest.tables.flatMap((t) => t.fk_to.map((to) => ({ tbl: t.schema + '.' + t.table, ftbl: to })))
-  ).map((t) => `${t.schema}.${t.table}`);
+  manifest.fk_order = topoSort(manifest.tables, edges)
+    .map((t) => `${t.schema}.${t.table}`);
+
+  // A dependency-ordered restore is the whole point of fk_order, and an order
+  // that silently degrades to alphabetical looks fine in the manifest. Assert the
+  // property instead: every referenced table must appear before the table that
+  // references it. Self-references and cycles are skipped (a cycle has no valid
+  // order and the per-row fallback handles those).
+  {
+    const pos = new Map(manifest.fk_order.map((k, i) => [k, i]));
+    const known = new Set(manifest.tables.map((t) => `${t.schema}.${t.table}`));
+    const violations = edges.filter((e) => e.from !== e.to
+      && known.has(e.from) && known.has(e.to)
+      && !edges.some((r) => r.from === e.to && r.to === e.from)  // mutual cycle
+      && pos.get(e.to) > pos.get(e.from));
+    if (violations.length) {
+      const detail = violations.slice(0, 5).map((v) => `${v.from} -> ${v.to}`).join(', ');
+      manifest.notes.push(`fk_order violates ${violations.length} dependency edge(s): ${detail}`);
+      console.log(`[backup] WARN fk_order violates ${violations.length} edge(s): ${detail}`);
+    } else {
+      console.log(`[backup] fk_order verified: ${edges.length} FK edge(s) satisfied`);
+    }
+  }
 
   // auth.users (metadata only; encrypted_password carries the bcrypt hash)
   const authCols = (colsByTable.get('auth.users') || []);
@@ -429,12 +513,31 @@ async function backup(args, env) {
     where n.nspname in (${schemaList}) and p.prokind in ('f','p')
       and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'i')
     order by 1, 2, 3`)).map((r) => `${r.schema}.${r.name}(${r.args})`);
+  // Triggers, INCLUDING those on auth.users.
+  //
+  // `auth` is in EXCLUDE_SCHEMAS, which is correct for tables — auth.users rows
+  // are dumped separately and the auth schema itself is Supabase-managed — but it
+  // also meant a trigger attached to an auth table was never captured. The one
+  // that matters is `on_auth_user_created`, which fires handle_new_user() to seed
+  // public.users, user_profiles, user_points, user_stats_summary and
+  // user_presence for every signup.
+  //
+  // Its absence is invisible: the 14 public triggers all fire on INSERT INTO
+  // public.users, i.e. the SECOND stage. Verification passed 94/94 with every
+  // recorded trigger present, on a database that could not accept a single
+  // signup — enrolment failed 409 23503 because user_onboarding FKs to a
+  // public.users row that nothing created. Measured on prod: 43 auth users,
+  // 11 public.users rows, 32 orphaned.
+  //
+  // The trigger is emitted by scripts/schema-dump.mjs; this inventory is what
+  // makes `verify` able to notice when it did not arrive.
+  const triggerSchemaList = [...schemas, 'auth'].map((s) => `'${s.replace(/'/g, "''")}'`).join(', ');
   manifest.triggers = (await sql.query(`
     select n.nspname as schema, c.relname as tbl, t.tgname as name
     from pg_trigger t
     join pg_class c on c.oid = t.tgrelid
     join pg_namespace n on n.oid = c.relnamespace
-    where n.nspname in (${schemaList}) and not t.tgisinternal
+    where n.nspname in (${triggerSchemaList}) and not t.tgisinternal
     order by 1, 2, 3`)).map((r) => `${r.schema}.${r.tbl}.${r.name}`);
   manifest.policies = (await sql.query(`
     select n.nspname as schema, c.relname as tbl, pol.polname as name
@@ -538,8 +641,46 @@ async function restore(args, env) {
     //     syntax error at or near "if" / "INSERT" / "IF TG_OP"
     // and the restore silently produced a database with tables but almost no
     // RPCs. Removing wrappers at statement granularity cannot touch a body.
+    //
+    // The wrapper test must ignore LEADING COMMENTS, and that is not cosmetic.
+    // splitStatements keeps comments attached to the statement that follows them,
+    // so the file's opening `BEGIN;` arrives as a single statement consisting of
+    // the entire 18-line header banner followed by `BEGIN`. `s.trim()` on that is
+    // not `"BEGIN"`, so the filter did not match and the BEGIN survived — while
+    // the trailing `COMMIT;`, which has no comment in front of it, was correctly
+    // removed.
+    //
+    // The result was a restore that opened a transaction in the first batch and
+    // never committed it. The management API request ended, the transaction rolled
+    // back, and the 31 tables created in batch 1 vanished. Batches 2+ then ran in
+    // autocommit, so the 11 tables declared later DID persist — which is exactly
+    // the "42 tables expected, 11 present" state seen on the target, and why every
+    // `ADD CONSTRAINT … _pkey` for the first 31 tables failed with 42P01, and why
+    // every insert into public.users then failed inside the
+    // _ensure_community_enrollment() trigger.
+    //
+    // Strip comment lines before testing, so the banner cannot hide a wrapper.
+    const bareStatement = (s) => s
+      .split('\n')
+      .filter((l) => !/^\s*--/.test(l))
+      .join('\n')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .trim();
     const stmts = splitStatements(sqlText)
-      .filter((s) => s && !/^(BEGIN|COMMIT|START\s+TRANSACTION|END)\s*;?$/i.test(s.trim()));
+      .filter((s) => {
+        const bare = bareStatement(s);
+        if (!bare) return false;   // comment-only chunk
+        return !/^(BEGIN|COMMIT|ROLLBACK|START\s+TRANSACTION|END)\s*;?$/i.test(bare);
+      });
+
+    // A surviving wrapper is unrecoverable and silent, so assert rather than trust
+    // the filter above. Cheap, and it fails in one line instead of 40 minutes later
+    // as thirteen tables of mysterious row errors.
+    const strayWrapper = stmts.findIndex((s) => /^(BEGIN|COMMIT|ROLLBACK|START\s+TRANSACTION)\s*;?$/i.test(bareStatement(s)));
+    if (strayWrapper !== -1) {
+      throw new Error(`transaction wrapper survived statement splitting at index ${strayWrapper} — ` +
+        'batches would run inside an uncommitted transaction and roll back');
+    }
 
     // Applied in BATCHES, in order.
     //
@@ -559,7 +700,26 @@ async function restore(args, env) {
     // ADD CONSTRAINT, DROP POLICY IF EXISTS), so re-running a partially applied
     // batch cannot corrupt anything.
     const BATCH = 50;
-    const IDEMPOTENT = /already exists|does not exist|duplicate|skipping|multiple primary keys|is not a|must be owner/i;
+    // "Already there" errors, and ONLY those.
+    //
+    // `does not exist` used to be in this list, and it is the reason a restore
+    // could report "0 failed" while creating 11 of 42 tables. When a batch fails
+    // it is replayed one statement at a time; a statement that legitimately fails
+    // because its dependency was never created says
+    //     relation "public.community_enrollments" does not exist
+    // which matched, so it was counted as an idempotent skip and never reported.
+    // The restore then walked into the data phase against a schema that was 3/4
+    // missing, and every insert into public.users failed inside the
+    // _ensure_community_enrollment() trigger — 13 tables of "N row(s) failed"
+    // whose real cause was 500 statements silently discarded 40 minutes earlier.
+    //
+    // `is not a` and `must be owner` were equally unsafe: "x is not a table" and
+    // "must be owner of relation x" are refusals, not no-ops.
+    const IDEMPOTENT = /already exists|duplicate key|duplicate object|multiple primary keys/i;
+    // Statements that cannot be executed by the management API role at all. These
+    // ARE expected and are not failures: hypopg's LANGUAGE c functions and the two
+    // views built on them (42501 permission denied for language c).
+    const UNPRIVILEGED = /permission denied for language|must be superuser/i;
     console.log(`[restore] applying schema (${stmts.length} statements in batches of ${BATCH})…`);
     emit({ phase: 'schema', state: 'running', done: 0, total: stmts.length, failed: 0, skipped: 0 });
     let ok = 0, skipped = 0, failed = 0;
@@ -569,7 +729,7 @@ async function restore(args, env) {
       try { await sql.query(stmt); ok++; }
       catch (e) {
         const msg = e.message || '';
-        if (IDEMPOTENT.test(msg)) { skipped++; return; }
+        if (IDEMPOTENT.test(msg) || UNPRIVILEGED.test(msg)) { skipped++; return; }
         failed++;
         if (failures.length < 20) failures.push({ stmt: stmt.slice(0, 160), msg: msg.slice(0, 220) });
         emit({ phase: 'schema', level: 'error', msg: msg.slice(0, 220), stmt: stmt.slice(0, 160) });
@@ -588,19 +748,51 @@ async function restore(args, env) {
       process.stdout.write(`  ${Math.min(i + BATCH, stmts.length)}/${stmts.length}…\r`);
       emit({ phase: 'schema', done: Math.min(i + BATCH, stmts.length), total: stmts.length, ok, failed, skipped });
     }
-    console.log(`[restore] schema: ${ok} applied, ${skipped} skipped (idempotent), ${failed} failed`);
+    console.log(`[restore] schema: ${ok} applied, ${skipped} skipped (already present / unprivileged), ${failed} failed`);
     emit({ phase: 'schema', state: 'done', done: stmts.length, total: stmts.length, ok, failed, skipped });
     for (const f of failures) {
       console.log(`  schema FAILED: ${f.msg}`);
       console.log(`             at: ${f.stmt.replace(/\s+/g, ' ')}`);
     }
+
+    // A schema that did not land cannot be papered over by the data phase: every
+    // insert would fail on a missing relation or inside a trigger, producing a
+    // pile of row errors whose real cause is here. Stop while the reason is still
+    // on screen.
+    if (failed > 0) {
+      throw new Error(`schema restore failed on ${failed} statement(s) — see the errors above; ` +
+        'the target is incomplete and the data phase would fail against it');
+    }
+    // Independent check: the dump says which tables it creates, so compare against
+    // what the target actually has. This catches the failure mode above even if a
+    // future misclassification hides the individual errors again.
+    const expectTables = manifest.tables.map((t) => `${t.schema}.${t.table}`);
+    if (expectTables.length) {
+      const live = new Set((await sql.query(`
+        select table_schema, table_name from information_schema.tables
+        where table_type = 'BASE TABLE'
+      `)).map((r) => `${r.table_schema}.${r.table_name}`));
+      const missing = expectTables.filter((k) => !live.has(k));
+      if (missing.length) {
+        throw new Error(`schema incomplete: ${missing.length}/${expectTables.length} table(s) missing on the target ` +
+          `(${missing.slice(0, 8).join(', ')}${missing.length > 8 ? ' …' : ''})`);
+      }
+      console.log(`[restore] schema verified: all ${expectTables.length} tables present`);
+      emit({ phase: 'schema', state: 'verified', tables: expectTables.length });
+    }
   } else {
     console.log('[restore] no schema.sql — assuming target already has schema');
   }
 
+  // --schema-only: structure without people or their data. This is the "fresh
+  // project" case — a new project should not receive 43 real emails and bcrypt
+  // hashes, and copying them around is the kind of thing that quietly spreads PII.
+  const schemaOnly = Boolean(args['schema-only']);
+  if (schemaOnly) console.log('[restore] --schema-only: skipping auth users, table rows and storage files');
+
   // 2. auth.users (must come before user tables that FK to it)
   const authFile = join(args.src, 'db', 'auth.users.jsonl');
-  if (existsSync(authFile)) {
+  if (!schemaOnly && existsSync(authFile)) {
     const rows = readFileSync(authFile, 'utf8').split('\n').filter(Boolean).map(JSON.parse);
     const cols = manifest.auth_columns;
     console.log(`[restore] auth.users: ${rows.length} users`);
@@ -650,9 +842,9 @@ async function restore(args, env) {
     order = [...order, ...missing];
     console.log(`[restore] manifest fk_order incomplete — appended ${missing.length} missing table(s)`);
   }
-  emit({ phase: 'data', state: 'running', done: 0, total: order.length, failed: 0 });
+  emit({ phase: 'data', state: 'running', done: 0, total: schemaOnly ? 0 : order.length, failed: 0 });
   let tablesDone = 0, tablesFailed = 0;
-  for (const key of order) {
+  for (const key of schemaOnly ? [] : order) {
     const info = manifest.tables.find((t) => `${t.schema}.${t.table}` === key);
     if (!info) continue;
     const file = join(args.src, 'db', `${key}.jsonl`);
@@ -662,6 +854,12 @@ async function restore(args, env) {
     const cols = info.columns;
     const colList = cols.map((c) => `"${c.name}"`).join(', ');
     let ok = 0, failed = 0;
+    // Keep the FIRST reason per table. Previously the per-row fallback was
+    // `catch { failed++; }`, which discarded the message entirely — so a restore
+    // reported "public.users: 0 ok, 11 failed" with no way to tell whether that
+    // was a foreign key, a trigger, a check constraint or a type cast. Thirteen
+    // tables failing for an unknown reason is not an actionable report.
+    let firstErr = null;
     for (const chunk of chunkRows(rows, 100)) {
       const values = chunk.map((r) => `(${cols.map((c) => lit(r[c.name], c.cast)).join(', ')})`).join(', ');
       for (const over of [true, false]) {
@@ -674,15 +872,23 @@ async function restore(args, env) {
             try {
               await sql.query(`insert into "${info.schema}"."${info.table}" (${colList}) overriding system value values (${cols.map((c) => lit(r[c.name], c.cast)).join(', ')}) on conflict do nothing`);
               ok++;
-            } catch { failed++; }
+            } catch (e2) {
+              failed++;
+              if (!firstErr) firstErr = String(e2 && e2.message || e2).replace(/\s+/g, ' ').slice(0, 260);
+            }
           }
         }
       }
     }
-    console.log(`[restore] ${key}: ${ok} ok, ${failed} failed`);
+    console.log(`[restore] ${key}: ${ok} ok, ${failed} failed${firstErr ? ` — first error: ${firstErr}` : ''}`);
     tablesDone++;
     if (failed) tablesFailed++;
-    if (failed) emit({ phase: 'data', level: 'error', msg: `${key}: ${failed} row(s) failed` });
+    if (failed) {
+      emit({
+        phase: 'data', level: 'error',
+        msg: `${key}: ${failed} row(s) failed${firstErr ? ` — ${firstErr}` : ''}`,
+      });
+    }
     emit({ phase: 'data', done: tablesDone, total: order.length, failed: tablesFailed, table: key, rows: ok });
   }
   emit({ phase: 'data', state: 'done', done: order.length, total: order.length, failed: tablesFailed });
@@ -699,23 +905,33 @@ async function restore(args, env) {
     } catch {}
   }
 
-  // 5. storage
-  if (!args['no-storage']) {
+  // 5. storage — buckets themselves come from schema.sql; this uploads FILES.
+  if (!args['no-storage'] && !schemaOnly) {
     if (!service) {
       console.log('[restore] WARN: no service key — skipping storage');
     } else {
       const st = createStorageClient(url, service);
-      // Canonical bucket config (isotope-apk session 2026-08-21):
-      // user-content 50MB private · avatars 2MB public images · notes 10MB private.
-      const BUCKET_CONFIG = {
-        'user-content': { file_size_limit: 52428800 },
-        'avatars': { file_size_limit: 2097152, allowed_mime_types: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] },
-        'notes': { file_size_limit: 10485760 },
-      };
+      // Union of what the source had and what the app requires. Restoring only
+      // manifest.buckets reproduced the source's gaps: a project missing
+      // group-icons produced a restore that also could not accept a group icon.
+      const wanted = new Map();
+      for (const [id, cfg] of Object.entries(REQUIRED_BUCKETS)) {
+        wanted.set(id, { id, public: cfg.public, cfg });
+      }
       for (const b of manifest.buckets) {
+        const cfg = REQUIRED_BUCKETS[b.id] || {};
+        // The source project's `public` flag wins for a bucket it actually had —
+        // it is the live answer for that deployment. REQUIRED_BUCKETS only
+        // supplies a default for buckets the source did not have at all.
+        wanted.set(b.id, { id: b.id, public: b.public, cfg });
+      }
+      for (const b of wanted.values()) {
+        const { public: _pub, ...opts } = b.cfg;
         try {
-          await st.createBucket(b.id, b.public, BUCKET_CONFIG[b.id] || {});
-          console.log(`[restore] bucket ${b.id} ready (public=${b.public})`);
+          await st.createBucket(b.id, b.public, opts);
+          const extra = REQUIRED_BUCKETS[b.id] && !manifest.buckets.some((m) => m.id === b.id)
+            ? ' (required by the app; absent from the backup)' : '';
+          console.log(`[restore] bucket ${b.id} ready (public=${b.public})${extra}`);
         } catch (e) { console.log(`[restore] bucket ${b.id}: ${e.message.slice(0, 150)}`); }
       }
       let ok = 0, failed = 0;
@@ -841,6 +1057,20 @@ async function verify(args, env) {
       check(live && liveBuckets.get(b.id) === !!b.public, `bucket ${b.id}`,
         live ? `public=${liveBuckets.get(b.id)}` : 'MISSING on target');
     }
+    // Buckets the APP requires, whether or not the backup contained them. Checking
+    // only manifest.buckets validated the target against the source's gaps: a
+    // source missing group-icons passed 3/3 while both projects rejected every
+    // group-icon upload with NoSuchBucket.
+    for (const [id, cfg] of Object.entries(REQUIRED_BUCKETS)) {
+      if (manifest.buckets.some((b) => b.id === id)) continue;  // already checked above
+      const live = liveBuckets.has(id);
+      check(live, `bucket ${id} (required by the app)`,
+        live ? `public=${liveBuckets.get(id)}` : 'MISSING — uploads to it will 404');
+      if (live && liveBuckets.get(id) !== !!cfg.public) {
+        check(false, `bucket ${id} visibility`,
+          `public=${liveBuckets.get(id)}, expected ${!!cfg.public}`);
+      }
+    }
     // Must recurse into folder prefixes, exactly like the backup-side listAll().
     // Supabase's list endpoint is NOT recursive: for a nested layout it returns
     // pseudo-folder entries (no .id / .metadata) at the root, which this filter
@@ -891,16 +1121,39 @@ async function verify(args, env) {
     console.log('  WARN routines — backup predates routine inventory, cannot verify code');
   }
   if (Array.isArray(manifest.triggers) && manifest.triggers.length) {
+    // `auth` is added explicitly: manifest.schemas holds only user schemas, but
+    // the manifest now records auth.users.on_auth_user_created, and a check that
+    // cannot see the schema it is checking reports every such trigger missing.
+    const triggerSchemas = `${codeSchemas}, 'auth'`;
     const live = new Set((await sql.query(`
       select n.nspname as schema, c.relname as tbl, t.tgname as name
       from pg_trigger t
       join pg_class c on c.oid = t.tgrelid
       join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname in (${codeSchemas}) and not t.tgisinternal
+      where n.nspname in (${triggerSchemas}) and not t.tgisinternal
     `)).map((r) => `${r.schema}.${r.tbl}.${r.name}`));
     const missing = manifest.triggers.filter((k) => !live.has(k));
     check(missing.length === 0, `triggers ${live.size}/${manifest.triggers.length}`,
       missing.length ? `MISSING ${missing.length}: ${missing.slice(0, 5).join(', ')}` : 'all present');
+  }
+  // Signup is the one path where a missing object is silent AND fatal: without
+  // on_auth_user_created every new account gets an auth identity and none of the
+  // five rows the app reads, so enrolment fails 23503 and the user appears
+  // signed-in-but-broken. Checked unconditionally, not just when the manifest
+  // happens to list it, since backups taken before the inventory fix do not.
+  {
+    const [t] = await sql.query(`
+      select count(*)::int as n from pg_trigger
+       where tgname = 'on_auth_user_created'
+         and tgrelid = 'auth.users'::regclass
+         and not tgisinternal`);
+    check(Number(t.n) > 0, 'trigger auth.users.on_auth_user_created',
+      Number(t.n) > 0 ? 'present' : 'MISSING — new signups will not get a public.users row');
+    const [o] = await sql.query(`
+      select count(*)::int as n from auth.users a
+       where not exists (select 1 from public.users u where u.id = a.id)`);
+    check(Number(o.n) === 0, 'auth users with a public.users row',
+      Number(o.n) === 0 ? 'all present' : `${o.n} orphaned auth user(s)`);
   }
   if (Array.isArray(manifest.policies) && manifest.policies.length) {
     const live = new Set((await sql.query(`
@@ -945,4 +1198,4 @@ if (isMain) {
   }
 }
 
-export { lit, castFor, splitStatements, chunkRows, verify, CAST, PG_CAST };
+export { lit, castFor, splitStatements, chunkRows, verify, CAST, PG_CAST, REQUIRED_BUCKETS };

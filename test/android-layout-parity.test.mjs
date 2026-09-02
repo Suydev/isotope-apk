@@ -161,3 +161,144 @@ test('status is conveyed by text as well as dot colour', () => {
   assert.match(service, /"Focusing"/);
   assert.match(service, /"Paused"/);
 });
+
+// ── Regression tests for the 2026-08-31 native bug hunt ─────────────────────
+//
+// Each of these pins a fix whose absence is silent: the code compiles, the app
+// runs, and the defect only appears in a specific state the emulator rarely
+// reaches. They read source markers rather than running Java, which is the same
+// approach as the tests above — there is no JVM in this environment.
+
+const mainActivity = fs.readFileSync(
+  path.join(ROOT, 'android/app/src/main/java/in/isotopeai/app/MainActivity.java'),
+  'utf8',
+);
+const httpServer = fs.readFileSync(
+  path.join(ROOT, 'android/app/src/main/java/in/isotopeai/app/PipHttpServer.java'),
+  'utf8',
+);
+
+/**
+ * Source with comments removed, for "this must not come back" assertions.
+ *
+ * A forbidden-pattern check has to read CODE, not prose. Several fixes below are
+ * documented by quoting the defective line they replaced — so a naive
+ * doesNotMatch against the raw file matches its own explanation and fails on
+ * correct code. Stripping comments is the difference between a check that pins
+ * behaviour and one that forbids describing history.
+ */
+const codeOnly = (src) => src
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^[ \t]*\/\/.*$/gm, '');
+
+const serviceCode = codeOnly(service);
+const mainActivityCode = codeOnly(mainActivity);
+const httpServerCode = codeOnly(httpServer);
+
+test('overlay drag clamps BOTH axes so it cannot be lost off-screen', () => {
+  // Was: layoutParams.x = windowStartX + dx  (no clamp), and FLAG_LAYOUT_NO_LIMITS
+  // means the window manager does not clamp either. x = -900 on a 1080px screen
+  // left zero pixels visible, and ACTION_UP persisted it — unrecoverable without
+  // clearing app data, because the only way to move the overlay is its header.
+  assert.match(service, /layoutParams\.x = clampOverlayX\(windowStartX \+ dx\)/);
+  assert.match(service, /layoutParams\.y = clampOverlayY\(windowStartY \+ dy\)/);
+  assert.doesNotMatch(serviceCode, /layoutParams\.x = windowStartX \+ dx;/,
+    'the unclamped assignment must not come back');
+});
+
+test('clampOverlayX keeps a grabbable edge on screen, not merely one pixel', () => {
+  assert.match(service, /EDGE_KEEP_DP\s*=\s*56/,
+    'the retained edge must be a real touch target');
+  assert.match(service, /int min = keep - width/);
+  assert.match(service, /int max = screenW - keep/);
+  // Degenerate case: an overlay wider than the screen must still resolve.
+  assert.match(service, /if \(max < min\) return min;/);
+});
+
+test('a position read from preferences is clamped before it is trusted', () => {
+  // A position saved on another screen size, in another orientation, or by a
+  // build that did not clamp, can be entirely off-screen.
+  // Scoped to the function body rather than a fixed byte window: a comment added
+  // above the assignment pushed it past an arbitrary 1200-char slice, which made
+  // the test fail on code that was correct. Bound the region by the next method
+  // instead, so the check tracks structure and not character offsets.
+  const start = service.indexOf('private void ensureOverlay()');
+  const ensure = service.slice(start, service.indexOf('private void removeOverlay()', start));
+  assert.ok(ensure.length > 0 && ensure.length < 4000, 'ensureOverlay body located');
+  assert.match(ensure, /layoutParams\.x = clampOverlayX\(layoutParams\.x\)/);
+  assert.match(ensure, /layoutParams\.y = clampOverlayY\(layoutParams\.y\)/);
+});
+
+test('the service re-clamps its geometry on rotation', () => {
+  // Geometry is stored in pixels, so a portrait position can be off-screen in
+  // landscape. MainActivity's onConfigurationChanged does not fire for a service.
+  assert.match(service, /public void onConfigurationChanged\(Configuration newConfig\)/);
+  assert.match(service, /handler\.post\(this::reclampOverlayGeometry\)/);
+  assert.match(service, /private void reclampOverlayGeometry\(\)/);
+});
+
+test('the completion notification is guarded for API 24/25', () => {
+  // minSdkVersion is 24. NotificationChannel and Notification.Builder(Context,
+  // String) are API 26, and they were used unguarded — throwing
+  // NoClassDefFoundError, which extends Error and so was NOT caught by the
+  // surrounding `catch (Exception)`. The tick runnable died at the exact moment a
+  // session completed.
+  const fn = service.slice(
+    service.indexOf('private void maybeNotifyCompletion()'),
+    service.indexOf('private void maybeNotifyCompletion()') + 2600,
+  );
+  assert.match(fn, /Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.O/,
+    'the channel path must be version-guarded');
+  assert.match(fn, /new android\.app\.Notification\.Builder\(this\)/,
+    'a pre-O builder path must exist');
+  assert.match(fn, /catch \(Throwable ignored\)/,
+    'an Error here must not kill the tick runnable');
+});
+
+test('the completion notification uses the real icon, not applicationInfo.icon', () => {
+  // getApplicationInfo().icon is the launcher icon: on API 26+ an adaptive icon
+  // renders as a white square in the status bar.
+  const fn = service.slice(service.indexOf('private void maybeNotifyCompletion()'));
+  assert.doesNotMatch(codeOnly(fn.slice(0, 2600)), /getApplicationInfo\(\)\.icon/);
+  assert.match(fn.slice(0, 2600), /R\.drawable\.ic_notification/);
+});
+
+test('queued floating-timer action ids cannot collide', () => {
+  // Was `millis + "-" + abs(type.hashCode())`, so two taps of the same button
+  // inside one millisecond produced an identical id — and removeQueuedAction
+  // filters by id, so acknowledging one dropped BOTH. A double-tapped "correct"
+  // recorded one.
+  assert.match(mainActivity, /FLOATING_ACTION_SEQ\.incrementAndGet\(\)/);
+  assert.doesNotMatch(mainActivityCode, /Math\.abs\(type\.hashCode\(\)\)/,
+    'the colliding id scheme must not come back');
+});
+
+test('the loopback HTTP server is shut down on a real finish', () => {
+  // start() was called from onCreate, onStart and onResume; stop() was never
+  // called. Two ServerSockets and their threads outlived every activity, and
+  // PipHttpServer holds a static Context.
+  assert.match(mainActivity, /PipHttpServer\.stop\(\)/);
+  assert.match(mainActivity, /if \(isFinishing\(\)\)/,
+    'must not tear down on a configuration change, which also calls onDestroy');
+});
+
+test('the HTTP request body is bounded', () => {
+  // Content-Length is attacker-controlled and any app on the device can reach
+  // 127.0.0.1:3000. A request claiming 100000000 with no body ran 100M
+  // iterations; setSoTimeout does not bound it because read() returns
+  // immediately at EOF rather than blocking.
+  assert.match(httpServer, /MAX_BODY\s*=\s*64 \* 1024/);
+  assert.match(httpServer, /if \(c < 0\) break;/,
+    'in.read() returns -1 at EOF and (char) -1 is 0xFFFF — the loop must stop');
+  assert.doesNotMatch(httpServerCode, /for \(int i = 0; i < contentLength; i\+\+\) body\.append\(\(char\) in\.read\(\)\);/);
+});
+
+test('connections use a bounded worker pool, not a thread per request', () => {
+  // `new Thread(...)` per connection was unbounded: any local app could spawn
+  // threads until the process died.
+  assert.match(httpServer, /workers\.execute\(\(\) -> handle\(sock\)\)/);
+  assert.match(httpServer, /new ThreadPoolExecutor\(/);
+  assert.match(httpServer, /RejectedExecutionException/,
+    'a rejected connection must be closed, not dropped silently');
+  assert.doesNotMatch(httpServerCode, /new Thread\(\(\) -> handle\(sock\)\)\.start\(\)/);
+});

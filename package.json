@@ -1,6 +1,6 @@
 {
   "name": "isotope-apk",
-  "version": "3.5.3",
+  "version": "3.5.4",
   "description": "IsotopeAI Android app — Capacitor wrapper with offline-first support",
   "private": true,
   "scripts": {

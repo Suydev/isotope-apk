@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# IsotopeAI (isotope-apk) — full Supabase backup & reinstall-anywhere restore.
-# Copied from isotope-code 2026-08-21; updated with session changes:
-#   - buckets: user-content 50MB / avatars 2MB public images / notes 10MB
-#   - restore recreates buckets WITH size limits + mime types
-#   - pairs with supabase/015_storage_buckets.sql (owner-scoped RLS)
+# IsotopeAI — full Supabase backup & reinstall-anywhere restore.
+#
+# This file and isotope-apk/backup.sh are the SAME program, kept byte-identical.
+# They diverged once, and the divergence was dangerous rather than cosmetic: this
+# copy let `restore` infer its target from .env, which is production. If you edit
+# one, copy it to the other.
+#
+# For setting up a project you do not have yet, use ./supabase.sh — `restore`
+# replays a tarball, and a tarball only exists if you already had a working
+# backend.
 #
 # backup:
 #   ./backup.sh backup [--out DIR] [--no-storage] [--keep N] [--no-verify]
@@ -20,10 +25,15 @@
 # restore (reinstall on ANY machine / new Supabase project):
 #   ./backup.sh restore <backup.tar.gz> \
 #       [--supabase-url URL] [--anon-key K] [--service-key K] [--pat TOKEN]
+#       [--schema-only]
 #     Apply schema + data + auth users + storage to the target project,
 #     verify the restore against the target (aborts BEFORE scaffolding .env
 #     if any count mismatches), then scaffold .env with the new keys and
 #     (re)start the server.
+#     --schema-only installs structure WITHOUT people: no auth users, no table
+#     rows, no storage files. Use it to stand up a fresh project; omit it for
+#     disaster recovery. Note that Google OAuth keys live in Supabase auth
+#     config, never in the database, so they are never copied either way.
 #     Keys fall back to env vars or existing .env; keep them out of history.
 #
 # verify:
@@ -33,6 +43,18 @@
 #
 # info:
 #   ./backup.sh info <backup.tar.gz>   — integrity + manifest summary
+#
+# ui / console:
+#   ./backup.sh ui [--port N]
+#     Web console on http://127.0.0.1:8000 (loopback only — the page takes a
+#     Supabase PAT). Runs backup / verify / restore as DETACHED jobs, so closing
+#     the tab or restarting the server does not stop or lose one.
+#
+# status / stop:
+#   ./backup.sh status   — per-phase progress + ETA of the detached job
+#   ./backup.sh stop     — kill it
+#     Both work with no console running: job state lives on disk in
+#     backups/.job.json, not in the server's memory.
 #
 set -euo pipefail
 
@@ -118,6 +140,7 @@ parse_keys() {
       --pat=*)          SUPABASE_ACCESS_TOKEN="${1#*=}"; CLI_PAT=1; shift ;;
       --pat)            SUPABASE_ACCESS_TOKEN="$2"; CLI_PAT=1; shift 2 ;;
       --no-storage)     NO_STORAGE=1; shift ;;
+      --schema-only)    SCHEMA_ONLY=1; shift ;;
       *) shift ;;
     esac
   done
@@ -322,7 +345,8 @@ cmd_restore() {
     --anon-key "${SUPABASE_ANON_KEY:-}" \
     --service-key "${SUPABASE_SERVICE_ROLE_KEY:-}" \
     --pat "$SUPABASE_ACCESS_TOKEN" \
-    ${NO_STORAGE:+--no-storage} || die "restore failed"
+    ${NO_STORAGE:+--no-storage} \
+    ${SCHEMA_ONLY:+--schema-only} || die "restore failed"
 
   # verify the restore against the target BEFORE touching local config —
   # a mismatched restore must never overwrite .env or restart the server.
@@ -468,17 +492,59 @@ if (m.notes && m.notes.length) console.log('manifest notes:\\n  ' + m.notes.join
   rm -rf "$work"
 }
 
+# ── ui / status / stop ──────────────────────────────────────────────────────
+# The console and the CLI are two front ends over the SAME on-disk job state
+# (backups/.job.json, .progress.jsonl, .job.log), which is why `status` works
+# with no server running and why closing the browser tab does not stop a job.
+cmd_ui() {
+  need_node
+  local port=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --port) port="$2"; shift 2 ;;
+      --port=*) port="${1#*=}"; shift ;;
+      *) die "unknown arg: $1" ;;
+    esac
+  done
+  if [[ -n "$port" && ! "$port" =~ ^[0-9]+$ ]]; then die "--port must be a number"; fi
+  [[ -f "$ROOT/scripts/backup-ui.mjs" ]] || die "scripts/backup-ui.mjs missing"
+  # Binds 127.0.0.1 only — the page accepts a management-API token, so exposing
+  # it on 0.0.0.0 would hand anything on the network the ability to drive a
+  # restore. Do not put it behind a tunnel.
+  say "starting console on 127.0.0.1:${port:-8000} (loopback only — Ctrl-C to stop serving)"
+  say "jobs are detached: closing the page or this process does NOT stop a running job"
+  ISO_UI_PORT="${port:-8000}" exec node "$ROOT/scripts/backup-ui.mjs"
+}
+
+cmd_status() {
+  need_node
+  node "$ROOT/scripts/job-runner.mjs" status
+}
+
+cmd_stop() {
+  need_node
+  node "$ROOT/scripts/job-runner.mjs" stop
+}
+
 # ── main ────────────────────────────────────────────────────────────────────
 case "${1:-}" in
   backup)  shift; cmd_backup "$@" ;;
   restore) shift; cmd_restore "$@" ;;
   verify)  shift; cmd_verify "$@" ;;
   info)    shift; cmd_info "$@" ;;
-  *) echo "usage: $0 {backup|restore|verify|info} [args…]
+  ui|console) shift; cmd_ui "$@" ;;
+  status)  shift; cmd_status "$@" ;;
+  stop)    shift; cmd_stop "$@" ;;
+  *) echo "usage: $0 {backup|restore|verify|info|ui|status|stop} [args…]
   $0 backup [--out DIR] [--no-storage] [--keep N] [--no-verify]
         [--supabase-url URL --anon-key K --service-key K --pat TOKEN]
   $0 restore <backup.tar.gz> [--supabase-url URL --anon-key K --service-key K --pat TOKEN]
+        [--no-storage] [--schema-only]
   $0 verify <backup.tar.gz> [--supabase-url URL --service-key K --pat TOKEN]
   $0 info <backup.tar.gz>
-(keys: CLI args > env vars > .env)" ;;
+  $0 ui [--port N]              web console on 127.0.0.1:8000
+  $0 status                     progress + ETA of the detached job
+  $0 stop                       kill the detached job
+(keys: CLI args > env vars > .env)
+(--schema-only restores structure only: no users, no rows, no storage files)" ;;
 esac

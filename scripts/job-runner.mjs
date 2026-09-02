@@ -41,14 +41,38 @@ export function readJob() {
     // the device rebooted. Probe it, and reconcile a stale "running" state so the
     // UI never shows a job that is silently dead.
     if (job.state === 'running' && job.pid && !isAlive(job.pid)) {
-      job.state = 'orphaned';
+      // A gone process is only "orphaned" if it did not reach the end. The worker
+      // emits a terminal `{phase:<kind>, state:'done'}` event, so a completed
+      // restore was being labelled `orphaned` purely because it had exited — which
+      // is the one thing a finished job is supposed to do.
+      const finished = lastPhaseDone(job.kind);
+      job.state = finished ? 'done' : 'orphaned';
       job.finishedAt = job.finishedAt || Date.now();
-      job.error = job.error || 'process is gone (killed, or the device restarted)';
+      if (!finished) {
+        job.error = job.error || 'process is gone (killed, or the device restarted)';
+      }
       try { fs.writeFileSync(JOB, JSON.stringify(job, null, 2)); } catch { /* read-only fs */ }
     }
     return job;
   } catch {
     return null;
+  }
+}
+
+/** True if the event stream carries the worker's terminal event for this kind. */
+function lastPhaseDone(kind) {
+  try {
+    const lines = fs.readFileSync(PROGRESS, 'utf8').trimEnd().split('\n');
+    // Scan from the end: the terminal event is the last one written.
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i]) continue;
+      let e;
+      try { e = JSON.parse(lines[i]); } catch { continue; }
+      if (e.phase === kind && e.state === 'done') return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -97,24 +121,38 @@ export function readLogTail(maxBytes = 16384) {
  *
  * @param {object} opts
  * @param {'backup'|'restore'|'verify'|'setup'} opts.kind
- * @param {string[]} opts.args      argv for scripts/supabase-backup.mjs
+ * @param {string[]} opts.args      argv for the worker
  * @param {object}   opts.env       credentials — env only, never persisted
  * @param {string}   opts.targetRef project ref, for display and the safety check
+ * @param {string}   [opts.script]  worker filename under scripts/. Defaults to
+ *                                  supabase-backup.mjs. `setup` runs a DIFFERENT
+ *                                  worker (supabase-setup.mjs), and hardcoding one
+ *                                  script here is what made the console unable to
+ *                                  provision a project at all — the thing a
+ *                                  first-time user opens it for.
  * @param {object}   [opts.meta]    extra fields recorded in .job.json
  */
-export function startJob({ kind, args, env, targetRef, meta = {} }) {
+export function startJob({ kind, args, env, targetRef, script = 'supabase-backup.mjs', meta = {} }) {
   ensureDir();
   const existing = readJob();
   if (existing && existing.state === 'running') {
     throw new Error(`a ${existing.kind} job is already running (pid ${existing.pid}) — stop it first`);
   }
 
+  // Allow-list, not interpolation: `script` reaches here from an HTTP body, and
+  // spawning an arbitrary path because a request asked for it would turn a
+  // loopback console into a local code-execution endpoint.
+  const WORKERS = new Set(['supabase-backup.mjs', 'supabase-setup.mjs']);
+  if (!WORKERS.has(script)) throw new Error(`unknown worker: ${script}`);
+  const workerPath = path.join(ROOT, 'scripts', script);
+  if (!fs.existsSync(workerPath)) throw new Error(`worker not found: ${script}`);
+
   // Truncate per-job streams so the UI never shows a previous run's numbers.
   fs.writeFileSync(PROGRESS, '');
   fs.writeFileSync(LOG, '');
 
   const out = fs.openSync(LOG, 'a');
-  const child = spawn(process.execPath, [path.join(ROOT, 'scripts', 'supabase-backup.mjs'), ...args], {
+  const child = spawn(process.execPath, [workerPath, ...args], {
     cwd: ROOT,
     // ISO_PROGRESS_FILE tells the child where to emit structured events. The UI
     // reads those, NOT the human log — parsing prose breaks whenever a message

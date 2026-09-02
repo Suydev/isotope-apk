@@ -21,10 +21,19 @@ import com.getcapacitor.BridgeActivity;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 public class MainActivity extends BridgeActivity {
     public static final String ACTION_FLOATING_TIMER_ACTION = "in.isotopeai.app.action.FLOATING_TIMER_ACTION";
     public static final String PREFS_FLOATING_TIMER = "isotope_floating_timer";
     public static final String PREF_ACTION_QUEUE = "action_queue";
+
+    /**
+     * Monotonic suffix for queued-action ids. Static because actions are enqueued
+     * from FloatingTimerService (a different process component, same process) as
+     * well as from here, and a per-instance counter would restart and collide.
+     */
+    private static final AtomicLong FLOATING_ACTION_SEQ = new AtomicLong(0);
 
     private boolean androidBridgeInstalled = false;
     private boolean floatingActionReceiverRegistered = false;
@@ -476,7 +485,16 @@ public class MainActivity extends BridgeActivity {
         }
         try {
             JSONObject action = new JSONObject();
-            action.put("id", System.currentTimeMillis() + "-" + Math.abs(type.hashCode()));
+            // Unique per action, not per millisecond-and-type.
+            //
+            // The id was `System.currentTimeMillis() + "-" + abs(type.hashCode())`,
+            // so two taps of the SAME button inside one millisecond produced an
+            // identical id — and removeQueuedAction() filters by id, so
+            // acknowledging one silently dropped BOTH. A double-tapped "correct"
+            // recorded one. A monotonic counter cannot collide regardless of how
+            // fast the taps arrive; the timestamp is kept for readability in logs.
+            action.put("id", System.currentTimeMillis() + "-" + type + "-"
+                + FLOATING_ACTION_SEQ.incrementAndGet());
             action.put("type", type);
             if ("setTarget".equals(type)) {
                 action.put("value", Math.max(0, Math.min(9999, value)));
@@ -550,6 +568,18 @@ public class MainActivity extends BridgeActivity {
             } catch (IllegalArgumentException ignored) {
             }
             floatingActionReceiverRegistered = false;
+        }
+        // The loopback HTTP server was started in onCreate/onStart/onResume and
+        // never stopped: two ServerSockets and their threads outlived every
+        // activity instance, and PipHttpServer holds a static Context.
+        //
+        // Only shut down on a REAL finish. isFinishing() is false for a
+        // configuration change, where onDestroy is immediately followed by a new
+        // onCreate — tearing the sockets down there would close them and rebind
+        // on every rotation, and the overlay service reads state through this
+        // server.
+        if (isFinishing()) {
+            try { PipHttpServer.stop(); } catch (Exception ignored) {}
         }
         super.onDestroy();
     }

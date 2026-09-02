@@ -2,6 +2,395 @@
 
 ---
 
+## ISSUE-048 — Native bug hunt: six defects in the overlay, activity and local server
+**Severity:** HIGH (one unrecoverable, one crash) — **FIXED 2026-08-31**
+**Files:** `FloatingTimerService.java`, `MainActivity.java`, `PipHttpServer.java`
+**Regression tests:** `test/android-layout-parity.test.mjs` (11 new, 30 total)
+
+No JVM exists in this environment, so these were found by reading the source and
+reproducing the arithmetic in Node. Each was verified before being fixed.
+
+### 1. The overlay could be dragged permanently off-screen (unrecoverable)
+
+`handleDragTouch` wrote the position with no clamp:
+
+```java
+layoutParams.x = windowStartX + dx;                  // no clamp at all
+layoutParams.y = Math.max(0, windowStartY + dy);     // floor only, no ceiling
+```
+
+`FLAG_LAYOUT_NO_LIMITS` is set, so the window manager does not clamp either.
+Computed on a 1080×2400 screen: `x = -900` leaves **zero pixels visible**. The
+position is then persisted to SharedPreferences on `ACTION_UP`, so it survives a
+restart — and the only way to move the overlay is by dragging its header, which is
+now off-screen. Unrecoverable short of clearing app data.
+
+Fixed with `clampOverlayX` / `clampOverlayY`, which keep `EDGE_KEEP_DP = 56dp` of
+the card on screen — a real touch target, not one pixel. Verified across 56
+positions from ±99999 on a 1080×2400 screen, and on 320/480/720px screens where
+the overlay is wider than the display (the degenerate `max < min` branch). A
+position read from preferences is now clamped **before it is trusted**, because a
+position saved on another screen size, in another orientation, or by a build
+without this fix, can already be off-screen.
+
+### 2. `maybeNotifyCompletion` crashed on API 24/25 — at the moment a session ended
+
+`minSdkVersion` is 24. That method constructed `NotificationChannel` and
+`Notification.Builder(Context, String)`, both **API 26**, with no `SDK_INT` guard —
+while every other channel site in the file is guarded.
+
+Worse, the wrapper was `catch (Exception)`. This throws `NoClassDefFoundError`,
+which extends `Error`, **not** `Exception`, so it was not caught: the exception
+propagated out of `tickRunnable`, killing the 1-second tick that drives the
+countdown and the notification. The failure happened exactly when the user was
+being told their session was complete.
+
+Fixed with a version-guarded channel path, a pre-O `Notification.Builder` fallback
+using `PRIORITY_HIGH` + `DEFAULT_VIBRATE`, and a `catch (Throwable)` so no `Error`
+can kill the tick. Also replaced `getApplicationInfo().icon` with
+`R.drawable.ic_notification` — the launcher icon renders as a white square in the
+status bar on API 26+ when it is adaptive.
+
+### 3. Queued action ids collided, silently dropping input
+
+```java
+action.put("id", System.currentTimeMillis() + "-" + Math.abs(type.hashCode()));
+```
+
+Two taps of the **same** button inside one millisecond produce an identical id, and
+`removeQueuedAction` filters by id — so acknowledging one removed **both**. A
+double-tapped "correct" recorded one. Now uses a static `AtomicLong`, which cannot
+collide regardless of tap speed.
+
+### 4. `PipHttpServer` was never stopped
+
+`start()` is called from `onCreate`, `onStart` and `onResume`; `stop()` was called
+from nowhere. Two `ServerSocket`s and their threads outlived every activity
+instance, and the class holds a **static `Context`**.
+
+Now stopped in `onDestroy`, but only when `isFinishing()` — `onDestroy` also runs
+for a configuration change, where tearing the sockets down would rebind them on
+every rotation, and the overlay service reads state through this server.
+
+### 5. Unbounded request body from `Content-Length`
+
+```java
+for (int i = 0; i < contentLength; i++) body.append((char) in.read());
+```
+
+`Content-Length` is attacker-controlled, and **any app on the device can reach
+`127.0.0.1:3000`** — "local" is not "trusted" on Android. A request claiming
+`100000000` with no body ran 100M iterations building a `StringBuilder`;
+`setSoTimeout` does not bound it, because `read()` only throws once it actually
+blocks, and at EOF it returns immediately. Separately, `read()` returns `-1` at
+EOF and `(char) -1` is `0xFFFF`, so a truncated body appended U+FFFF characters
+instead of stopping.
+
+Capped at 64 KB (a timer-state snapshot is under 4 KB) with an explicit EOF break.
+
+### 6. One raw thread per connection
+
+`new Thread(() -> handle(sock)).start()` per accept was unbounded: a local app
+could open connections in a loop and spawn threads until the process died.
+Replaced with a bounded `ThreadPoolExecutor` (2–24, `SynchronousQueue`, daemon
+threads) that closes a rejected socket rather than dropping it silently. The
+maximum has to exceed the number of concurrent SSE streams, because each holds its
+worker for the life of the connection — a pool sized for request/response would
+stall as soon as two event streams were open.
+
+### Also fixed: no rotation handling in the service
+
+`MainActivity` has `onConfigurationChanged`; the service did not, and a service
+does not receive the activity's. Geometry is stored in pixels, so a portrait
+position can be off-screen in landscape and a width clamped to 440dp portrait
+exceeds the 36% landscape cap. `reclampOverlayGeometry` now runs on rotation,
+posted to the handler because `getResources()` can still report pre-rotation
+metrics at callback time.
+
+### A note on the tests
+
+Two of the new assertions failed on correct code before I fixed the tests
+themselves, and both are worth recording:
+
+- A `doesNotMatch` forbidding the old defective line matched **its own
+  explanation in a comment**. Forbidden-pattern checks now read comment-stripped
+  source. A check that forbids describing history is not a check.
+- An assertion scoped to `service.slice(start, start + 1200)` broke when a comment
+  pushed the assignment to offset 1208. It is now bounded by the next method
+  declaration, so it tracks structure rather than byte offsets.
+
+---
+
+## ISSUE-047 — Buddy payload shape mismatch: Community crashed on the first accepted buddy
+**Severity:** CRITICAL — **FIXED + APPLIED TO PROD 2026-08-30**
+**Migration:** `supabase/021_fix_buddy_handle_and_overview.sql` (same file as ISSUE-045)
+
+Mine, introduced by the ISSUE-045 fix and caught before anyone hit it.
+
+`community_get_overview` as first rewritten returned **flat** `status` and
+`currentSubject`. The compiled bundle reads a **nested** `presence` object, at 22
+sites, none of them guarded:
+
+```
+c.presence.state     2      s.presence.state     6
+c.presence.subject   3      s.presence.subject   7
+                            s.presence.task      4
+```
+
+The worst is the mapper that turns a buddy into a member row, not a filter:
+
+```js
+{ …, status: s.presence.state, currentSubject: s.presence.subject || null, … }
+```
+
+The `|| null` on `subject` shows the author expected the *field* to be absent — but
+the *object* is dereferenced raw one line earlier, so the guard never runs.
+
+So `s.presence` was `undefined` for **every** buddy, not merely ones lacking a
+presence row, and any render of an accepted buddy threw
+`Cannot read properties of undefined (reading 'state')`, unmounting the tree and
+blanking the page. Nothing had hit it only because `community_request_buddy` failed
+for everyone (ISSUE-045), so no accepted pair existed anywhere — **the first person
+to accept a buddy request would have crashed the Community tab.**
+
+**Fix: emit both shapes.** `presence: {state, subject, task}` *and* flat
+`status`/`currentSubject`, because both spellings are read by different components
+in the same bundle and the bundle is baked into the APK — it cannot be the thing
+that changes. `presence` is always an object, never null, since a null would
+reintroduce the same crash by another route.
+
+Three further shape bugs found while verifying, all in the same class of "the UI
+distinguishes states the RPC collapsed":
+
+- **`shareCurrentTask` had no gate.** `presence.task` is rendered, and
+  `community_get_privacy` exposes the flag, but the RPC had no
+  `share_task` — so a user sharing a subject but not a task leaked the task.
+- **Withheld `questions` was stripped, not nulled.** The UI tests
+  `r.questions !== null`; a stripped key is `undefined`, which is `!== null`, so it
+  rendered the literal text **"undefined questions"**. Now set to JSON `null`,
+  which renders as the intended em dash.
+- **Withheld `subjects`/`tasks` returned `[]`.** The UI distinguishes them:
+  `=== null` → "Subject details are not shared", `[]` → "No settled study time in
+  this period". Returning `[]` for a withheld field told the reader their buddy did
+  nothing today — a different, wrong statement. Both now return `null` when
+  withheld and `[]` when genuinely empty.
+
+**Verified** against the real RPC with two real JWTs, across five privacy states
+(all-on, stealth, task-off, questions-off, breakdown+tasks-off). Every one of the
+16 paths the bundle dereferences is defined in all five; `undefined paths: NONE`.
+
+`./supabase.sh check` now asserts the shape as a 13th check. It reads the
+**function body**, not the function's output: `community_get_overview` filters on
+`auth.uid()`, and the management API runs as `postgres` with no JWT, so the array
+is always empty there regardless of how many buddy rows exist — on the test project
+`auth.uid()` is NULL, `community_friends` has 1 row, and `buddies` returns 0.
+Inspecting the output would have reported on a payload no user ever receives.
+
+---
+
+## ISSUE-046 — The signup trigger did not exist; 32 of 43 accounts had no app data
+**Severity:** CRITICAL — **FIXED + APPLIED TO PROD 2026-08-30**
+**Migration:** `supabase/022_restore_signup_trigger.sql` (rollback `_rollback_signup_trigger.sql`)
+
+`handle_new_user()` existed and was correct. Nothing called it.
+
+```
+select count(*) from auth.users;                                 -> 43
+select count(*) from public.users;                               -> 11
+auth users with no public.users row                              -> 32
+select tgname from pg_trigger where tgname='on_auth_user_created' -> []
+select proname from pg_proc  where proname='handle_new_user'      -> 1 row
+```
+
+`handle_new_user()` seeds five rows on signup: `public.users`, `user_profiles`,
+`user_points`, `user_stats_summary`, `user_presence`. Without the trigger, a new
+account got an auth identity and none of them.
+
+**This is the root of the whole "community is broken" family of reports.** On a
+freshly created account, `community_bootstrap_profile` fails
+`409 23503 Key (user_id)=(…) is not present in table "users"` — raised by
+`tr_sync_user_onboarding_from_profile`, because `user_onboarding` FKs to
+`public.users`. Reproduced end-to-end with two real JWTs: enrolment failed for
+both users before the trigger existed and succeeded for both immediately after,
+with nothing else changed. It is also why `select count(*) from user_profiles`
+returned 0 on a project with dozens of accounts, and why `ux_profiles_handle`
+indexed a column nothing populated.
+
+**Why no backup carried it, and why verification passed anyway.** The trigger is
+on `auth.users`. `scripts/supabase-backup.mjs` and `scripts/schema-dump.mjs` both
+exclude the `auth` schema — right for tables, wrong for this. The manifest listed
+14 triggers, all on `public`, and every one of them fires on
+`INSERT INTO public.users` — the *second* stage. The first stage, auth → public,
+was the one lost. So every restore produced a database that passed 94/94 checks
+and could not accept a signup.
+
+Fixed in three places, not one:
+- `022` restores the trigger and backfills all 32 accounts using the same column
+  set, defaults and username derivation as `handle_new_user()`, so a backfilled
+  row is indistinguishable from a trigger-created one.
+- `schema-dump.mjs` now emits triggers on `auth.users` whose function lives in a
+  dumped schema, so future restores carry it.
+- `supabase-backup.mjs` inventories them, and `verify` now checks
+  `on_auth_user_created` **unconditionally** plus asserts zero orphaned auth
+  users — an unconditional check is required because backups taken before this
+  fix do not list the trigger at all.
+
+Prod after applying: 43 auth users, 43 `public.users`, 43 profiles, 43 points,
+43 presence, 0 orphaned, trigger present.
+
+---
+
+## ISSUE-045 — Buddy feature entirely dead: handle written and read in different places
+**Severity:** CRITICAL — **FIXED + APPLIED TO PROD 2026-08-30**
+**Migration:** `supabase/021_fix_buddy_handle_and_overview.sql` (rollback `_rollback_buddy_handle.sql`)
+
+Two independent defects, both verified live with real user JWTs.
+
+**1. The handle is written to one location and read from another.**
+
+```
+community_bootstrap_profile  WRITES  profile_data->>'community_handle'  (JSONB key)
+community_request_buddy      READS   user_profiles.handle               (real column)
+```
+
+`user_profiles` has both. The writer only ever populated the JSONB key, so the
+column was NULL for every user and
+
+```sql
+select user_id into fid from public.user_profiles where lower(handle) = lower(p_handle)
+```
+
+could never match. Every buddy request raised `user_not_found`, for every handle,
+for every user, always:
+
+```
+community_request_buddy {p_handle:"suyash"}              -> 400 P0001 user_not_found
+community_request_buddy {p_handle:"elixir_suyashprabhu"} -> 400 P0001 user_not_found
+community_respond_buddy {p_connection_id, p_accept}      -> 200 {"ok": true}
+community_remove_buddy  {p_other_user, p_block}          -> 200 {"ok": true}
+```
+
+Note which pass. Only the **entry point** was broken, which is why the feature
+looked dead rather than partly broken — respond and remove work fine, but you can
+never create a connection for them to act on.
+
+Fixed: bootstrap writes the column *and* the key; `request_buddy` accepts either,
+plus `users.username`, so accounts that enrolled before this migration or never
+enrolled at all are still findable; and a deduplicating backfill populates the
+column from data users already own. The dedup is not optional — a naive `UPDATE`
+failed on real data with `23505 … Key (lower(handle))=(suyash) already exists`
+because two accounts held `suyash` and `Suyash`.
+
+**2. `community_get_overview` never returned buddies.**
+
+It returned only `stats` and `groups`. The UI reads
+`overview.buddies` and splits it by `requestStatus`, with
+`s.buddies = s.buddies || []` normalising the missing key — so no error, just a
+permanently empty buddies panel. This is the second half of the report: even
+after a request succeeded, nothing appeared.
+
+The RPC now returns exactly the fields the compiled bundle reads — `userId`,
+`connectionId`, `requestStatus`, `outgoing`, `name`, `handle`, `avatarUrl`,
+`status`, `currentSubject`, `minutesToday`, `subjects[{name,minutes,questions}]`,
+`tasks[{id,title,subject,done}]` — plus `groupRequests`, which was silently empty
+for the same reason. `activeNow` is a real count now instead of a hardcoded 0.
+
+**Privacy is enforced server-side**, from each buddy's own
+`community_enrollments.privacy`. A client-side filter is not a privacy control:
+the data has already left the database. `stealthMode` collapses live status and
+subject; `shareTasks`, `shareSubjectBreakdown`, `shareQuestionCounts`,
+`shareExactTime` and `shareCurrentSubject` each gate their own field. Verified by
+flipping them and re-reading as the other user.
+
+Pending requests carry `outgoing`, because `community_respond_buddy` is only valid
+for a request sent *to* you — rendering your own outgoing request with an Accept
+button produces a control that can never work.
+
+**Error messages are now readable.** `communityApi` surfaces the Postgres message
+verbatim (`u = e => e instanceof Error ? e.message : …`), so `raise exception
+'user_not_found'` rendered as literally "user_not_found" in the UI. The bundle is
+baked into the APK, so the text has to come from SQL: now
+"No one is using the handle @x. Check the spelling and try again."
+
+**Verified end-to-end on a clean pair of signups:** enrol both → request by
+handle, `@handle`, and `HANDLE` (all resolve to one connection) → unknown and
+self rejected with readable text → pending visible to both with correct direction
+→ accept → B logs 90 min of Physics and a task → A sees `minutesToday: 90`,
+`subjects:[{Physics,90}]`, `tasks:[…]`, `status: "studying"`,
+`currentSubject: "Physics"` → stealth on: status `idle`, subject `null` →
+tasks+breakdown off: both empty, minutes still visible → remove: list empty.
+
+---
+
+## ISSUE-044 — Google sign-in returned to the app signed OUT, with a reload storm
+**Severity:** CRITICAL — **FIXED IN CODE 2026-08-30**
+**Status:** APK RUNTIME UNVERIFIED (needs a build ≥ 248)
+
+Reported from device: signed in with Google, came back to the app, was not signed
+in, and the app was reloading at high frequency. Logcat (build 247, 11:27):
+
+```
+FETCH_OK  /rest/v1/users?id=eq.9064bf89-…      -> 204
+FETCH_OK  /rest/v1/user_profiles?select=…      -> 200
+FETCH_OK  /rest/v1/user_stats_summary?…        -> 200
+FETCH_OK  /rest/v1/daily_user_stats?…          -> 200
+FETCH_OK  /rest/v1/user_settings?…             -> 200
+FETCH_OK  /rest/v1/user_onboarding?select=…    -> 401   ←
+FETCH_OK  /rest/v1/study_sessions_log?…        -> 401   ←
+```
+
+Three separate defects compounded. The token itself was fine — the OAuth work in
+ISSUE-041/042 did land, `/rest/v1/users` PATCH returned 204, so the session had a
+valid user and a working JWT.
+
+**1. `supaFetch` had no 401 retry, while `rpcPost` did.**
+A mix of 401 and 200 for the same user in the same burst is not a grants or RLS
+problem: verified that both `anon` and `service_role` read all seven of those
+tables (HTTP 200 each), and `isotope-complete.sql` grants SELECT on every one to
+`anon`, `authenticated` and `service_role`. It is one access token crossing `exp`
+mid-flight — whichever requests are in the air at that moment come back 401.
+`rpcPost` has always refreshed and retried once; the plain REST path did not, so
+community RPCs survived an expiry and bootstrap did not. `supaFetch` now retries
+a 401 once after `refreshStoredSessionIfNeeded()`, and re-reads the headers so the
+retry carries the NEW token rather than replaying the one that just failed. Only
+when a real user token is present — a 401 while sending the anon key means "not
+signed in", and refreshing that would loop.
+
+**2. A failed `user_onboarding` read logged the user out.**
+`bootstrapWithSession` required all three of profile/user/onboarding to be `ok`,
+else returned `bootstrap_db_unavailable` 503. The app reads 503 as signed-out and
+remounts `/auth`. So one 401 on a non-essential table discarded a valid session.
+Worse, a missing onboarding row is a legitimate state for a brand-new Google
+account, so this was wrong even without the 401. Onboarding is now non-fatal: it
+warns, treats the row as absent, and lets the existing inference path run. Only
+`user_profiles` and `users` remain fatal.
+
+**3. Every reload guard was per-document, so "reload once" meant "reload forever".**
+`reloadAttempted`, `crashRecoveries` and `lastCrashRoute` in
+`setupAndroidRenderRecovery` are plain `var`s. A reload creates a new document,
+which resets them to their initial values — so each fresh document believed it had
+never reloaded and was entitled to one more. With bootstrap failing persistently,
+that is an unbounded loop, and it is exactly the "very high frequency of automatic
+reloading" that was observed. `boot-recovery.js` already caps its own reloads in
+`sessionStorage` (`__iso_reload_count`) for this reason; the in-page path now does
+the same via `__iso_render_reloads` (budget 2) and `__iso_crash_recoveries`
+(budget 3). The budget is cleared 5s after a load in which `#root` actually has
+children, so a healthy session does not carry a spent budget around. Out of
+budget, the user gets the refresh notice instead of another reload.
+
+Also fixed while here: `profilePromise` / `userPromise` / `onboardingPromise` had
+no `.catch`, unlike the four optional queries beside them. A thrown fetch rejected
+the whole `Promise.all` and skipped the 503 branch entirely, producing an
+unhandled rejection — which `setupAndroidRenderRecovery` then reads as a crash and
+reloads on. All three now resolve to `{ok:false}` like their neighbours.
+
+**Verify on device:** sign in with Google, then confirm in Logcat that no
+`/rest/v1/*` request ends on a 401 without a following retry, that
+`[ISO-BRIDGE] user_onboarding unreadable` (if it appears at all) does not lead to
+`/auth`, and that at most two reloads occur before the refresh notice.
+
+---
+
 ## ISSUE-042 — Code-callback deep links reported as unconsumed
 **Severity:** CRITICAL — **FIXED IN CODE + UNIT TESTED 2026-08-28**
 **Status:** APK RUNTIME UNVERIFIED

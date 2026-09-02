@@ -121,6 +121,26 @@ jobs:
         working-directory: isotope-apk
         run: node scripts/validate-www-js.mjs
 
+      # ── Supabase tooling ──────────────────────────────────────────────────
+      # Entry points that nothing imports, so a syntax error in one is caught by
+      # no test. backup.sh must stay byte-identical to isotope-code's copy: they
+      # diverged once, and that copy let `restore` infer its target from .env —
+      # production.
+      - name: Validate Supabase tooling
+        working-directory: isotope-apk
+        run: |
+          set -euo pipefail
+          for f in scripts/supabase-backup.mjs scripts/schema-dump.mjs \
+                   scripts/job-runner.mjs scripts/backup-ui.mjs \
+                   scripts/supabase-setup.mjs scripts/supabase-check.mjs \
+                   scripts/check-ui-refs.mjs; do
+            node --check "$f"
+            echo "  ok $f"
+          done
+          bash -n backup.sh
+          bash -n supabase.sh
+          node scripts/check-ui-refs.mjs
+
       # ── Make Gradle executable ────────────────────────────────────────────
       - name: Make Gradle wrapper executable
         working-directory: isotope-apk/android
