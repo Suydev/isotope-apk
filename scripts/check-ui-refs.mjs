@@ -39,7 +39,7 @@ if (!m) {
 } else {
   try {
     // new Function parses without executing — the script touches document on load.
-    new Function(m[1]);   // eslint-disable-line no-new-func
+    new Function(m[1]);
     console.log('  ok  inline script parses');
   } catch (e) {
     fails.push(`inline script syntax error: ${e.message}`);

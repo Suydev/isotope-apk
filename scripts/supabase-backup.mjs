@@ -148,7 +148,10 @@ function lit(v, cast) {
   // Postgres apply them instead of reimplementing them here.
   if (Array.isArray(v) && /\[\]$/.test(String(cast || ''))) {
     if (!v.length) return `ARRAY[]::${cast}`;
-    const elemCast = String(cast).replace(/\[\]$/, '');
+    // Elements are left unannotated and the whole constructor is cast instead:
+    // ARRAY['a','b']::text[] is unambiguous, and casting each element as well
+    // would be redundant. (An earlier draft computed the element type here and
+    // never used it.)
     const elems = v.map((e) => (e === null || e === undefined
       ? 'NULL'
       : `'${(typeof e === 'string' ? e : JSON.stringify(e)).replace(/'/g, "''")}'`));
