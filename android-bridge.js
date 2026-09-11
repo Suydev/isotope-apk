@@ -6281,11 +6281,19 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
     return false;
   }
 
+  // Sign-in always starts on an auth screen, so the current path at callback
+  // time is normally /auth. Sending the freshly authenticated user back there
+  // re-renders the login form and never boots a real route, which looks exactly
+  // like the login did nothing. Never treat auth screens as a post-login target.
+  function isAuthPath(path) {
+    return /^\/(auth|login|signup|reset-password)(\/.*)?$/.test(path || '');
+  }
+
   function getSafeRedirect(path) {
-    if (isRedirectAllowed(path)) return path;
+    if (isRedirectAllowed(path) && !isAuthPath(path)) return path;
     // Check for sessionStorage stored returnTo
     var stored = sessionStorage.getItem('oauth_return_to');
-    if (stored && isRedirectAllowed(stored)) return stored;
+    if (stored && isRedirectAllowed(stored) && !isAuthPath(stored)) return stored;
     return '/dashboard';
   }
 
@@ -6331,45 +6339,35 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
 
       // Authorization-code exchange (isotopeai://auth/callback?code=...).
       //
-      // This project's Supabase issues response_type=code with NO code_challenge,
-      // so this is the NORMAL return path and code_verifier is usually absent.
-      // Supabase accepts grant_type=pkce for codes it issued; when a verifier is
-      // present that is the correct grant, otherwise fall back to the plain
-      // authorization_code grant. Trying both is cheap and removes a guess.
+      // Defensive path only: the app's Supabase client uses flowType:"implicit",
+      // so a normal Google return carries tokens in the URL fragment and never
+      // reaches here. This runs only if PKCE is switched on.
+      //
+      // GoTrue exposes exactly one grant for these codes — POST
+      // /auth/v1/token?grant_type=pkce with a JSON body {auth_code, code_verifier}
+      // (the parameter is `auth_code`, not `code`, and there is no
+      // `authorization_code` grant). Verified live: grant_type=authorization_code
+      // → unsupported_grant_type, and a form-encoded body → bad_json.
       if (code && !accessToken) {
         var codeVerifier = sessionStorage.getItem('pkce_code_verifier');
-        var redirectUri = window.__ISO_OAUTH_REDIRECT__ || 'isotopeai://auth/callback';
-
-        var attemptExchange = function (grant) {
-          var body = 'grant_type=' + grant +
-            '&code=' + encodeURIComponent(code) +
-            '&redirect_uri=' + encodeURIComponent(redirectUri) +
-            (codeVerifier ? '&code_verifier=' + encodeURIComponent(codeVerifier) : '');
-          return fetch(SUPA_URL + '/auth/v1/token?grant_type=' + grant, {
-            method: 'POST',
-            headers: {
-              'apikey': SUPA_ANON,
-              'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: body,
-            credentials: 'omit'
-          }).then(function (r) {
-            // Read as text first: an HTML gateway error must not surface as a
-            // JSON parse failure standing in for the real reason.
-            return r.text().then(function (text) {
-              var data = null;
-              try { data = JSON.parse(text); } catch (e) {}
-              return { ok: r.ok, status: r.status, data: data, text: text };
-            });
+        var payload = { auth_code: code };
+        if (codeVerifier) payload.code_verifier = codeVerifier;
+        return fetch(SUPA_URL + '/auth/v1/token?grant_type=pkce', {
+          method: 'POST',
+          headers: {
+            'apikey': SUPA_ANON,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload),
+          credentials: 'omit'
+        }).then(function (r) {
+          // Read as text first: an HTML gateway error must not surface as a
+          // JSON parse failure standing in for the real reason.
+          return r.text().then(function (text) {
+            var data = null;
+            try { data = JSON.parse(text); } catch (e) {}
+            return { ok: r.ok, status: r.status, data: data, text: text };
           });
-        };
-
-        var grants = codeVerifier ? ['pkce', 'authorization_code'] : ['authorization_code', 'pkce'];
-        return attemptExchange(grants[0]).then(function (first) {
-          if (first.data && first.data.access_token) return first;
-          console.warn('[OAuthCallback] ' + grants[0] + ' exchange failed (' + first.status +
-            '), retrying as ' + grants[1]);
-          return attemptExchange(grants[1]);
         }).then(function (res) {
           var data = res.data;
           if (!data || !data.access_token) {

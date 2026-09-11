@@ -1581,31 +1581,53 @@ test('an authorization-code deep link reports as consumed, not as a promise', as
   assert.equal(JSON.parse(stored).access_token, 'exchanged');
 });
 
-test('the code exchange retries the alternate grant before failing', async () => {
-  // Supabase accepts grant_type=pkce for codes it issued and authorization_code
-  // for plain OAuth codes. With no verifier present the correct grant is not
-  // knowable up front, so both are tried rather than guessed.
-  const grants = [];
-  const harness = createBridgeHarness(async (url) => {
+test('the code exchange uses the PKCE grant GoTrue actually supports', async () => {
+  // The app client is flowType:"implicit", so ?code= is a defensive path, but
+  // when it runs it must match GoTrue: POST /token?grant_type=pkce with a JSON
+  // body {auth_code}. Verified live: grant_type=authorization_code →
+  // unsupported_grant_type, and a form-encoded body → bad_json. The old code
+  // sent `code=` as a form body and tried a nonexistent grant, so it could
+  // never have succeeded.
+  let tokenCall = null;
+  const harness = createBridgeHarness(async (url, init) => {
     if (url.includes('/auth/v1/token')) {
-      const grant = new URL(url).searchParams.get('grant_type');
-      grants.push(grant);
-      if (grants.length === 1) {
-        return jsonResponse({ error: 'invalid_grant' }, 400);
-      }
-      return jsonResponse({ access_token: 'second-try', expires_in: 3600 });
+      tokenCall = { url, init };
+      return jsonResponse({ access_token: 'pkce-ok', refresh_token: 'ref', expires_in: 3600 });
     }
-    if (url.includes('/auth/v1/user')) return jsonResponse({ id: 'cccccccc-3333-4333-8333-cccccccccccc' });
+    if (url.includes('/auth/v1/user')) return jsonResponse({ id: 'dddddddd-4444-4444-8444-dddddddddddd' });
     return jsonResponse([]);
   });
 
-  harness.window.__isoHandleOAuthDeepLink('isotopeai://auth/callback#code=abc');
+  harness.window.__isoHandleOAuthDeepLink('isotopeai://auth/callback#code=pkce-code-1&state=xyz');
   await new Promise((resolve) => { setTimeout(resolve, 80); });
 
-  assert.equal(grants.length, 2, 'both grant types must be attempted');
-  assert.notEqual(grants[0], grants[1], 'the retry must use a different grant');
+  assert.ok(tokenCall, 'the token endpoint must be called');
+  assert.match(tokenCall.url, /grant_type=pkce/);
+  assert.doesNotMatch(tokenCall.url, /authorization_code/);
+  assert.equal(tokenCall.init.headers['Content-Type'], 'application/json');
+  assert.deepEqual(JSON.parse(tokenCall.init.body), { auth_code: 'pkce-code-1' });
   const stored = harness.localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token');
-  assert.equal(JSON.parse(stored).access_token, 'second-try');
+  assert.equal(JSON.parse(stored).access_token, 'pkce-ok');
+});
+
+test('a successful OAuth return does not redirect back to /auth', async () => {
+  // OAuth always starts on an auth screen. Returning there after success shows
+  // the login form again (the Auth route has no authenticated redirect), which
+  // users read as "login did not work". The callback must boot a real route so
+  // restore-and-launch reloads and picks up the stored session.
+  const harness = createBridgeHarness(async (url) => {
+    if (url.includes('/auth/v1/user')) return jsonResponse({ id: 'eeeeeeee-5555-4555-8555-eeeeeeeeeeee' });
+    return jsonResponse([]);
+  });
+  harness.window.location.pathname = '/auth';
+
+  harness.window.__isoHandleOAuthDeepLink(
+    'isotopeai://auth/callback#access_token=tok&refresh_token=ref&expires_in=3600&token_type=bearer',
+  );
+  await new Promise((resolve) => { setTimeout(resolve, 80); });
+
+  assert.equal(harness.window.location.href, '/dashboard',
+    'the callback must not land the freshly authenticated user back on /auth');
 });
 
 test('a failed user lookup still lets the user through rather than hanging', async () => {
