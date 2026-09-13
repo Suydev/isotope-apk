@@ -187,3 +187,19 @@ test('the detector does not flag function parameters or callbacks', () => {
     'fixture.js');
   assert.deepEqual([...unresolved.keys()], []);
 });
+
+// Regression: the Community RPC passthrough called bare `fetch(rpcUrl)`. Since
+// the bridge's fetch interceptor IS window.fetch, a /rest/v1/rpc/community_*
+// request re-entered that same branch forever → "RangeError: Maximum call stack
+// size exceeded" (ISSUE-039's second cause). It must use the captured original.
+test('community RPC passthrough uses _originalFetch, never the interceptor', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'android-bridge.js'), 'utf8');
+  assert.ok(
+    src.includes('return _originalFetch.call(window, rpcUrl, attemptInit)'),
+    'community RPC passthrough must call _originalFetch',
+  );
+  assert.ok(
+    !src.includes('return fetch(rpcUrl, attemptInit)'),
+    'bare fetch(rpcUrl) re-enters the interceptor (stack overflow)',
+  );
+});

@@ -5176,7 +5176,10 @@ var raw = localStorage.getItem('sb-ollsqiutzartjhiuzkbf-auth-token') ||
       // Now one refresh + retry is attempted before giving up.
       var sendRpc = function (isRetry) {
         var attemptInit = Object.assign({}, init, { headers: supaFetchHeaders(init) });
-        return fetch(rpcUrl, attemptInit).then(function (response) {
+        // Must use _originalFetch: bare fetch() is this interceptor, so a
+        // /rest/v1/rpc/community_* request would re-enter this branch forever
+        // (RangeError: Maximum call stack size exceeded).
+        return _originalFetch.call(window, rpcUrl, attemptInit).then(function (response) {
           if (response.status === 401 && !isRetry) {
             return refreshStoredSessionIfNeeded().then(function (next) {
               if (next && next.access_token) return sendRpc(true);
