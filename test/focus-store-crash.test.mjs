@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveGraph } from '../scripts/www-graph.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ASSETS = path.join(ROOT, 'www', 'assets');
+const GRAPH = resolveGraph();
 const FOCUS_STORE = 'useFocusStore-BL5hTjFF.js';
 
 function readAsset(name) {
@@ -56,5 +58,37 @@ test('cloud-synced session row shape is normalised in restore-and-launch', () =>
     src.includes('topicIds: [],') && src.includes('taskIds: [],'),
     'sessionLogRowsToLocal does not emit the subjectIds/chapterIds/topicIds/' +
     'taskIds arrays — merged cloud rows would still crash Focus',
+  );
+});
+
+test('FOCUS_STORE bundle is reachable (guards are not in an orphaned file)', () => {
+  assert.ok(
+    GRAPH.reachable.has(FOCUS_STORE),
+    `www/assets/${FOCUS_STORE} is orphaned — the guards live in a file the app ` +
+    'never loads; re-point them at the live bundle (see AGENTS.md).',
+  );
+});
+
+test('recordQuestionResult guards the questionActionHistory spread', () => {
+  const src = readAsset(FOCUS_STORE);
+  assert.ok(
+    src.includes('[...(t.questionActionHistory??[]),'),
+    'recordQuestionResult spreads an unguarded questionActionHistory',
+  );
+  assert.ok(
+    !src.includes('[...t.questionActionHistory,'),
+    'unguarded questionActionHistory spread still present',
+  );
+});
+
+test('undoLastQuestionResult guards the questionActionHistory slice', () => {
+  const src = readAsset(FOCUS_STORE);
+  assert.ok(
+    src.includes('questionActionHistory:(e.questionActionHistory??[]).slice(0,-1)'),
+    'undoLastQuestionResult slices an unguarded questionActionHistory',
+  );
+  assert.ok(
+    !src.includes('questionActionHistory:e.questionActionHistory.slice(0,-1)'),
+    'unguarded questionActionHistory slice still present',
   );
 });
