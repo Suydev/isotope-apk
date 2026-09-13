@@ -19,8 +19,12 @@
   try {
     var docEl = document.documentElement;
     var isAndroidApp = docEl.classList.contains('iso-android');
+    // Capture before the innerWidth override below, otherwise realWidth() would
+    // read the overridden getter and recurse forever on WebViews without
+    // visualViewport ("Maximum call stack size exceeded").
+    var nativeInnerWidth = window.innerWidth;
     function realWidth() {
-      return window.visualViewport ? Math.round(window.visualViewport.width) : window.innerWidth;
+      return window.visualViewport ? Math.round(window.visualViewport.width) : nativeInnerWidth;
     }
     var TABLET_MIN = 640;   // physical CSS px that qualifies as large-screen
     var REPORT_MIN = 1280;  // width reported to JS when tablet detected
@@ -61,10 +65,16 @@
           var realW = realWidth();
           if (realW < TABLET_MIN) return mql; // phones keep native behaviour
           var fakeMatches = m[1] === 'max' ? REPORT_MIN <= val : REPORT_MIN >= val;
-          // Return a clone of the MQL with overridden matches + listeners intact.
-          var shim = Object.create(mql);
-          Object.defineProperty(shim, 'matches', { get: function () { return fakeMatches; } });
-          return shim;
+          // Shadow `matches` on the REAL MediaQueryList (own property overrides
+          // the prototype getter). Do NOT return Object.create(mql): that is a
+          // chameleon object with no MediaQueryList/EventTarget internal slot,
+          // so any addEventListener/removeEventListener call on it throws
+          // "Illegal invocation" (e.g. Tasks' `(max-width: 639px)` listener).
+          Object.defineProperty(mql, 'matches', {
+            get: function () { return fakeMatches; },
+            configurable: true
+          });
+          return mql;
         } catch (e2) { return mql; }
       };
     }

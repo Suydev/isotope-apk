@@ -88,7 +88,7 @@
             try{
               var o=MQLProto[m];
               if(typeof o!=='function') return;
-              MQLProto[m]=function(){ try{ return o.apply(this,arguments); }catch(e){ try{ return o.apply(window.matchMedia('(max-width: 0px)'),arguments); }catch(e2){ throw e; } } };
+              MQLProto[m]=function(){ try{ return o.apply(this,arguments); }catch(e){ try{ var _mm=window.__isoOrigMatchMedia||window.matchMedia; return o.apply(_mm('(max-width: 0px)'),arguments); }catch(e2){ throw e; } } };
             }catch(e){}
           });
         }
