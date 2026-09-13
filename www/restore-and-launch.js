@@ -560,12 +560,27 @@ function applyCachedCloudSnapshot(snapshot) {
   return { isOnboarded: snapshot.onboarding.completed, source: 'cache', snapshot };
 }
 
+const SESSION_ARRAY_FIELDS = ['subjectIds', 'chapterIds', 'topicIds', 'taskIds'];
+
+// Sessions can arrive from several places (local persistence, study_sessions_log
+// cloud rows, older app versions). Consumers assume these arrays always exist;
+// normalize here so the store never holds a row without them.
+function normalizeSessionShape(row) {
+  if (!row || typeof row !== 'object') return row;
+  const next = { ...row };
+  for (const field of SESSION_ARRAY_FIELDS) {
+    if (!Array.isArray(next[field])) next[field] = next[field] == null ? [] : [next[field]];
+  }
+  return next;
+}
+
 function mergeArrayById(key, incoming) {
   if (!Array.isArray(incoming) || incoming.length === 0) return;
+  const normalize = key === 'isotope_sessions_v2' ? normalizeSessionShape : (row) => row;
   const existing = Array.isArray(readJson(key, [])) ? readJson(key, []) : [];
   const byId = new Map();
-  for (const row of existing) if (row && row.id) byId.set(row.id, row);
-  for (const row of incoming) if (row && row.id) byId.set(row.id, { ...(byId.get(row.id) || {}), ...row });
+  for (const row of existing) if (row && row.id) byId.set(row.id, normalize(row));
+  for (const row of incoming) if (row && row.id) byId.set(row.id, { ...(byId.get(row.id) || {}), ...normalize(row) });
   writeJson(key, Array.from(byId.values()));
 }
 

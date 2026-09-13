@@ -130,11 +130,26 @@ function writeJson(key, value) {
   try { window.localStorage.setItem(key, JSON.stringify(value)); } catch {}
 }
 
+const SESSION_ARRAY_FIELDS = ['subjectIds', 'chapterIds', 'topicIds', 'taskIds'];
+
+// Keep session rows structurally valid on every read/write: UI consumers assume
+// these arrays exist (a cloud study_sessions_log row or an older local row may
+// omit them, which crashed Dashboard/Analytics).
+function normalizeSessionArrays(record) {
+  if (!record || typeof record !== 'object') return record;
+  for (const field of SESSION_ARRAY_FIELDS) {
+    if (!Array.isArray(record[field])) record[field] = record[field] == null ? [] : [record[field]];
+  }
+  return record;
+}
+
 function normalizeRecordForStore(collection, record, index) {
   if (!record || typeof record !== 'object') return null;
   if (collection === 'profile') return { ...record, id: record.id || 'primary' };
   if (collection === 'timerState') return { ...record, id: 'current' };
-  return { ...record, id: record.id || `${collection}-${Date.now()}-${index}` };
+  const next = { ...record, id: record.id || `${collection}-${Date.now()}-${index}` };
+  if (collection === 'sessions') normalizeSessionArrays(next);
+  return next;
 }
 
 async function readStoreAll(storeName) {
@@ -186,8 +201,9 @@ async function readCollection(name) {
     const { id, ...timer } = first;
     return id === 'current' ? timer : first;
   }
-  if (fromDb.length > 0) return fromDb;
+  if (fromDb.length > 0) return name === 'sessions' ? fromDb.map(normalizeSessionArrays) : fromDb;
   const local = readJson(key, []);
+  if (name === 'sessions' && Array.isArray(local)) return local.map(normalizeSessionArrays);
   return Array.isArray(local) ? local : [];
 }
 
