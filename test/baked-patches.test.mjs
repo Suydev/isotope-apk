@@ -239,6 +239,17 @@ test('build.gradle derives the version from package.json rather than pinning it'
   assert.match(gradle, /packageJson\.version/,
     'build.gradle must read the version from package.json so a single bump ' +
     'propagates to versionName/versionCode.');
+  // The literal fallback (only used if package.json is missing) must not drift:
+  // it used to say 3.5.3/346 while package.json was 3.5.4.
+  const expectedCode =
+    (parseInt(pkg.version.split('.')[0], 10) * 10000) +
+    (parseInt(pkg.version.split('.')[1], 10) * 100) +
+    (parseInt(pkg.version.split('.')[2], 10));
+  const fallbackCode = gradle.match(/def VERSION_CODE = (\d+)/);
+  assert.ok(fallbackCode, 'build.gradle must declare a VERSION_CODE fallback literal');
+  assert.equal(Number(fallbackCode[1]), expectedCode,
+    'build.gradle VERSION_CODE fallback is stale; it must equal major*10000+' +
+    'minor*100+patch for the current package.json version.');
 });
 
 test('no stray app-config.json reintroduces a second version source', () => {

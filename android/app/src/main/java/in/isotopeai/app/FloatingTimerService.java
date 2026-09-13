@@ -20,6 +20,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
+import android.util.Log;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -52,6 +53,7 @@ public class FloatingTimerService extends Service {
     public static final String ACTION_UPDATE = "in.isotopeai.app.action.FLOATING_TIMER_UPDATE";
     public static final String ACTION_STOP   = "in.isotopeai.app.action.FLOATING_TIMER_STOP";
     public static final String EXTRA_STATE_JSON = "state_json";
+    private static final String TAG = "IsotopeFloatingTimer";
 
     // Brand / semantic colors — match the web app CSS variables
     private static final int BRAND_500   = Color.rgb(139,  92, 246); // violet-500
@@ -242,8 +244,19 @@ public class FloatingTimerService extends Service {
             updateNotificationIfChanged(true);
             return;
         }
-        startForeground(NOTIFICATION_ID, buildNotification());
-        foregroundStarted = true;
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification());
+            foregroundStarted = true;
+        } catch (Exception e) {
+            // If startForeground fails (foreground-service-type / notification
+            // permission / OEM quirk) we must NOT let onStartCommand swallow it:
+            // Android would kill the whole process with RemoteServiceException for
+            // not calling startForeground within 5s of startForegroundService.
+            // Stop cleanly instead so the user just sees the overlay disappear.
+            Log.w(TAG, "startForeground failed; stopping floating timer service", e);
+            foregroundStarted = false;
+            stopSelf();
+        }
     }
 
     private void updateNotificationIfChanged() { updateNotificationIfChanged(false); }

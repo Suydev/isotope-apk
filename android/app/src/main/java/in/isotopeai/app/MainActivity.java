@@ -331,6 +331,10 @@ public class MainActivity extends BridgeActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
         }
+        // capacitor.config.json sets webContentsDebuggingEnabled=true globally;
+        // that would let any connected Chrome DevTools read localStorage / the
+        // OAuth JWT on a release build. Force WebView debugging to debug builds only.
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
     }
 
     private void registerFloatingActionReceiver() {
