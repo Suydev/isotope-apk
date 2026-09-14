@@ -153,7 +153,9 @@
   }
 
   function isActiveTimerState(state) {
-    return !!state && (state.timerState === 'running' || state.timerState === 'paused' || state.timerState === 'break');
+    // Any non-idle state allows PIP overlay. Even 'paused' or 'idle' is acceptable
+    // for PIP since the overlay can display any timer state and the user can start it.
+    return !!state && state.timerState !== 'idle';
   }
 
   function normalizeTimerState(raw) {
