@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.net.Uri;
@@ -333,8 +334,11 @@ public class MainActivity extends BridgeActivity {
         }
         // capacitor.config.json sets webContentsDebuggingEnabled=true globally;
         // that would let any connected Chrome DevTools read localStorage / the
-        // OAuth JWT on a release build. Force WebView debugging to debug builds only.
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        // OAuth JWT on a release build. Force WebView debugging to debug builds
+        // only. Uses the manifest debuggable flag (not BuildConfig) so it doesn't
+        // depend on AGP buildConfig generation.
+        boolean debuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        WebView.setWebContentsDebuggingEnabled(debuggable);
     }
 
     private void registerFloatingActionReceiver() {
