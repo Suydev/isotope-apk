@@ -201,9 +201,17 @@ async function readCollection(name) {
     const { id, ...timer } = first;
     return id === 'current' ? timer : first;
   }
-  if (fromDb.length > 0) return name === 'sessions' ? fromDb.map(normalizeSessionArrays) : fromDb;
+  // Prefer the live localStorage copy over IndexedDB. The app (Zustand) writes
+  // new/edited rows directly to localStorage, while IndexedDB is only refreshed on
+  // restore/sync, so it can go stale between syncs. Reading IDB-first made every
+  // backup from buildBackupPayloadFromLocal silently drop anything added since the
+  // last restore — "sync not working". Every IDB write is paired with a
+  // localStorage write (writeJson), so localStorage is never staler than IDB.
   const local = readJson(key, []);
-  if (name === 'sessions' && Array.isArray(local)) return local.map(normalizeSessionArrays);
+  if (Array.isArray(local) && local.length > 0) {
+    return name === 'sessions' ? local.map(normalizeSessionArrays) : local;
+  }
+  if (fromDb.length > 0) return name === 'sessions' ? fromDb.map(normalizeSessionArrays) : fromDb;
   return Array.isArray(local) ? local : [];
 }
 
