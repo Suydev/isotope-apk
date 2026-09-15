@@ -19,9 +19,15 @@
     other: '📌'
   };
   var PROFILE_KEY = 'isotope_user_profile_v2';
+  var PIP_STATE_KEY = 'iso_floating_timer_state_v1';
   var activeController = null;
   var unsubscribeStore = null;
   var stateTimer = null;
+  // Last timer state pushed by the app. Used as a fallback for the native overlay
+  // when heuristic controller discovery is unavailable or reads an idle state
+  // (e.g. right after a WebView reload). Prevents "no active session" false
+  // negatives while a real session is running.
+  var lastKnownState = null; 
 
   function nativeBridge() {
     try { return window.IsotopeAndroid || null; }
@@ -212,7 +218,7 @@
     }
   }
 
-  function sendStateToNative() {
+    function sendStateToNative() {
     var state = getControllerState();
     if (!state) return false;
     if (!isActiveTimerState(state)) {
@@ -222,6 +228,10 @@
       activeController = null;
       return false;
     }
+    // Cache the active state so the native overlay can use it as a fallback
+    // when controller discovery later fails or reads an idle state.
+    lastKnownState = state;
+    try { window.localStorage.setItem(PIP_STATE_KEY, JSON.stringify({ s: state, at: Date.now() })); } catch (e) {}
     var payload = JSON.stringify(state);
     try { if (window.__isoPipCache && window.__isoPipCache.set) window.__isoPipCache.set(state); } catch (e) {}
     try { fetch('http://127.0.0.1:3000/__pip/state', { method:'POST', headers:{'Content-Type':'application/json'}, body:payload, keepalive:true }).catch(function(){}); } catch (e) {}
@@ -431,12 +441,33 @@
       ? window.documentPictureInPicture.requestWindow.bind(window.documentPictureInPicture)
       : null;
 
+    function readCachedPipState() {
+      // Prefer the in-memory copy, then the localStorage mirror (survives reload).
+      if (lastKnownState && isActiveTimerState(lastKnownState)) return lastKnownState;
+      try {
+        var raw = window.localStorage.getItem(PIP_STATE_KEY);
+        if (!raw) return null;
+        var parsed = JSON.parse(raw);
+        var st = parsed && parsed.s;
+        if (st && isActiveTimerState(st) && Date.now() - (parsed.at || 0) < 24 * 3600 * 1000) return st;
+      } catch (e) {}
+      return null;
+    }
+
     function nativeOverlayResult() {
       // Mirrors what __isoOpenFloatingTimer reports, without duplicating its logic.
       var c = ensureController();
-      if (!c) return { ok: false, reason: 'focus timer not ready' };
-      var st = getControllerState();
-      if (!isActiveTimerState(st)) return { ok: false, reason: 'no active session' };
+      var st = c ? getControllerState() : null;
+      if (!isActiveTimerState(st)) {
+        // Controller discovery can fail or read an idle state right after a
+        // WebView reload while a real session is running. Fall back to the last
+        // state the app pushed before declaring "no active session". With no
+        // controller AND no cached state we are genuinely not ready yet, and
+        // that reason is what the callers surface.
+        var cached = readCachedPipState();
+        if (!cached) return { ok: false, reason: c ? 'no active session' : 'focus timer not ready' };
+        st = cached;
+      }
       var b = nativeBridge();
       if (!b || typeof b.startFloatingTimer !== 'function') return { ok: false, reason: 'native bridge unavailable' };
       if (typeof b.hasOverlayPermission === 'function' && !b.hasOverlayPermission()) {
@@ -497,7 +528,9 @@
     }
     function handlePipButtonClick(ev) {
       ensureController();
-      if (!activeController || !isActiveTimerState(getControllerState())) return false;
+      var st = getControllerState();
+      if (!st || !isActiveTimerState(st)) st = readCachedPipState();
+      if (!st || !isActiveTimerState(st)) return false;
       try { ev.preventDefault(); ev.stopPropagation(); window.__isoOpenFloatingTimer(activeController); return true; } catch(e){ return false; }
     }
     document.addEventListener('click', function (ev) {

@@ -90,6 +90,27 @@ const REQUIRED_ANCHORS = [
     'login routed through the bridge'],
   ['Auth-D0Y8CB1f.js', '__isoUp',
     'signup routed through the bridge'],
+  // Code-only invites. The backend is already code-based (community_create_invite
+  // returns an 8-char token); the APK only needed the presentation fixed. A
+  // re-capture from upstream would restore the localhost link, so pin both the
+  // code form and the code-entry UI.
+  ['communityApi-Ccw5N_9O.js', 'return{success:!0,data:t}',
+    'createInvite returns the raw code — the old origin/invite/<code> link is unusable in the APK'],
+  ['communityApi-Ccw5N_9O.js', 'window.__isoCommunityApi=g',
+    'the community client is exposed so code-entry handlers can redeem without another bundle patch'],
+  ['useCommunity-CBDFEeBe.js', 'redeemInvite:o(',
+    'redeem-by-code mutation — entering a code must invalidate the community queries'],
+  ['Community-CEnEgsrd.js', 'Have an invite code?',
+    'buddy popup has a code-entry field'],
+  ['Community-CEnEgsrd.js', 'Generate my buddy code',
+    'buddy popup generates a code instead of a link'],
+  ['Community-CEnEgsrd.js', 'Join a group',
+    'Groups tab can join by code'],
+  // Dialog focus regression: restoring focus on every effect re-run steals focus
+  // from the input being typed in and the soft keyboard closes. Group chat was
+  // unaffected only because it is not rendered inside this dialog.
+  ['Community-CEnEgsrd.js', 'd.current.isConnected',
+    'the dialog only restores focus on real unmount, not on every re-render (keyboard fix)'],
 ];
 
 // Anchors that must NOT be present.
@@ -105,6 +126,14 @@ const FORBIDDEN_ANCHORS = [
     'no remote audio fetch — the APK must not depend on GitHub being reachable'],
   ['Focus-B4gLsWoP.js', 'window.__pipBridge=',
     'the dead HTTP PiP relay must stay stripped (native PiP is used instead)'],
+  // Code-only invites: a re-capture from upstream restores the unusable
+  // WebView-local link and the link wording in both popups.
+  ['communityApi-Ccw5N_9O.js', '$' + '{window.location.origin}/invite/',
+    'createInvite must not wrap the code in a WebView-local link'],
+  ['Community-CEnEgsrd.js', 'Copy private invite link',
+    'buddy popup button was renamed to code generation'],
+  ['Community-CEnEgsrd.js', 'send a private invite link',
+    'buddy popup description must not advertise links'],
 ];
 
 for (const [file, anchor, meaning] of REQUIRED_ANCHORS) {
