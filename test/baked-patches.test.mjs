@@ -111,6 +111,11 @@ const REQUIRED_ANCHORS = [
   // unaffected only because it is not rendered inside this dialog.
   ['Community-CEnEgsrd.js', 'd.current.isConnected',
     'the dialog only restores focus on real unmount, not on every re-render (keyboard fix)'],
+  // 'Generate my buddy code' stays a silent no-op if overview.profile is missing
+  // (migration 025 not applied yet), so ownUserId falls back to the session stores
+  // user id. Without this fallback the button never produces a code.
+  ['Community-CEnEgsrd.js', '__uid=Ce(j=>j.userId)',
+    'ownUserId falls back to the auth session user id when overview.profile is absent'],
 ];
 
 // Anchors that must NOT be present.
