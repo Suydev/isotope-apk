@@ -127,12 +127,51 @@ Re-run the check after any capture:
   Keys are shared with `isotope-code`'s `.env` (same project, same anon key —
   verified by hash on 2026-08-27). `app-config.json` was a stale duplicate of this
   and has been deleted; do not re-add it.
-- Migrations live in `supabase/*.sql` only (009–018; RLS recursion fixed in 011).
-  Root-level copies were removed — do not re-add them.
+- Migrations live in `supabase/*.sql` only (009–025; RLS recursion fixed in 011,
+  025 = overview `profile`/`pendingCount`/`updatedAt`, applied to prod 2026-09-15
+  via `./switch.sh migrate --only 025` after a verified backup). Root-level copies
+  were removed — do not re-add them.
 - 30 `community_*` RPCs verified live against the prod project on 2026-08-27
   (incl. chat: `community_get_group_messages`, `community_send_group_message`).
   The compiled `communityApi` bundle's call signatures match the deployed ones, so
   Community breakage is an auth/session problem, not a schema mismatch.
+
+## Backend switch readiness (`switch.sh`)
+
+Both Vercel and Supabase are free tiers, so the backend can be swapped at will.
+`./switch.sh` (wraps `scripts/backend-switch.mjs` + `scripts/supabase-admin.mjs`)
+is the one entrypoint; a personal access token in the gitignored `.pat` is the only
+credential it needs.
+
+- `./switch.sh auth --ref REF --urls U,… [--site-url U] [--google-*]` — reads the
+  live auth config, MERGES the redirect allow-list (never clobbers), PATCHes
+  `/config/auth` via the Management API. `--dry-run` prints the patch.
+- `./switch.sh migrate --ref REF [--from 025|--only 025]` — applies the numbered
+  `supabase/*.sql` migrations in order, idempotent, BEGIN/COMMIT wrappers
+  stripped, batched. This is the only path that applies migrations to an EXISTING
+  project (`supabase.sh setup` provisions a fresh one from the monolithic dump).
+- `./switch.sh repoint --url U --ref REF [--anon-key K]` — swaps every baked
+  Supabase constant (URL, anon JWT, `var ref`, `sb-<ref>-auth-token`) across
+  `android-bridge.js` + `www/` + assets, and rewrites `supabase.config.json`.
+  A JWT is only rewritten when its payload says `"role":"anon"`.
+- `./switch.sh backup` — delegates to `./backup.sh backup` (PAT-resolved service key).
+- `./switch.sh full --ref NEW --url U --anon-key K --urls …` — the whole move:
+  backup → migrate → auth → repoint → verify.
+
+Rewrite helpers are unit-tested in `test/backend-switch.test.mjs` (arg parsing,
+migration ordering incl. `013b`, redirect merge, constant rewrite idempotency,
+non-anon JWT preservation).
+
+- Prod auth config as of 2026-09-15: `site_url` = `https://isotopeai.dpdns.org`;
+  redirect allow-list adds `https://isotopeai.dpdns.org`, `…/**`,
+  `https://www.isotopeai.dpdns.org/**`, `https://isotope-code.vercel.app/**`
+  (existing entries preserved). `/auth/v1/authorize` 302s to Google for both the
+  domain and `isotopeai://auth/callback`.
+- `backup.sh` fix (2026-09-15): `resolve_service_key` now falls back to the
+  Management API when only `--pat` is supplied — previously a PAT-only backup
+  silently dropped storage and then aborted under `set -u`
+  (`${#SUPABASE_SERVICE_ROLE_KEY}` on an unset var). Keep the byte-identical
+  sibling at `isotope-code/backup.sh` in sync.
 
 ## Google Sign-In status
 

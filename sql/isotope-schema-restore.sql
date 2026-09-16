@@ -1,6 +1,6 @@
 -- =============================================================================
 -- IsotopeAI — full portable schema dump (NO user data)
--- Generated: 2026-08-30 13:58:10 UTC
+-- Generated: 2026-09-15 16:59:28 UTC
 -- Project ref: ollsqiutzartjhiuzkbf
 -- Schemas: private, rpc_private, public
 --
@@ -1800,8 +1800,10 @@ BEGIN
   INSERT INTO public.groups (name, description, exam, target_year, subjects, visibility, join_policy, owner_id)
   VALUES (p_name, p_description, p_exam, p_target_year, p_subjects, p_visibility, p_join_policy, v_uid)
   RETURNING id INTO v_group_id;
+  -- trg_auto_add_owner already inserted this row; do not fail on it.
   INSERT INTO public.group_members (group_id, user_id, role)
-  VALUES (v_group_id, v_uid, 'owner');
+  VALUES (v_group_id, v_uid, 'owner')
+  ON CONFLICT (group_id, user_id) DO NOTHING;
   RETURN jsonb_build_object('success', true, 'data', jsonb_build_object(
     'id', v_group_id,
     'slug', lower(regexp_replace(p_name, '[^a-z0-9]+', '-', 'g')),
@@ -1986,23 +1988,53 @@ CREATE OR REPLACE FUNCTION "public"."community_discover_groups"(p_query text DEF
     )
   );
 $iso_fn$;
-CREATE OR REPLACE FUNCTION "public"."community_get_group"(p_group_id uuid, p_period text DEFAULT 'week'::text)
+CREATE OR REPLACE FUNCTION "public"."community_get_group"(p_group_id uuid, p_period text DEFAULT 'today'::text)
  RETURNS jsonb
  LANGUAGE plpgsql
- VOLATILE
+ STABLE
  SECURITY DEFINER
  SET "search_path" TO 'public'
  AS $iso_fn$
 
 DECLARE
   v_group RECORD;
+  v_members jsonb;
 BEGIN
   SELECT * INTO v_group FROM public.groups WHERE id = p_group_id AND deleted_at IS NULL;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('success', false, 'error', 'Group not found');
   END IF;
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'id', gm.user_id,
+    'name', COALESCE(u.username, u.name, 'Unknown'),
+    'avatar', u.avatar_url,
+    'role', gm.role,
+    'minutes', COALESCE(us.total_study_seconds / 60, 0),
+    'status', 'idle'
+  )), '[]'::jsonb)
+  INTO v_members
+  FROM public.group_members gm
+  LEFT JOIN public.users u ON u.id = gm.user_id
+  LEFT JOIN public.user_stats_summary us ON us.user_id = gm.user_id
+  WHERE gm.group_id = v_group.id;
   RETURN jsonb_build_object(
     'success', true,
+    'group', jsonb_build_object(
+      'id', v_group.id,
+      'slug', lower(regexp_replace(v_group.name, '[^a-z0-9]+', '-', 'g')),
+      'name', v_group.name,
+      'description', v_group.description,
+      'exam', v_group.exam,
+      'targetYear', v_group.target_year,
+      'subjects', v_group.subjects,
+      'visibility', v_group.visibility,
+      'joinPolicy', v_group.join_policy,
+      'memberCount', (SELECT COUNT(*) FROM public.group_members WHERE group_id = v_group.id),
+      'activeNow', 0,
+      'visualKey', v_group.visual_key,
+      'role', (SELECT role FROM public.group_members WHERE group_id = v_group.id AND user_id = auth.uid())
+    ),
+    'members', v_members,
     'data', jsonb_build_object(
       'id', v_group.id,
       'slug', lower(regexp_replace(v_group.name, '[^a-z0-9]+', '-', 'g')),
@@ -2017,20 +2049,7 @@ BEGIN
       'activeNow', 0,
       'visualKey', v_group.visual_key,
       'role', (SELECT role FROM public.group_members WHERE group_id = v_group.id AND user_id = auth.uid()),
-      'members', COALESCE((
-        SELECT jsonb_agg(jsonb_build_object(
-          'id', gm.user_id,
-          'name', COALESCE(u.username, u.name, 'Unknown'),
-          'avatar', u.avatar_url,
-          'role', gm.role,
-          'minutes', COALESCE(us.total_study_seconds / 60, 0),
-          'status', 'idle'
-        ))
-        FROM public.group_members gm
-        LEFT JOIN public.users u ON u.id = gm.user_id
-        LEFT JOIN public.user_stats_summary us ON us.user_id = gm.user_id
-        WHERE gm.group_id = v_group.id
-      ), '[]'::jsonb)
+      'members', v_members
     )
   );
 END;

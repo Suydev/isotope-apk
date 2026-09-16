@@ -4601,7 +4601,7 @@ const x = new mr,
                 const t = window.localStorage.getItem(a);
                 if (typeof t == "string") return t;
                 if (a === "isotope-auth-token") {
-                    const s = window.localStorage.getItem("sb-vteqquoqvksshmfhuepu-auth-token") || window.localStorage.getItem("isotope-last-session-raw");
+                    const s = window.localStorage.getItem("sb-ollsqiutzartjhiuzkbf-auth-token") || window.localStorage.getItem("isotope-last-session-raw");
                     if (typeof s == "string") return s
                 }
             }
@@ -4611,14 +4611,14 @@ const x = new mr,
             await x.setItem(a, e);
             if (typeof window < "u" && window.__ISO_IS_ANDROID__ && window.localStorage) {
                 window.localStorage.setItem(a, e);
-                if (a === "isotope-auth-token") window.localStorage.setItem("sb-vteqquoqvksshmfhuepu-auth-token", e)
+                if (a === "isotope-auth-token") window.localStorage.setItem("sb-ollsqiutzartjhiuzkbf-auth-token", e)
             }
         },
         removeItem: async a => {
             await x.removeItem(a);
             if (typeof window < "u" && window.__ISO_IS_ANDROID__ && window.localStorage) {
                 window.localStorage.removeItem(a);
-                if (a === "isotope-auth-token") window.localStorage.removeItem("sb-vteqquoqvksshmfhuepu-auth-token")
+                if (a === "isotope-auth-token") window.localStorage.removeItem("sb-ollsqiutzartjhiuzkbf-auth-token")
             }
         }
     },
@@ -4698,8 +4698,8 @@ function kr(a, e) {
         throw Jt(t), t
     })
 }
-const wr = "https://vteqquoqvksshmfhuepu.supabase.co",
-    Ia = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0ZXFxdW9xdmtzc2htZmh1ZXB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwODU2NzUsImV4cCI6MjA5NTY2MTY3NX0.ZkRislOhJRQUjVa1y5ixu-xBhlgkXWWyZKI_CClWj64",
+const wr = "https://ollsqiutzartjhiuzkbf.supabase.co",
+    Ia = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9sbHNxaXV0emFydGpoaXV6a2JmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY2MDkzMDksImV4cCI6MjEwMjE4NTMwOX0.Ryt4Ak9Lx47lvKpMfKozDg0QjxBcP1IHdH7sgqc7x-M",
     M = () => !ge() && !!Ia,
     w = M() ? Va(wr, Ia, {
         global: {
