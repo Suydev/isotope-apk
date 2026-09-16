@@ -55,6 +55,8 @@ asserts each bundle is reachable from `index.html`'s entry script.
 | index-D1Y5F8Lk | no `ingest.us.sentry.io` | Sentry disabled |
 | Focus-B4gLsWoP | NO `window.__pipBridge=` | dead HTTP PiP bridge stripped (native PiP instead) |
 | Auth-D0Y8CB1f | `__isoLogin` / `__isoUp` | auth routed through bridge |
+| Auth-D0Y8CB1f | `if(s)return I.jsx(X,{to:"/dashboard",replace:!0});const i=z()` | **signed-in users bounce off /auth** (login form only for signed-out; asserted in `test/auth-guard.test.mjs`) |
+| AppAccessGate-DzNuNpuU | `if(s==="private"){if(y\|\|l)return r.jsx(Y,{to:"/dashboard",replace:!0})}` | authenticated users also bounce off /onboarding (`test/auth-guard.test.mjs`) |
 
 ### ⚠️ `www/assets` contains 40 ORPHANED bundles (3.3 MB)
 
